@@ -15,6 +15,9 @@ public sealed record MeetingItem(
     string? MyStatus)
 {
     public bool InMeeting => MyStatus == "會議中";
+
+    /// <summary>我專案裡的會議，但我不是參加者。</summary>
+    public bool NotAttendee => MyStatus == "不是參加者";
 }
 
 public sealed record TodoItem(string Id, string Text, string? TaskCode, DateTimeOffset? RemindAt, string? Source, string? AssignedBy);
@@ -39,9 +42,10 @@ public sealed partial class HayakuApi
 {
     // ───────────── 會議 ─────────────
 
-    public async Task<List<MeetingItem>> ListMeetingsAsync(DateOnly from, DateOnly to, CancellationToken ct)
+    /// <summary>期間內的會議；mine=false 連我看得到的專案裡、我不是參加者的會議也列出來。</summary>
+    public async Task<List<MeetingItem>> ListMeetingsAsync(DateOnly from, DateOnly to, CancellationToken ct, bool mine = true)
     {
-        var r = await Mcp.CallToolAsync("list_meetings", new { from = Iso(from), to = Iso(to) }, ct);
+        var r = await Mcp.CallToolAsync("list_meetings", new { from = Iso(from), to = Iso(to), mine }, ct);
         return ParseMeetings(r);
     }
 

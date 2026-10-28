@@ -266,12 +266,8 @@ public sealed partial class TimerEngine
     {
         key = key.ToUpperInvariant();
         var activity = _claude.Repos.FirstOrDefault(r => string.Equals(r.Path, unitPath, StringComparison.OrdinalIgnoreCase));
-        if (activity?.SessionId is not { } sid)
-            return;
-        _state.SessionTasks[sid] = key;
-        _state.Save();
-        _suppressed.Remove(key);
-        await ClaudeTickAsync(wait: true);
+        if (activity?.SessionId is { } sid)
+            await AssignSessionTaskAsync(sid, key);
     }
 
 
@@ -489,6 +485,8 @@ public sealed partial class TimerEngine
         _claude.Sync(_config.Repos);
         _claude.Scan();
         _claude.Resolve(now, _config.ClaudeIdleMinutes, _state.SessionTasks);
+        LearnFolderProjects();
+        CheckNewWork(now);
 
         var desired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (_config.ClaudeEnabled && LoggedIn && (!_config.ClaudeOnlyDuringWork || IsWorking(now)))

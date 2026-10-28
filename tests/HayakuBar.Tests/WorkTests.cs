@@ -36,6 +36,7 @@ public class WorkParseTests
             """));
         Assert.Equal("古信汯", Assert.Single(d.Assignees).DisplayName);
         Assert.Equal("3.58 小時", d.LoggedText);
+        Assert.Equal(215, d.LoggedMinutes);
         Assert.Null(d.EstimatedHours);
         Assert.Null(d.ActualEnd);
         Assert.Equal("F2P-98", Assert.Single(d.Children).Key);

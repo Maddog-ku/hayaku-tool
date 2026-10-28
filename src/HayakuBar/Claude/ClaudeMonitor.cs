@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -18,6 +19,9 @@ public sealed class RepoActivity(string path)
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Claude 改了這裡的程式、但對應不到任務時，詢問要不要建立任務。</summary>
+    public bool AutoCreate { get; set; }
+
     public DateTime LastActivity { get; set; } = DateTime.MinValue;
     public DateTime? EndedAt { get; set; }
     public string? SessionId { get; set; }
@@ -25,6 +29,12 @@ public sealed class RepoActivity(string path)
     public long FileOffset { get; set; }
     public string? Branch { get; set; }
     public string? PromptKey { get; set; }
+
+    /// <summary>這個 session 最近一次在本單位裡改檔（Edit、Write…）的時間；只是問問題、規劃不會有。</summary>
+    public DateTime? EditedAt { get; set; }
+
+    /// <summary>這個 session 第一句有內容的指令摘要，當新任務名稱的建議。</summary>
+    public string? FirstPrompt { get; set; }
 
     /// <summary>最近一筆紀錄的來源：cli 或 claude-desktop。</summary>
     public string? Entrypoint { get; set; }
@@ -56,6 +66,9 @@ public sealed partial class ClaudeMonitor
     static readonly TimeSpan DetectCacheTime = TimeSpan.FromMinutes(2);
     static readonly TimeSpan IndexCacheTime = TimeSpan.FromSeconds(60);
     static readonly HashSet<string> SkipFolders = new(StringComparer.OrdinalIgnoreCase) { "node_modules", "bin", "obj", "dist", "build" };
+
+    /// <summary>會改檔的工具；Bash 不算（多半是跑指令、看東西）。</summary>
+    static readonly HashSet<string> EditTools = new(StringComparer.Ordinal) { "Edit", "Write", "MultiEdit", "NotebookEdit" };
 
     readonly Dictionary<string, RepoActivity> _repos = new(StringComparer.OrdinalIgnoreCase);
 
@@ -136,6 +149,7 @@ public sealed partial class ClaudeMonitor
             {
                 a.RootPath = null;
                 a.Enabled = repo.Enabled;
+                a.AutoCreate = repo.AutoCreate;
             };
         }
         foreach (var repo in configs.Where(r => r.IncludeSubprojects))
@@ -150,6 +164,7 @@ public sealed partial class ClaudeMonitor
                 {
                     a.RootPath = root;
                     a.Enabled = repo.Enabled && (custom?.Enabled ?? true);
+                    a.AutoCreate = custom?.AutoCreate ?? false;
                 };
             }
         }
@@ -312,6 +327,8 @@ public sealed partial class ClaudeMonitor
             activity.SessionId = Path.GetFileNameWithoutExtension(file.Name);
             activity.PromptKey = null;
             activity.Branch = null;
+            activity.EditedAt = null;
+            activity.FirstPrompt = ReadFirstPrompt(file.FullName);
             activity.Entrypoint = Head(file)?.Entrypoint;
             activity.FileOffset = Math.Max(0, file.Length - InitialTailBytes);
         }
@@ -364,6 +381,48 @@ public sealed partial class ClaudeMonitor
         {
             return (null, null);
         }
+    }
+
+    /// <summary>讀檔案開頭，取第一句有內容的指令摘要（新任務名稱的建議）。</summary>
+    static string? ReadFirstPrompt(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var buffer = new byte[Math.Min(HeadBytes, fs.Length)];
+            var read = fs.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            foreach (var line in Encoding.UTF8.GetString(buffer, 0, read).Split('\n'))
+            {
+                if (line.Length < 2)
+                    continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (UserPrompt(doc.RootElement) is { } text && SessionDigest.Summarize(text) is { } summary)
+                        return summary;
+                }
+                catch (JsonException)
+                {
+                    // 讀到上限時最後一行不完整
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+        return null;
+    }
+
+    /// <summary>使用者自己送出的指令文字（排除系統插入的 meta 訊息與子代理）；不是的話回 null。</summary>
+    static string? UserPrompt(JsonElement r)
+    {
+        if (r.ValueKind != JsonValueKind.Object || Str(r, "type") != "user"
+            || r.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True
+            || r.TryGetProperty("isSidechain", out var side) && side.ValueKind == JsonValueKind.True
+            || !r.TryGetProperty("message", out var msg) || msg.ValueKind != JsonValueKind.Object
+            || !msg.TryGetProperty("content", out var content))
+            return null;
+        return PromptText(content);
     }
 
     /// <summary>列出最近有 Claude Code session 的資料夾（CLI 與桌面版都算），排除桌面版的暫存工作區。</summary>
@@ -439,17 +498,50 @@ public sealed partial class ClaudeMonitor
                 activity.Branch = branch;
             if (r.TryGetProperty("entrypoint", out var ep) && ep.ValueKind == JsonValueKind.String && ep.GetString() is { Length: > 0 } entrypoint)
                 activity.Entrypoint = entrypoint;
-            if (r.TryGetProperty("type", out var type) && type.GetString() == "user"
-                && !(r.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True)
-                && r.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.Object
-                && msg.TryGetProperty("content", out var content)
-                && KeyFinder.FindInPrompt(PromptText(content), IsKnownKey) is { } key)
-                activity.PromptKey = key;
+            if (UserPrompt(r) is { } prompt)
+            {
+                if (KeyFinder.FindInPrompt(prompt, IsKnownKey) is { } key)
+                    activity.PromptKey = key;
+                activity.FirstPrompt ??= SessionDigest.Summarize(prompt);
+            }
+            else if (EditTime(r, activity.Path) is { } edited && (activity.EditedAt is null || edited > activity.EditedAt))
+                activity.EditedAt = edited;
         }
         catch (JsonException)
         {
             // 從檔案中段開始讀時第一行可能不完整
         }
+    }
+
+    /// <summary>Claude 在 root 底下改檔的那一筆紀錄 → 時間；改的是外面的檔案（例如 plan mode 寫的計畫檔）不算。</summary>
+    internal static DateTime? EditTime(JsonElement r, string root)
+    {
+        if (Str(r, "type") != "assistant"
+            || !r.TryGetProperty("message", out var msg) || msg.ValueKind != JsonValueKind.Object
+            || !msg.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var part in content.EnumerateArray())
+        {
+            if (part.ValueKind != JsonValueKind.Object || Str(part, "type") != "tool_use"
+                || Str(part, "name") is not { } name || !EditTools.Contains(name)
+                || !part.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object
+                || (Str(input, "file_path") ?? Str(input, "notebook_path")) is not { Length: > 0 } file)
+                continue;
+            try
+            {
+                if (!IsUnder(Normalize(file), root))
+                    continue;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+            return Str(r, "timestamp") is { } ts
+                   && DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+                ? at.LocalDateTime
+                : DateTime.Now;
+        }
+        return null;
     }
 
     static string? PromptText(JsonElement content)
@@ -483,6 +575,8 @@ public sealed partial class ClaudeMonitor
         {
             activity.SessionId = sid;
             activity.PromptKey = null;
+            activity.EditedAt = null;
+            activity.FirstPrompt = null;
         }
 
         switch (Str(payload, "hook_event_name"))
@@ -497,6 +591,7 @@ public sealed partial class ClaudeMonitor
                 activity.EndedAt = null;
                 if (KeyFinder.FindInPrompt(Str(payload, "prompt"), IsKnownKey) is { } key)
                     activity.PromptKey = key;
+                activity.FirstPrompt ??= SessionDigest.Summarize(Str(payload, "prompt"));
                 break;
             default:
                 activity.LastActivity = now;

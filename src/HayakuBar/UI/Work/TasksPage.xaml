@@ -1,7 +1,89 @@
 <UserControl x:Class="HayakuBar.UI.Work.TasksPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:HayakuBar.UI.Work">
     <UserControl.Resources>
+        <!-- 看板卡片：編號與專案、上層路徑、名稱、狀態、到期、計時（計時中的是深色卡片） -->
+        <DataTemplate x:Key="KanbanCard">
+            <Border Background="{Binding CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="{Binding CardBorder}"
+                    CornerRadius="8" Padding="10,7,6,7" Margin="0,0,0,6" Cursor="Hand" Tag="{Binding}" MouseLeftButtonUp="KanbanCard_Click"
+                    ToolTip="{Binding Tip}">
+                <StackPanel>
+                    <TextBlock FontSize="10.5" Foreground="{Binding MutedBrush}" TextTrimming="CharacterEllipsis">
+                        <Run Text="{Binding Key, Mode=OneWay}" />
+                        <Run Text="{Binding Project, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Text="{Binding PathText}" FontSize="10.5" Foreground="{Binding MutedBrush}" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding PathVisibility}" />
+                    <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" Foreground="{Binding TextBrush}"
+                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="36" Margin="0,2,0,5" />
+                    <Grid>
+                        <Border CornerRadius="9" Padding="7,1" Background="{Binding StatusBrush}" BorderBrush="{DynamicResource LineBrush}"
+                                BorderThickness="1" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource TextBrush}" />
+                        </Border>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DueText}" Foreground="{Binding DueBrush}" FontSize="10.5" VerticalAlignment="Center"
+                                       Margin="0,0,6,0" />
+                            <TextBlock Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="{Binding TextBrush}" VerticalAlignment="Center" Margin="0,0,2,0"
+                                       Visibility="{Binding RunningVisibility}" />
+                            <Button Content="{Binding Row.TimerGlyph}" ToolTip="{Binding Row.TimerTip}" Tag="{Binding Row}" Click="RowTimer_Click"
+                                    Style="{StaticResource IconButton}" Foreground="{Binding TimerBrush}" FontSize="10" Padding="5,1"
+                                    Visibility="{Binding TimerVisibility}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- 樹狀清單：每列跟清單一樣，依層級縮排，前面的箭頭展開／收合 -->
+        <DataTemplate DataType="{x:Type local:MyTreeProjectVm}">
+            <Grid Margin="0,6,0,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button Content="{Binding ExpandGlyph}" Tag="{Binding}" Click="TreeToggle_Click" Style="{StaticResource IconButton}"
+                        FontSize="15" Foreground="{DynamicResource MutedBrush}" Padding="2,0" Margin="-4,0,0,0" ToolTip="展開／收合" />
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                    <Run Text="{Binding Name, Mode=OneWay}" FontWeight="Bold" FontSize="13" />
+                    <Run Text="{Binding CountText, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" FontSize="11" />
+                </TextBlock>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type local:MyTreeTaskVm}">
+            <Grid Margin="{Binding Indent}" ToolTip="{Binding Tip}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="28" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Content="{Binding ExpandGlyph}" Tag="{Binding}" Click="TreeToggle_Click" Style="{StaticResource IconButton}"
+                        FontSize="15" Foreground="{DynamicResource MutedBrush}" Padding="2,0" Margin="-4,1,0,0" VerticalAlignment="Top"
+                        Visibility="{Binding ExpanderVisibility}" ToolTip="展開／收合子任務" />
+                <Button Grid.Column="1" Content="{Binding Row.TimerGlyph}" ToolTip="{Binding Row.TimerTip}" Tag="{Binding Row}"
+                        Click="RowTimer_Click" Style="{StaticResource IconButton}" Foreground="{Binding Row.TimerBrush}" FontSize="10"
+                        VerticalAlignment="Top" Margin="-4,1,0,0" Visibility="{Binding RowVisibility}" />
+                <StackPanel Grid.Column="2" Margin="0,0,8,0" Opacity="{Binding TextOpacity}">
+                    <TextBlock TextTrimming="CharacterEllipsis">
+                        <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
+                        <Run Text="{Binding Title, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Text="{Binding SubText}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                               TextTrimming="CharacterEllipsis" Margin="0,2,0,0" Visibility="{Binding SubTextVisibility}" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" HorizontalAlignment="Right" Visibility="{Binding RowVisibility}">
+                    <Border Style="{StaticResource Pill}" HorizontalAlignment="Right" Visibility="{Binding Row.StatusVisibility}">
+                        <TextBlock Text="{Binding Row.Status}" FontSize="11" />
+                    </Border>
+                    <TextBlock Text="{Binding Row.DueText}" Foreground="{Binding Row.DueBrush}" FontSize="11" HorizontalAlignment="Right"
+                               Margin="0,3,0,0" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
         <DataTemplate x:Key="TaskRow">
             <Grid Margin="0,1">
                 <Grid.ColumnDefinitions>
@@ -67,7 +149,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Border Style="{StaticResource SegmentTrack}">
+                <Border x:Name="TabTrack" Style="{StaticResource SegmentTrack}">
                     <StackPanel x:Name="TabPanel" Orientation="Horizontal" />
                 </Border>
                 <TextBox x:Name="SearchBox" Grid.Column="1" Style="{StaticResource HintBox}" Margin="12,0,0,0" MaxWidth="320"
@@ -78,22 +160,87 @@
 
         <Grid>
             <!-- 清單（點任務跳出彈窗） -->
-            <Border Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8">
+            <Border x:Name="ListCard" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                    CornerRadius="8">
                 <DockPanel>
                 <!-- 狀態篩選與排序 -->
                 <Grid DockPanel.Dock="Top" Margin="10,8,8,2">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <WrapPanel x:Name="StatusFilterPanel" VerticalAlignment="Center" />
-                    <ComboBox x:Name="SortBox" Grid.Column="1" Width="150" VerticalAlignment="Top" Margin="8,0,0,4"
+                    <ComboBox x:Name="StatusFilterBox" Width="170" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,4"
+                              SelectionChanged="StatusFilterBox_SelectionChanged" ToolTip="只看某個狀態" />
+                    <ComboBox x:Name="ProjectBox" Grid.Column="1" Width="190" VerticalAlignment="Top" Margin="8,0,0,4"
+                              SelectionChanged="ProjectBox_SelectionChanged" ToolTip="只看某個專案" />
+                    <Border Grid.Column="2" Style="{StaticResource SegmentTrack}" VerticalAlignment="Top" Margin="8,0,0,4" Padding="2">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="ListViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="清單"
+                                         Checked="View_Checked" ToolTip="一般清單" />
+                            <RadioButton x:Name="TreeViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="樹狀"
+                                         Checked="View_Checked" ToolTip="依專案分組，照上下層排成樹" />
+                            <RadioButton x:Name="KanbanViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="看板"
+                                         Checked="View_Checked" ToolTip="待處理、進行中、已完成三欄" />
+                        </StackPanel>
+                    </Border>
+                    <ComboBox x:Name="SortBox" Grid.Column="3" Width="150" VerticalAlignment="Top" Margin="8,0,0,4"
                               SelectionChanged="SortBox_SelectionChanged" ToolTip="排序方式" />
                 </Grid>
                 <Grid>
                     <ListBox x:Name="TaskList" ItemTemplate="{StaticResource TaskRow}" BorderThickness="0" Background="Transparent"
                              PreviewMouseLeftButtonUp="TaskList_Click" KeyDown="TaskList_KeyDown" Padding="4"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" />
+                    <ListBox x:Name="TreeList" BorderThickness="0" Background="Transparent" Padding="4" Visibility="Collapsed"
+                             PreviewMouseLeftButtonUp="TreeList_Click" KeyDown="TreeList_KeyDown"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" />
+                    <!-- 看板：待處理、進行中、已完成 -->
+                    <Grid x:Name="Kanban" Visibility="Collapsed" Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <DockPanel>
+                            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="2,0,4,5"
+                                    Margin="0,0,0,8">
+                                <Grid>
+                                    <TextBlock Text="待處理" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                                    <TextBlock x:Name="TodoCount" FontSize="15" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+                                </Grid>
+                            </Border>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl x:Name="TodoColumn" ItemTemplate="{StaticResource KanbanCard}" Margin="0,0,4,0" />
+                            </ScrollViewer>
+                        </DockPanel>
+                        <DockPanel Grid.Column="2">
+                            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="2,0,4,5"
+                                    Margin="0,0,0,8">
+                                <Grid>
+                                    <TextBlock Text="進行中" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                                    <TextBlock x:Name="DoingCount" FontSize="15" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+                                </Grid>
+                            </Border>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl x:Name="DoingColumn" ItemTemplate="{StaticResource KanbanCard}" Margin="0,0,4,0" />
+                            </ScrollViewer>
+                        </DockPanel>
+                        <DockPanel Grid.Column="4">
+                            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="2,0,4,5"
+                                    Margin="0,0,0,8">
+                                <Grid>
+                                    <TextBlock Text="已完成" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+                                    <TextBlock x:Name="DoneCount" FontSize="15" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+                                </Grid>
+                            </Border>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl x:Name="DoneColumn" ItemTemplate="{StaticResource KanbanCard}" Margin="0,0,4,0" />
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Grid>
                     <TextBlock x:Name="ListMessage" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                                Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="20" />
                 </Grid>
@@ -183,7 +330,7 @@
                                                  LostKeyboardFocus="EstimateBox_LostFocus" KeyDown="CommitOnEnter" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,12">
-                                        <TextBlock Text="已記錄工時" Style="{StaticResource FieldLabel}" />
+                                        <TextBlock Text="已記錄／預估工時" Style="{StaticResource FieldLabel}" />
                                         <TextBlock x:Name="LoggedText" FontSize="14" Margin="0,4,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Row="3" Margin="0,0,0,12">
@@ -350,7 +497,7 @@
                                                 <TextBox x:Name="NewEnd" Style="{StaticResource HintBox}" Tag="例 +3" />
                                             </StackPanel>
                                         </Grid>
-                                        <TextBlock Text="預估工時（小時）" Style="{StaticResource FieldLabel}" />
+                                        <TextBlock Text="預估工時（小時，選填）" Style="{StaticResource FieldLabel}" />
                                         <TextBox x:Name="NewEstimate" Style="{StaticResource HintBox}" Tag="例 4、1.5" Margin="0,0,0,12" />
                                         <CheckBox x:Name="NewAssignMe" Content="指派給我" IsChecked="True" Margin="0,0,0,8" />
                                         <CheckBox x:Name="NewStartTimer" Content="建立後馬上開始計時" Margin="0,0,0,14" />

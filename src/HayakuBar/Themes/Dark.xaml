@@ -33,5 +33,12 @@
     <SolidColorBrush x:Key="MissingBrush" Color="#432826" />
     <SolidColorBrush x:Key="OffDayBrush" Color="#1E1D1B" />
     <SolidColorBrush x:Key="WarnBrush" Color="#E0A54A" />
+    <!-- 看板：狀態標籤（待處理、進行中、已完成）與計時中的深色卡片 -->
+    <SolidColorBrush x:Key="StatusTodoBrush" Color="#2E2B28" />
+    <SolidColorBrush x:Key="StatusDoingBrush" Color="#4A3322" />
+    <SolidColorBrush x:Key="StatusDoneBrush" Color="#23402F" />
+    <SolidColorBrush x:Key="RunCardBrush" Color="#0F0E0D" />
+    <SolidColorBrush x:Key="RunCardTextBrush" Color="#EDEAE4" />
+    <SolidColorBrush x:Key="RunCardMutedBrush" Color="#9C968C" />
     <Color x:Key="ShadowColor">#000000</Color>
 </ResourceDictionary>

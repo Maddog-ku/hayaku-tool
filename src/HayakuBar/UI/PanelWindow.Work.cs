@@ -85,7 +85,7 @@ public partial class PanelWindow
     readonly Dictionary<string, RadioButton> _notifyFilters = [];
     readonly DispatcherTimer _searchDelay = new() { Interval = TimeSpan.FromMilliseconds(400) };
     readonly Dictionary<string, List<PickItem>> _searchCache = new(StringComparer.OrdinalIgnoreCase);
-    string _taskTab = "in_progress";
+    string _taskTab = TimerEngine.AllTab;
     string _notifyFilter = "all";
 
     /// <summary>要開工作台：頁面、參數（任務編號、日期、"new"…）。</summary>
@@ -93,7 +93,7 @@ public partial class PanelWindow
 
     void InitWork()
     {
-        foreach (var (tab, label) in TimerEngine.TaskTabs)
+        foreach (var (tab, label) in TimerEngine.TaskViewTabs)
         {
             var chip = new RadioButton { Style = (Style)FindResource("ChipToggle"), GroupName = "PanelTaskTab", Tag = tab, Content = label, Margin = new Thickness(0, 0, 5, 4) };
             chip.Checked += (_, _) =>
@@ -139,7 +139,7 @@ public partial class PanelWindow
         if (MyTaskList is null)
             return;
         var running = _engine.RunningKeys();
-        foreach (var (tab, label) in TimerEngine.TaskTabs)
+        foreach (var (tab, label) in TimerEngine.TaskViewTabs)
         {
             var count = _engine.TaskList(tab).Count;
             _taskFilters[tab].Content = count > 0 ? $"{label} {count}" : label;

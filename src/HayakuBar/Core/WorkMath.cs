@@ -115,12 +115,10 @@ public static class WorkMath
         UnionMinutes(entries.Where(e => string.Equals(e.Task, task, StringComparison.OrdinalIgnoreCase)), day, now);
 
     /// <summary>3.47 小時 → "3.5h"；8 小時 → "8h"。</summary>
-    public static string HoursText(double minutes)
-    {
-        var h = minutes / 60;
-        var rounded = Math.Round(h, 1);
-        return (rounded == Math.Round(rounded) ? rounded.ToString("0", CultureInfo.InvariantCulture) : rounded.ToString("0.0", CultureInfo.InvariantCulture)) + "h";
-    }
+    public static string HoursText(double minutes) => HoursNumber(minutes / 60) + "h";
+
+    /// <summary>小時數只顯示到小數點後一位（計算時保留原本的精確度）：2.13 → "2.1"、4 → "4"。</summary>
+    public static string HoursNumber(double hours) => Math.Round(hours, 1, MidpointRounding.AwayFromZero).ToString("0.#", CultureInfo.InvariantCulture);
 
     /// <summary>"1:23:45"</summary>
     public static string Clock(double minutes)

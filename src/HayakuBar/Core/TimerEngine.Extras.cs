@@ -62,7 +62,7 @@ public sealed partial class TimerEngine
             return;
         _extrasFetched = DateTime.Now;
         var today = DateOnly.FromDateTime(DateTime.Now);
-        Meetings = await Try(() => _api.ListMeetingsAsync(today, today, ct), Meetings, "會議");
+        Meetings = await Try(() => _api.ListMeetingsAsync(today, today, ct, mine: !_config.MeetingAlertsAllProjects), Meetings, "會議");
         Todos = await Try(() => _api.ListTodosAsync(ct), Todos, "待辦");
         Reminders = await Try(() => _api.ListRemindersAsync(ct), Reminders, "提醒");
         Notifications = await Try(() => _api.ListNotificationsAsync(ct), Notifications, "通知");
@@ -214,12 +214,7 @@ public sealed partial class TimerEngine
                     continue;
                 if (!_alerted.Add($"m:{m.Id}:{m.StartAt:O}"))
                     continue;
-                var when = m.StartAt > now ? $"{(int)Math.Ceiling((m.StartAt - now).TotalMinutes)} 分鐘後開始" : "已經開始了";
-                Toast?.Invoke(new ToastRequest($"會議 {m.StartAt.ToLocalTime():HH:mm}・{when}", m.Title,
-                [
-                    new ToastAction("加入並計時", () => JoinMeetingAsync(m), Primary: true),
-                    new ToastAction("開啟", () => Open(MeetingUrl(m.Id))),
-                ], Sticky: true, Important: true));
+                Toast?.Invoke(MeetingToast(m, now));
             }
         }
 
@@ -267,6 +262,23 @@ public sealed partial class TimerEngine
                     ], Sticky: seconds == 0, Duration: duration, FromBottom: true));
             }
         }
+    }
+
+    /// <summary>會議快開始的提示；demo＝本機模擬（--meeting-test），按鈕不會真的加入或開網頁。</summary>
+    public ToastRequest MeetingToast(MeetingItem m, DateTimeOffset now, bool demo = false)
+    {
+        var when = m.StartAt > now ? $"{(int)Math.Ceiling((m.StartAt - now).TotalMinutes)} 分鐘後開始" : "已經開始了";
+        Task Demo(string what)
+        {
+            Notify?.Invoke($"（測試）這是模擬的會議，沒有真的{what}");
+            return Task.CompletedTask;
+        }
+        return new ToastRequest($"會議 {m.StartAt.ToLocalTime():HH:mm}・{when}",
+            m.NotAttendee ? $"{m.Title}\n{m.Project}・你不是參加者，加入時會自動加為參加者" : m.Title,
+        [
+            new ToastAction("加入並計時", () => demo ? Demo("加入") : JoinMeetingAsync(m), Primary: true),
+            new ToastAction("開啟", () => demo ? Demo("開啟") : Open(MeetingUrl(m.Id))),
+        ], Sticky: true, Important: true);
     }
 
     static Task Open(string url)

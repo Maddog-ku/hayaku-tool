@@ -28,7 +28,14 @@ public sealed partial class TimerEngine
     /// <summary>直接用 Hayaku API（工作台的查詢與表單用；錯誤由呼叫端處理）。</summary>
     public HayakuApi Api => _api;
 
-    public IReadOnlyList<TaskSummary> TaskList(string tab) => TaskLists.GetValueOrDefault(tab) ?? [];
+    /// <summary>畫面上的分頁：「全部」（各分頁合起來、去掉重複）＋ my_tasks 的分頁。</summary>
+    public static readonly IReadOnlyList<(string Tab, string Label)> TaskViewTabs = [(AllTab, "全部"), .. TaskTabs];
+
+    public const string AllTab = "all";
+
+    public IReadOnlyList<TaskSummary> TaskList(string tab) => tab == AllTab
+        ? TaskTabs.SelectMany(t => TaskLists.GetValueOrDefault(t.Tab) ?? []).DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList()
+        : TaskLists.GetValueOrDefault(tab) ?? [];
 
     public int OverdueCount => TaskList("overdue").Count;
 

@@ -74,6 +74,8 @@ public partial class App : Application
         _panel.WorkspaceRequested += OpenWorkspace;
         engine.TimeEntriesRequested += OpenTimeEntries;
         engine.WorkspaceRequested += OpenWorkspace;
+        engine.CreateTaskRequested += OpenQuickCreate;
+        engine.PickTaskRequested += PickTaskForSession;
 
         var tray = _tray = new TrayIcon(new TrayActions(
             TogglePanel: TogglePanel,
@@ -144,6 +146,16 @@ public partial class App : Application
                 new ToastAction("加入並計時", () => Task.CompletedTask, Primary: true),
                 new ToastAction("開啟", () => Task.CompletedTask),
             ], Sticky: true));
+
+        // --meeting-test：模擬兩場快開始的會議（我是參加者／不是參加者），檢查會議提示用；按鈕不會真的加入
+        if (e.Args.Any(a => a.Equals("--meeting-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            var now = DateTimeOffset.Now;
+            _toasts.Show(engine.MeetingToast(new MeetingItem("F2P-0", "demo-1", "HayakuBar 會議提醒測試", "F2P",
+                now.AddMinutes(3), now.AddMinutes(30), null, "還沒加入"), now, demo: true));
+            _toasts.Show(engine.MeetingToast(new MeetingItem("EG-0", "demo-2", "長榮工時估計會議（測試）", "EG",
+                now.AddMinutes(5), now.AddMinutes(60), null, "不是參加者"), now, demo: true));
+        }
 
         // --entries：啟動後直接開工時紀錄
         if (e.Args.Any(a => a.Equals("--entries", StringComparison.OrdinalIgnoreCase)))
@@ -312,6 +324,40 @@ public partial class App : Application
         _workspace.Activate();
     }
 
+    /// <summary>偵測到沒有任務的新工作，使用者按了「建立任務」：開建立任務的小視窗（同一個 session 只開一個）。</summary>
+    void OpenQuickCreate(NewWorkSuggestion suggestion)
+    {
+        if (_engine is not { } engine)
+            return;
+        if (Windows.OfType<QuickCreateWindow>().FirstOrDefault(w => w.Tag as string == suggestion.SessionId) is { } open)
+        {
+            open.Activate();
+            return;
+        }
+        var window = new QuickCreateWindow(engine, suggestion) { Tag = suggestion.SessionId };
+        var (anchor, alignLeft) = WidgetAnchor();
+        window.PlaceNear(anchor, alignLeft);
+        window.Closed += (_, _) =>
+        {
+            if (window.CreatedKey is { } key)
+                _toasts.Show(new ToastRequest($"已建立 {key}", window.Assigned
+                    ? $"{window.CreatedTitle}\n已指定給 {suggestion.UnitName} 的 Claude session，會自動計時"
+                    : window.CreatedTitle));
+        };
+        window.Show();
+        window.Activate();
+    }
+
+    /// <summary>使用者按了「選既有任務」：選一個任務指定給那個 Claude session。</summary>
+    async void PickTaskForSession(NewWorkSuggestion suggestion)
+    {
+        if (_engine is not { } engine)
+            return;
+        var picker = new TaskPickerWindow(engine.MyTasks, $"「{suggestion.UnitName}」這個 Claude session 在做哪個任務？", multiSelect: false);
+        if (picker.ShowDialog() == true && picker.SelectedKeys.Count > 0)
+            await engine.AssignSessionTaskAsync(suggestion.SessionId, picker.SelectedKeys[0]); // 資料夾對應的專案會自動記下
+    }
+
     async Task ShootAsync(string pages)
     {
         var dir = Path.Combine(AppPaths.Dir, "shots");
@@ -333,6 +379,14 @@ public partial class App : Application
                 target = Windows.OfType<ToastWindow>().LastOrDefault();
                 if (target is not null)
                     Log.Info($"截圖：通知彈窗位置 {target.Left:0},{target.Top:0} 寬 {target.ActualWidth:0}；工時位置 {WidgetAnchor()}");
+            }
+            else if (page == "quickcreate")
+            {
+                // 範例：偵測到新工作後的「建立任務」小視窗（用第一個監看資料夾）
+                var unit = _engine.Claude.Repos.OrderByDescending(r => r.LastActivity).FirstOrDefault();
+                OpenQuickCreate(new NewWorkSuggestion(unit?.Path ?? AppPaths.Dir, unit?.Name ?? "HayakuBar", "shot-" + Guid.NewGuid().ToString("N"),
+                    unit?.FirstPrompt ?? "列印頁面加上全部列印按鈕", null, null));
+                target = Windows.OfType<QuickCreateWindow>().LastOrDefault();
             }
             else if (page.StartsWith("settings-", StringComparison.OrdinalIgnoreCase))
             {

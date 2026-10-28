@@ -3,7 +3,7 @@ using HayakuBar.Core;
 
 namespace HayakuBar.Mcp;
 
-/// <summary>我的任務列表的一筆（my_tasks）。</summary>
+/// <summary>我的任務列表的一筆（my_tasks）；Ancestors 是由上而下的上層任務。</summary>
 public sealed record TaskSummary(
     string Key,
     string Title,
@@ -14,7 +14,8 @@ public sealed record TaskSummary(
     DateOnly? PlannedStart,
     DateOnly? PlannedEnd,
     bool Timing,
-    string Path);
+    string Path,
+    IReadOnlyList<(string Key, string Title)>? Ancestors = null);
 
 public sealed record PersonRef(string Username, string DisplayName);
 
@@ -46,7 +47,8 @@ public sealed record TaskDetail(
     string ApprovalState,
     IReadOnlyList<(string Key, string Title)> Path,
     IReadOnlyList<(string Key, string Title, string Status)> Children,
-    int PendingChangeRequests);
+    int PendingChangeRequests,
+    double? LoggedMinutes = null);
 
 public sealed record StatusOption(string Name, string Category, bool IsDefault);
 
@@ -94,6 +96,25 @@ public sealed partial class HayakuApi
         return ParseTaskSummaries(r);
     }
 
+    /// <summary>指派給我、某個狀態類別的任務（例 DONE）；最多讀 maxPages 頁。</summary>
+    public async Task<List<TaskSummary>> MyTasksByCategoryAsync(string statusCategory, int maxPages, CancellationToken ct)
+    {
+        var list = new List<TaskSummary>();
+        string? cursor = null;
+        for (var page = 0; page < maxPages; page++)
+        {
+            var args = new Dictionary<string, object?> { ["statusCategory"] = statusCategory };
+            if (cursor is not null)
+                args["cursor"] = cursor;
+            var r = await Mcp.CallToolAsync("my_tasks", args, ct);
+            list.AddRange(ParseTaskSummaries(r));
+            cursor = Str(r, "cursor") ?? Str(r, "nextCursor");
+            if (string.IsNullOrEmpty(cursor))
+                break;
+        }
+        return list;
+    }
+
     internal static List<TaskSummary> ParseTaskSummaries(JsonElement r)
     {
         var list = new List<TaskSummary>();
@@ -101,12 +122,14 @@ public sealed partial class HayakuApi
         {
             if (Str(t, "task") is not { } key)
                 continue;
-            var path = t.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.Array
-                ? string.Join(" › ", p.EnumerateArray().Select(x => Str(x, "title")).Where(x => x is not null))
-                : "";
+            var ancestors = Items(t, "path")
+                .Where(x => Str(x, "task") is not null)
+                .Select(x => (Str(x, "task")!, Str(x, "title") ?? ""))
+                .ToList();
+            var path = string.Join(" › ", Items(t, "path").Select(x => Str(x, "title")).Where(x => x is not null));
             list.Add(new TaskSummary(key, Str(t, "title") ?? "", Str(t, "project") ?? "", Str(t, "status") ?? "",
                 Str(t, "statusCategory") ?? "", Str(t, "priority") ?? "", Day(t, "plannedStart"), Day(t, "plannedEnd"),
-                t.TryGetProperty("timing", out var timing) && timing.ValueKind == JsonValueKind.True, path));
+                t.TryGetProperty("timing", out var timing) && timing.ValueKind == JsonValueKind.True, path, ancestors));
         }
         return list;
     }
@@ -163,6 +186,8 @@ public sealed partial class HayakuApi
                 _ => null,
             };
         var logged = r.TryGetProperty("logged", out var lg) && lg.ValueKind == JsonValueKind.Object ? Str(lg, "display") ?? "" : "";
+        double? loggedMinutes = lg.ValueKind == JsonValueKind.Object && lg.TryGetProperty("minutes", out var lm) && lm.TryGetDouble(out var lmv)
+            ? lmv : null;
         return new TaskDetail(
             Str(r, "task") ?? "",
             Str(r, "title") ?? "",
@@ -180,7 +205,8 @@ public sealed partial class HayakuApi
             Str(r, "approvalState") ?? "",
             path,
             children,
-            Items(r, "pendingChangeRequests").Count());
+            Items(r, "pendingChangeRequests").Count(),
+            loggedMinutes);
     }
 
     /// <summary>部分更新任務；fields 的值為 null 代表清空。回傳伺服器的說明文字（例如送出變更申請）。</summary>

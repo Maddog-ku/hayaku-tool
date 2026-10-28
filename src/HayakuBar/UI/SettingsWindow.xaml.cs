@@ -38,6 +38,7 @@ public abstract class Observable : INotifyPropertyChanged
 public sealed class ProjectItem : Observable
 {
     bool _enabled = true;
+    bool _autoCreate;
     string _detail = "";
     Brush _detailBrush = Brushes2.Get("MutedBrush");
     Brush _dotBrush = Brushes2.Get("LineBrush");
@@ -60,11 +61,24 @@ public sealed class ProjectItem : Observable
         }
     }
 
+    /// <summary>Claude 在這個專案改了程式、又對應不到任務時，詢問要不要建立任務。</summary>
+    public bool AutoCreate
+    {
+        get => _autoCreate;
+        set
+        {
+            if (Set(ref _autoCreate, value))
+                Edited?.Invoke();
+        }
+    }
+
     public string Detail { get => _detail; set => Set(ref _detail, value); }
     public Brush DetailBrush { get => _detailBrush; set => Set(ref _detailBrush, value); }
     public Brush DotBrush { get => _dotBrush; set => Set(ref _dotBrush, value); }
 
-    public void Init(bool enabled) => _enabled = enabled;
+    public void Init(ProjectConfig? config) => (_enabled, _autoCreate) = (config?.Enabled ?? true, config?.AutoCreate ?? false);
+
+    public ProjectConfig ToConfig() => new() { Name = Name, Enabled = Enabled, AutoCreate = AutoCreate };
 }
 
 /// <summary>一個主資料夾（例 D:\repo）與裡面偵測到的專案。</summary>
@@ -72,6 +86,7 @@ public sealed class RepoItem : Observable
 {
     bool _enabled = true;
     bool _includeSubprojects = true;
+    bool _autoCreate;
     int _hooksDone;
     int _hooksTotal = 1;
     string _activityText = "";
@@ -94,6 +109,17 @@ public sealed class RepoItem : Observable
         set
         {
             if (Set(ref _enabled, value))
+                Edited?.Invoke();
+        }
+    }
+
+    /// <summary>主資料夾本身的 session 改了程式、又對應不到任務時，詢問要不要建立任務。</summary>
+    public bool AutoCreate
+    {
+        get => _autoCreate;
+        set
+        {
+            if (Set(ref _autoCreate, value))
                 Edited?.Invoke();
         }
     }
@@ -126,7 +152,7 @@ public sealed class RepoItem : Observable
     public Visibility RootActivityVisibility { get => _rootActivityVisibility; set => Set(ref _rootActivityVisibility, value); }
 
     public void Init(RepoConfig config) =>
-        (_enabled, _includeSubprojects) = (config.Enabled, config.IncludeSubprojects);
+        (_enabled, _includeSubprojects, _autoCreate) = (config.Enabled, config.IncludeSubprojects, config.AutoCreate);
 
     public void SetHooks(int done, int total)
     {
@@ -167,6 +193,7 @@ public partial class SettingsWindow : Window
         PanelHeightBox.SelectedValue = (c.PanelHeight <= 0 ? 0 : new[] { 360, 440, 520, 600 }.MinBy(v => Math.Abs(v - c.PanelHeight))).ToString();
         HotkeyBox.Text = string.IsNullOrWhiteSpace(c.Hotkey) ? "（不使用）" : c.Hotkey.Replace("+", " + ");
         MeetingAlertsBox.IsChecked = c.MeetingAlerts;
+        MeetingAllProjectsBox.IsChecked = c.MeetingAlertsAllProjects;
         MeetingLeadBox.SelectedValue = new[] { 0, 1, 3, 5, 10, 15 }.MinBy(v => Math.Abs(v - c.MeetingLeadMinutes)).ToString();
         ReminderAlertsBox.IsChecked = c.ReminderAlerts;
         NotificationAlertsBox.IsChecked = c.NotificationAlerts;
@@ -417,6 +444,7 @@ public partial class SettingsWindow : Window
         c.ClaudeEnabled = ClaudeEnabledBox.IsChecked == true;
         c.ClaudeOnlyDuringWork = ClaudeOnlyWorkBox.IsChecked == true;
         c.MeetingAlerts = MeetingAlertsBox.IsChecked == true;
+        c.MeetingAlertsAllProjects = MeetingAllProjectsBox.IsChecked == true;
         c.ReminderAlerts = ReminderAlertsBox.IsChecked == true;
         c.NotificationAlerts = NotificationAlertsBox.IsChecked == true;
         c.PromptUnfilled = PromptUnfilledBox.IsChecked == true;
@@ -536,7 +564,7 @@ public partial class SettingsWindow : Window
         {
             var custom = configs.FirstOrDefault(c => string.Equals(c.Name, d.Name, StringComparison.OrdinalIgnoreCase));
             var project = new ProjectItem { Path = d.Path, Name = d.Name, IsGit = d.IsGit, LastSession = d.LastSession, Source = d.Source };
-            project.Init(custom?.Enabled ?? true);
+            project.Init(custom);
             project.Edited += SaveRepos;
             item.Projects.Add(project);
         }
@@ -559,9 +587,10 @@ public partial class SettingsWindow : Window
             Path = r.Path,
             Enabled = r.Enabled,
             IncludeSubprojects = r.IncludeSubprojects,
+            AutoCreate = r.AutoCreate,
             Projects = r.Projects
-                .Where(p => !p.Enabled)
-                .Select(p => new ProjectConfig { Name = p.Name, Enabled = p.Enabled })
+                .Select(p => p.ToConfig())
+                .Where(p => !p.IsDefault)
                 .Concat(r.HiddenProjectConfigs)
                 .ToList(),
         }).ToList();
@@ -591,8 +620,8 @@ public partial class SettingsWindow : Window
         if ((sender as Button)?.Tag is not RepoItem item)
             return;
         var saved = item.Projects
-            .Where(p => !p.Enabled)
-            .Select(p => new ProjectConfig { Name = p.Name, Enabled = p.Enabled })
+            .Select(p => p.ToConfig())
+            .Where(p => !p.IsDefault)
             .Concat(item.HiddenProjectConfigs)
             .ToList();
         LoadProjects(item, saved, refresh: true);

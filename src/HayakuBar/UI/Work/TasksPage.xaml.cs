@@ -61,7 +61,16 @@ public partial class TasksPage : UserControl, IWorkPage
     readonly TimerEngine _engine;
     readonly WorkspaceWindow _host;
     readonly Dictionary<string, RadioButton> _tabs = [];
-    string _tab = "in_progress";
+    string _tab = TimerEngine.AllTab;
+    string _view = "list"; // list、tree、kanban
+    string? _project; // 只看這個專案（名稱）；null＝全部
+    List<TaskSummary> _doneTasks = [];
+    DateTime _doneFetched = DateTime.MinValue;
+    bool _loadingDone;
+    readonly System.Windows.Threading.DispatcherTimer _kanbanTick = new() { Interval = TimeSpan.FromSeconds(1) };
+    List<KanbanCardVm> _runningCards = [];
+    List<MyTreeProjectVm> _treeRoots = [];
+    readonly HashSet<string> _collapsed = new(StringComparer.OrdinalIgnoreCase); // 樹狀檢視裡收合的專案（p:名稱）與任務
     string? _statusFilter; // null：全部狀態
     bool _buildingFilters;
     List<SearchHit> _searchHits = [];
@@ -81,7 +90,7 @@ public partial class TasksPage : UserControl, IWorkPage
         _engine = engine;
         _host = host;
         InitializeComponent();
-        foreach (var (tab, label) in TimerEngine.TaskTabs.Append((SearchTab, "搜尋結果")))
+        foreach (var (tab, label) in TimerEngine.TaskViewTabs.Append((SearchTab, "搜尋結果")))
         {
             var button = new RadioButton
             {
@@ -105,6 +114,11 @@ public partial class TasksPage : UserControl, IWorkPage
         SortBox.ItemsSource = TaskOrder.Sorts.Select(s => s.Label).ToList();
         var sortIndex = TaskOrder.Sorts.ToList().FindIndex(s => s.Key == _engine.Config.TaskSort);
         SortBox.SelectedIndex = Math.Max(0, sortIndex);
+        _view = _engine.Config.TaskView is "tree" or "kanban" ? _engine.Config.TaskView : "list";
+        (_view switch { "tree" => TreeViewButton, "kanban" => KanbanViewButton, _ => ListViewButton }).IsChecked = true;
+        _project = string.IsNullOrEmpty(_engine.Config.TaskProject) ? null : _engine.Config.TaskProject;
+        _kanbanTick.Tick += (_, _) => UpdateElapsed();
+        IsVisibleChanged += (_, _) => UpdateKanbanTick();
         _buildingFilters = false;
 
         PreviewKeyDown += (_, e) =>
@@ -151,12 +165,13 @@ public partial class TasksPage : UserControl, IWorkPage
     void RenderList(bool keepSelection = false)
     {
         var running = _engine.RunningKeys();
-        foreach (var (tab, label) in TimerEngine.TaskTabs)
+        foreach (var (tab, label) in TimerEngine.TaskViewTabs)
         {
             var count = _engine.TaskList(tab).Count;
             _tabs[tab].Content = count > 0 ? $"{label} {count}" : label;
         }
         List<TaskListRowVm> rows;
+        List<TaskSummary> shown = [];
         var sort = TaskOrder.Sorts[Math.Max(0, SortBox.SelectedIndex)].Key;
         if (_tab == SearchTab)
         {
@@ -179,9 +194,14 @@ public partial class TasksPage : UserControl, IWorkPage
         }
         else
         {
-            var tasks = _engine.TaskList(_tab);
+            // 看板看全部（待處理＋進行中＋已完成），其他照分頁；再套用專案篩選
+            IReadOnlyList<TaskSummary> all = Kanban_On
+                ? _engine.TaskLists.Values.SelectMany(l => l).Concat(_doneTasks).DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList()
+                : _engine.TaskList(_tab);
+            RenderProjectBox(_engine.TaskLists.Values.SelectMany(l => l).Concat(_doneTasks));
+            var tasks = all.Where(t => _project is null || t.Project == _project).ToList();
             RenderStatusFilters(TaskOrder.Statuses(tasks), tasks.Count);
-            var shown = TaskOrder.Sort(tasks.Where(t => _statusFilter is null || t.Status == _statusFilter), sort, running);
+            shown = TaskOrder.Sort(tasks.Where(t => _statusFilter is null || t.Status == _statusFilter), sort, running);
             rows = shown.Select(t => new TaskListRowVm
             {
                 Key = t.Key,
@@ -208,6 +228,251 @@ public partial class TasksPage : UserControl, IWorkPage
             TaskList.SelectedItem = rows.FirstOrDefault(r => r.Key == selected);
             _loadingDetail = false;
         }
+
+        // 樹狀、看板：搜尋結果沒有上下層與狀態類別，照樣用清單
+        var tree = _view == "tree" && _tab != SearchTab;
+        var kanban = Kanban_On;
+        TaskList.Visibility = tree || kanban ? Visibility.Collapsed : Visibility.Visible;
+        TreeList.Visibility = tree ? Visibility.Visible : Visibility.Collapsed;
+        Kanban.Visibility = kanban ? Visibility.Visible : Visibility.Collapsed;
+        TabTrack.Visibility = kanban ? Visibility.Collapsed : Visibility.Visible; // 看板不分分頁
+        SearchBox.HorizontalAlignment = kanban ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+        ListCard.Background = kanban ? Brushes.Transparent : Brushes2.Get("BgBrush");
+        ListCard.BorderThickness = new Thickness(kanban ? 0 : 1);
+        if (tree)
+            RenderTree(shown, rows);
+        else
+            _treeRows.Clear();
+        if (kanban)
+            RenderKanban(shown, rows);
+        else
+            TodoColumn.ItemsSource = DoingColumn.ItemsSource = DoneColumn.ItemsSource = null;
+        UpdateKanbanTick();
+    }
+
+    /// <summary>看板模式（搜尋時除外）。</summary>
+    bool Kanban_On => _view == "kanban" && _tab != SearchTab;
+
+    // ───────────── 看板 ─────────────
+
+    void RenderKanban(List<TaskSummary> shown, List<TaskListRowVm> rows)
+    {
+        var rowByKey = rows.ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase);
+        var today = DateTime.Today;
+        var now = DateTime.Now;
+        var cards = shown.Select(t => new KanbanCardVm(t, rowByKey[t.Key])).ToList();
+        List<KanbanCardVm> Column(params string[] categories) =>
+            cards.Where(c => categories.Contains(c.Task.StatusCategory)).ToList();
+        var todo = cards.Where(c => c.Task.StatusCategory is not ("IN_PROGRESS" or "DONE" or "CANCELLED")).ToList();
+        var doing = Column("IN_PROGRESS");
+        var done = Column("DONE", "CANCELLED");
+        TodoColumn.ItemsSource = todo;
+        DoingColumn.ItemsSource = doing;
+        DoneColumn.ItemsSource = done;
+        TodoCount.Text = todo.Count.ToString();
+        DoingCount.Text = doing.Count.ToString();
+        DoneCount.Text = _loadingDone && _doneTasks.Count == 0 ? "…" : done.Count.ToString();
+        _runningCards = cards.Where(c => c.Running).ToList();
+        foreach (var c in _runningCards)
+            c.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, c.Key, today, now));
+        if (shown.Count == 0)
+            ListMessage.Text = _project is not null ? $"「{_project}」沒有指派給你的任務" : ListMessage.Text;
+        if (now - _doneFetched > TimeSpan.FromMinutes(5))
+            _ = LoadDoneAsync();
+    }
+
+    /// <summary>已完成欄：my_tasks 的 DONE（最多 3 頁），5 分鐘內不重讀。</summary>
+    async Task LoadDoneAsync()
+    {
+        if (_loadingDone)
+            return;
+        _loadingDone = true;
+        _doneFetched = DateTime.Now;
+        try
+        {
+            _doneTasks = await _engine.Api.MyTasksByCategoryAsync("DONE", 3, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("讀取已完成的任務失敗", ex);
+        }
+        finally
+        {
+            _loadingDone = false;
+        }
+        RenderList(keepSelection: true);
+    }
+
+    void UpdateKanbanTick()
+    {
+        if (IsVisible && Kanban_On && _runningCards.Count > 0)
+            _kanbanTick.Start();
+        else
+            _kanbanTick.Stop();
+    }
+
+    void UpdateElapsed()
+    {
+        var now = DateTime.Now;
+        foreach (var c in _runningCards)
+            c.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, c.Key, now.Date, now));
+    }
+
+    async void KanbanCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is KanbanCardVm card)
+            await OpenTaskAsync(card.Key);
+    }
+
+    // ───────────── 專案篩選 ─────────────
+
+    List<string> _projectNames = [];
+
+    /// <summary>專案下拉：「全部專案」＋指派給我的任務出現過的專案；選的專案不見了就回到全部。</summary>
+    void RenderProjectBox(IEnumerable<TaskSummary> tasks)
+    {
+        var names = tasks.Select(t => t.Project).Where(p => p.Length > 0).Distinct()
+            .OrderBy(p => p, StringComparer.CurrentCulture).ToList();
+        if (_project is not null && !names.Contains(_project) && _engine.TaskLists.Count > 0)
+            _project = null;
+        var index = _project is null ? 0 : names.IndexOf(_project) + 1;
+        if (names.SequenceEqual(_projectNames) && ProjectBox.Items.Count > 0 && ProjectBox.SelectedIndex == index)
+            return;
+        _buildingFilters = true;
+        if (!names.SequenceEqual(_projectNames) || ProjectBox.Items.Count == 0)
+        {
+            _projectNames = names;
+            ProjectBox.ItemsSource = new[] { "全部專案" }.Concat(names).ToList();
+        }
+        ProjectBox.SelectedIndex = index;
+        _buildingFilters = false;
+    }
+
+    void ProjectBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_buildingFilters || ProjectBox.SelectedIndex < 0)
+            return;
+        _project = ProjectBox.SelectedIndex == 0 ? null : ProjectBox.SelectedItem as string;
+        _engine.Config.TaskProject = _project ?? "";
+        _engine.Config.Save();
+        RenderList(keepSelection: true);
+    }
+
+    // ───────────── 樹狀檢視 ─────────────
+
+    readonly System.Collections.ObjectModel.ObservableCollection<object> _treeRows = [];
+
+    /// <summary>依專案分組、照上下層排成樹狀清單；收合過的節點重畫時維持收合。</summary>
+    void RenderTree(List<TaskSummary> shown, List<TaskListRowVm> rows)
+    {
+        var rowByKey = rows.ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase);
+        _treeRoots = MyTaskTree.Build(shown)
+            .Select(p => new MyTreeProjectVm(p.Project, p.Count, _collapsed)
+            {
+                Children = p.Roots.Select(n => MyTreeTaskVm.From(n, rowByKey, _collapsed, 1)).ToList(),
+            })
+            .ToList();
+        TreeList.ItemsSource ??= _treeRows;
+        _treeRows.Clear();
+        foreach (var project in _treeRoots)
+        {
+            _treeRows.Add(project);
+            if (project.IsExpanded)
+                AddVisible(project.Children, _treeRows.Count);
+        }
+    }
+
+    /// <summary>把展開中的節點依序插進清單（從 index 開始），回傳下一個位置。</summary>
+    int AddVisible(IEnumerable<MyTreeTaskVm> nodes, int index)
+    {
+        foreach (var node in nodes)
+        {
+            _treeRows.Insert(index++, node);
+            if (node.IsExpanded)
+                index = AddVisible(node.Children, index);
+        }
+        return index;
+    }
+
+    /// <summary>展開或收合：只插入／移除底下那幾列，捲動位置不會跳。</summary>
+    void ToggleTreeNode(object node)
+    {
+        var index = _treeRows.IndexOf(node);
+        if (index < 0)
+            return;
+        var (level, children) = node switch
+        {
+            MyTreeProjectVm p => (0, p.Children),
+            MyTreeTaskVm t => (t.Depth, t.Children),
+            _ => (0, new List<MyTreeTaskVm>()),
+        };
+        if (children.Count == 0)
+            return;
+        var expand = node is MyTreeProjectVm proj ? !proj.IsExpanded : !((MyTreeTaskVm)node).IsExpanded;
+        if (node is MyTreeProjectVm pp)
+            pp.IsExpanded = expand;
+        else
+            ((MyTreeTaskVm)node).IsExpanded = expand;
+        if (expand)
+        {
+            AddVisible(children, index + 1);
+            return;
+        }
+        while (index + 1 < _treeRows.Count && _treeRows[index + 1] is MyTreeTaskVm next && next.Depth > level)
+            _treeRows.RemoveAt(index + 1);
+    }
+
+    void TreeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is { } node)
+            ToggleTreeNode(node);
+    }
+
+    /// <summary>點任務列開彈窗、點專案列展開／收合；點到列上的按鈕不算。</summary>
+    async void TreeList_Click(object sender, MouseButtonEventArgs e)
+    {
+        for (var d = e.OriginalSource as DependencyObject; d is not null && d != TreeList; d = VisualTreeHelper.GetParent(d))
+            if (d is ButtonBase)
+                return;
+        switch ((e.OriginalSource as FrameworkElement)?.DataContext)
+        {
+            case MyTreeTaskVm task:
+                await OpenTaskAsync(task.Key);
+                break;
+            case MyTreeProjectVm project:
+                ToggleTreeNode(project);
+                break;
+        }
+    }
+
+    /// <summary>Enter 開啟、← 收合、→ 展開。</summary>
+    async void TreeList_KeyDown(object sender, KeyEventArgs e)
+    {
+        var item = TreeList.SelectedItem;
+        var expanded = item switch { MyTreeProjectVm p => p.IsExpanded, MyTreeTaskVm t => t.IsExpanded, _ => false };
+        switch (e.Key)
+        {
+            case Key.Enter when item is MyTreeTaskVm task:
+                e.Handled = true;
+                await OpenTaskAsync(task.Key);
+                break;
+            case Key.Enter when item is MyTreeProjectVm:
+            case Key.Left when item is not null && expanded:
+            case Key.Right when item is not null && !expanded:
+                e.Handled = true;
+                ToggleTreeNode(item);
+                break;
+        }
+    }
+
+    void View_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_buildingFilters)
+            return;
+        _view = sender == TreeViewButton ? "tree" : sender == KanbanViewButton ? "kanban" : "list";
+        _engine.Config.TaskView = _view;
+        _engine.Config.Save();
+        RenderList(keepSelection: true);
     }
 
     /// <summary>
@@ -218,31 +483,25 @@ public partial class TasksPage : UserControl, IWorkPage
     {
         if (_statusFilter is not null && !statuses.Any(s => s.Status == _statusFilter))
             _statusFilter = null;
-        StatusFilterPanel.Visibility = statuses.Count > 1 || _statusFilter is not null ? Visibility.Visible : Visibility.Collapsed;
+        StatusFilterBox.Visibility = statuses.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _statusOptions = [null, .. statuses.Select(s => s.Status)];
+        var labels = new List<string> { $"全部狀態　{total}" };
+        labels.AddRange(statuses.Select(s => $"{s.Status}　{s.Count}"));
         _buildingFilters = true;
-        StatusFilterPanel.Children.Clear();
-        var chips = new List<(string? Status, int Count)> { (null, total) };
-        chips.AddRange(statuses.Select(s => ((string?)s.Status, s.Count)));
-        foreach (var (status, count) in chips)
-        {
-            var chip = new RadioButton
-            {
-                Style = (Style)FindResource("ChipToggle"),
-                GroupName = "TaskStatusFilter",
-                Content = $"{status ?? "全部"} {count}",
-                Margin = new Thickness(0, 0, 5, 4),
-                IsChecked = status == _statusFilter,
-            };
-            chip.Checked += (_, _) =>
-            {
-                if (_buildingFilters)
-                    return;
-                _statusFilter = status;
-                RenderList(keepSelection: true);
-            };
-            StatusFilterPanel.Children.Add(chip);
-        }
+        if (StatusFilterBox.ItemsSource is not List<string> current || !current.SequenceEqual(labels))
+            StatusFilterBox.ItemsSource = labels;
+        StatusFilterBox.SelectedIndex = _statusOptions.IndexOf(_statusFilter);
         _buildingFilters = false;
+    }
+
+    List<string?> _statusOptions = [null];
+
+    void StatusFilterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_buildingFilters || StatusFilterBox.SelectedIndex < 0 || StatusFilterBox.SelectedIndex >= _statusOptions.Count)
+            return;
+        _statusFilter = _statusOptions[StatusFilterBox.SelectedIndex];
+        RenderList(keepSelection: true);
     }
 
     void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -254,14 +513,18 @@ public partial class TasksPage : UserControl, IWorkPage
         RenderList(keepSelection: true);
     }
 
-    async void Reload_Click(object sender, RoutedEventArgs e) => await _engine.AfterExternalChangeAsync();
+    async void Reload_Click(object sender, RoutedEventArgs e)
+    {
+        _doneFetched = DateTime.MinValue; // 看板的已完成欄也重讀
+        await _engine.AfterExternalChangeAsync();
+    }
 
     async void SearchBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
             SearchBox.Text = "";
-            _tabs["in_progress"].IsChecked = true;
+            _tabs[TimerEngine.AllTab].IsChecked = true;
             _tabs[SearchTab].Visibility = Visibility.Collapsed;
             return;
         }
@@ -408,7 +671,7 @@ public partial class TasksPage : UserControl, IWorkPage
         PlannedStartBox.Text = Inputs.DateText(d.PlannedStart);
         PlannedEndBox.Text = Inputs.DateText(d.PlannedEnd);
         EstimateBox.Text = d.EstimatedHours?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
-        LoggedText.Text = d.LoggedText.Length > 0 ? d.LoggedText : "—";
+        RenderLogged(d);
         ActualText.Text = d.ActualStart is null && d.ActualEnd is null ? "—" :
             $"{Inputs.DateText(d.ActualStart)} → {(d.ActualEnd is { } ae ? Inputs.DateText(ae) : "進行中")}";
         AssigneesText.Text = d.Assignees.Count > 0 ? string.Join("、", d.Assignees.Select(a => a.DisplayName)) : "—";
@@ -419,6 +682,28 @@ public partial class TasksPage : UserControl, IWorkPage
         NoteSection.Visibility = string.IsNullOrWhiteSpace(d.Note) ? Visibility.Collapsed : Visibility.Visible;
         RenderTimerButton();
         _loadingDetail = false;
+    }
+
+    /// <summary>
+    /// 已記錄／預估：例「2.1 / 4 小時」。用分鐘精確計算，只顯示到小數點後一位；超過預估時標紅。
+    /// 沒設預估就只顯示已記錄。
+    /// </summary>
+    void RenderLogged(TaskDetail d)
+    {
+        double? logged = d.LoggedMinutes is { } m ? m / 60 : ParseHours(d.LoggedText);
+        var loggedText = logged is { } h ? WorkMath.HoursNumber(h) : "0";
+        LoggedText.Text = d.EstimatedHours is { } est
+            ? $"{loggedText} / {WorkMath.HoursNumber(est)} 小時"
+            : $"{loggedText} 小時（未設預估）";
+        LoggedText.Foreground = Brushes2.Get(d.EstimatedHours is { } e && logged > e ? "ErrorBrush" : "TextBrush");
+        LoggedText.ToolTip = logged is { } exact ? $"已記錄 {WorkMath.HoursMinutes(exact * 60)}" : null;
+    }
+
+    /// <summary>伺服器的顯示文字（例「3.58 小時」）取出小時數；舊版回應沒有分鐘數時用。</summary>
+    static double? ParseHours(string text)
+    {
+        var number = new string(text.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray());
+        return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out var h) ? h : null;
     }
 
     void RenderTimerButton()
@@ -1020,4 +1305,130 @@ public sealed class TreeNodeVm : System.ComponentModel.INotifyPropertyChanged
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
     void Raise(string name) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+}
+
+/// <summary>樹狀檢視的專案列。</summary>
+public sealed class MyTreeProjectVm(string name, int count, HashSet<string> collapsed) : System.ComponentModel.INotifyPropertyChanged
+{
+    public string Name { get; } = name;
+    public string CountText => $"  {count}";
+    public required List<MyTreeTaskVm> Children { get; init; }
+    public string ExpandGlyph => IsExpanded ? "▾" : "▸";
+
+    public bool IsExpanded
+    {
+        get => !collapsed.Contains("p:" + Name);
+        set
+        {
+            if (value)
+                collapsed.Remove("p:" + Name);
+            else
+                collapsed.Add("p:" + Name);
+            PropertyChanged?.Invoke(this, new(nameof(IsExpanded)));
+            PropertyChanged?.Invoke(this, new(nameof(ExpandGlyph)));
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+}
+
+/// <summary>樹狀清單的任務列；Row 為 null 表示只是上層脈絡（不在這次的清單裡），淡色、沒有計時按鈕。</summary>
+public sealed class MyTreeTaskVm : System.ComponentModel.INotifyPropertyChanged
+{
+    HashSet<string> _collapsed = [];
+
+    public required string Key { get; init; }
+    public required string Title { get; init; }
+    public TaskListRowVm? Row { get; init; }
+    /// <summary>層級：專案底下第一層是 1。</summary>
+    public int Depth { get; init; }
+    public List<MyTreeTaskVm> Children { get; } = [];
+
+    public Thickness Indent => new((Depth - 1) * 20, 1, 0, 1);
+    public Visibility RowVisibility => Row is null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ExpanderVisibility => Children.Count > 0 ? Visibility.Visible : Visibility.Hidden;
+    public string ExpandGlyph => IsExpanded ? "▾" : "▸";
+    public double TextOpacity => Row is null ? 0.55 : Row.Done ? 0.6 : 1;
+    public string SubText => Row is null ? "上層任務（不在這個分頁）" : Children.Count > 0 ? $"{Children.Count} 個子任務" : "";
+    public Visibility SubTextVisibility => SubText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string Tip => Row is null ? $"{Key} {Title}\n上層任務（不在這個分頁裡），點一下查看" : $"{Key} {Title}";
+
+    public bool IsExpanded
+    {
+        get => !_collapsed.Contains(Key);
+        set
+        {
+            if (value)
+                _collapsed.Remove(Key);
+            else
+                _collapsed.Add(Key);
+            PropertyChanged?.Invoke(this, new(nameof(IsExpanded)));
+            PropertyChanged?.Invoke(this, new(nameof(ExpandGlyph)));
+        }
+    }
+
+    public static MyTreeTaskVm From(MyTaskNode node, IReadOnlyDictionary<string, TaskListRowVm> rows, HashSet<string> collapsed, int depth)
+    {
+        var vm = new MyTreeTaskVm
+        {
+            Key = node.Key,
+            Title = node.Title,
+            Row = node.Task is not null ? rows.GetValueOrDefault(node.Key) : null,
+            Depth = depth,
+            _collapsed = collapsed,
+        };
+        vm.Children.AddRange(node.Children.Select(c => From(c, rows, collapsed, depth + 1)));
+        return vm;
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+}
+
+/// <summary>看板的一張卡片；計時中的是深色卡片，Elapsed 每秒更新。</summary>
+public sealed class KanbanCardVm(TaskSummary task, TaskListRowVm row) : System.ComponentModel.INotifyPropertyChanged
+{
+    string _elapsed = "";
+
+    public TaskSummary Task { get; } = task;
+    public TaskListRowVm Row { get; } = row;
+    public string Key => Task.Key;
+    public string Title => Task.Title;
+    public string Project => Task.Project;
+    public string Status => Task.Status;
+    public string PathText => Task.Path;
+    public Visibility PathVisibility => Task.Path.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string Tip => $"{Task.Key} {Task.Title}" + (Task.Path.Length > 0 ? $"\n{Task.Project} › {Task.Path}" : $"\n{Task.Project}");
+    public bool Running => Row.Timing;
+    public Visibility RunningVisibility => Running ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TimerVisibility => Row.Done && !Running ? Visibility.Collapsed : Visibility.Visible; // 已完成的不用計時按鈕
+
+    public Brush CardBrush => Brushes2.Get(Running ? "RunCardBrush" : "BgBrush");
+    public Thickness CardBorder => new(Running ? 0 : 1);
+    public Brush TextBrush => Brushes2.Get(Running ? "RunCardTextBrush" : "TextBrush");
+    public Brush MutedBrush => Brushes2.Get(Running ? "RunCardMutedBrush" : "MutedBrush");
+    public Brush TimerBrush => Running ? Brushes2.Get("ErrorBrush") : Brushes2.Get("MutedBrush");
+    public Brush StatusBrush => Brushes2.Get(Task.StatusCategory switch
+    {
+        "IN_PROGRESS" => "StatusDoingBrush",
+        "DONE" => "StatusDoneBrush",
+        _ => "StatusTodoBrush",
+    });
+
+    /// <summary>到期日：已完成的只顯示日期，其他跟清單一樣（逾期 N 天、今天到期…）。</summary>
+    public string DueText => Row.DueText;
+    public Brush DueBrush => Running && Row.DueBrush == Brushes2.Get("MutedBrush") ? Brushes2.Get("RunCardMutedBrush") : Row.DueBrush;
+
+    public string Elapsed
+    {
+        get => _elapsed;
+        set
+        {
+            if (_elapsed == value)
+                return;
+            _elapsed = value;
+            PropertyChanged?.Invoke(this, new(nameof(Elapsed)));
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }

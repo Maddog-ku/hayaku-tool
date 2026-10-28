@@ -1,0 +1,124 @@
+<Window x:Class="HayakuBar.UI.QuickCreateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="建立任務" Width="780" Height="600" MinWidth="620" MinHeight="440" Icon="/Assets/app.ico"
+        WindowStartupLocation="Manual" Topmost="True"
+        FontFamily="{StaticResource UiFont}" FontSize="13" Background="{DynamicResource BgBrush}"
+        Foreground="{DynamicResource TextBrush}" UseLayoutRounding="True">
+    <Grid Margin="18,14,18,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Margin="0,0,0,12">
+            <TextBlock x:Name="HeaderText" FontSize="16" FontWeight="SemiBold" />
+            <TextBlock x:Name="SubText" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,3,0,0"
+                       TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="專案" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" Margin="0,0,8,0" />
+            <ComboBox x:Name="ProjectBox" Grid.Column="1" DisplayMemberPath="Name" SelectionChanged="ProjectBox_SelectionChanged" />
+            <TextBox x:Name="TreeFilter" Grid.Column="2" Style="{StaticResource HintBox}" Tag="🔍 篩選任務編號或名稱"
+                     Margin="12,0,12,0" TextChanged="TreeFilter_TextChanged" />
+            <CheckBox x:Name="ShowDoneBox" Grid.Column="3" Content="顯示已完成" VerticalAlignment="Center" Click="ShowDone_Click" />
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="260" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 專案樹：點一下選為上層 -->
+            <Border Background="{DynamicResource SubtleBrush}" CornerRadius="8" Padding="6">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" x:Name="RootRow" CornerRadius="5" Padding="8,5" Margin="0,0,0,4"
+                            Cursor="Hand" MouseLeftButtonUp="RootRow_Click" Background="Transparent"
+                            ToolTip="建立在最上層（不屬於任何任務）">
+                        <TextBlock Text="＋ 放在最上層" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" />
+                    </Border>
+                    <Grid>
+                        <TreeView x:Name="ProjectTree" BorderThickness="0" Background="Transparent"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" SizeChanged="ProjectTree_SizeChanged">
+                            <TreeView.Resources>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent" />
+                                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="Transparent" />
+                            </TreeView.Resources>
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="TreeViewItem">
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,1" />
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                            <TreeView.ItemTemplate>
+                                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                    <Border Background="{Binding RowBrush}" CornerRadius="5" Padding="6,3,2,3" Tag="{Binding}"
+                                            MouseLeftButtonUp="TreeRow_Click" Cursor="Hand" ToolTip="點一下：建在這個任務底下">
+                                        <TextBlock MaxWidth="{Binding TextMaxWidth}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextBrush}" Opacity="{Binding TextOpacity}">
+                                            <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
+                                            <Run Text="{Binding Title, Mode=OneWay}" />
+                                            <Run Text="{Binding StatusSuffix, Mode=OneWay}" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
+                                        </TextBlock>
+                                    </Border>
+                                </HierarchicalDataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+                        <TextBlock x:Name="TreeMessage" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" Margin="16" />
+                    </Grid>
+                </DockPanel>
+            </Border>
+
+            <!-- 新任務的資料 -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="建立在" Style="{StaticResource FieldLabel}" />
+                    <Border Background="{DynamicResource SelectedBrush}" CornerRadius="6" Padding="10,6" Margin="0,0,0,12">
+                        <TextBlock x:Name="ParentText" TextWrapping="Wrap" FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Text="名稱" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="NewTitle" Style="{StaticResource HintBox}" Tag="要做什麼（Enter 建立）" Margin="0,0,0,12"
+                             TextWrapping="Wrap" KeyDown="NewTitle_KeyDown" />
+                    <TextBlock Text="狀態" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="StatusBox" Margin="0,0,0,12" />
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="預計開始" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="NewStart" Style="{StaticResource HintBox}" Tag="今天、11/5" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="預計結束" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="NewEnd" Style="{StaticResource HintBox}" Tag="例 +3" />
+                        </StackPanel>
+                    </Grid>
+                    <CheckBox x:Name="AssignBox" Content="指定給這個 Claude session 並自動計時" IsChecked="True" Margin="0,0,0,14" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="CreateButton" Content="建立" Style="{StaticResource PrimaryButton}" Padding="18,6"
+                                Click="Create_Click" />
+                        <Button Content="取消" IsCancel="True" Style="{StaticResource FlatButton}" Padding="18,6" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,10,0,0" Visibility="Collapsed" />
+                    <TextBlock Style="{StaticResource CardDesc}" Margin="0,12,0,0" TextWrapping="Wrap"
+                               Text="專案、上層會記住，下次在這個資料夾建立任務時直接帶入。" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>

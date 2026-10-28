@@ -12,6 +12,9 @@ public sealed class RepoConfig
     /// <summary>自動偵測裡面的專案（子資料夾是 git repo，或 Claude 曾在裡面開過 session）。</summary>
     public bool IncludeSubprojects { get; set; } = true;
 
+    /// <summary>主資料夾本身的 session 改了程式、又對應不到任務時，詢問要不要建立任務。</summary>
+    public bool AutoCreate { get; set; }
+
     /// <summary>子專案的個別設定（只存有改過的）。</summary>
     public List<ProjectConfig> Projects { get; set; } = [];
 }
@@ -21,6 +24,13 @@ public sealed class ProjectConfig
 {
     public string Name { get; set; } = "";
     public bool Enabled { get; set; } = true;
+
+    /// <summary>Claude 在這個專案改了程式、又對應不到任務時，詢問要不要建立任務。</summary>
+    public bool AutoCreate { get; set; }
+
+    /// <summary>跟預設值一樣就不用存。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsDefault => Enabled && !AutoCreate;
 }
 
 /// <summary>使用者設定，存在 %APPDATA%\HayakuBar\config.json。</summary>
@@ -45,6 +55,12 @@ public sealed class AppConfig
     /// <summary>工作台「我的任務」的排序：default、due、dueDesc、priority、status、key、timing。</summary>
     public string TaskSort { get; set; } = "default";
 
+    /// <summary>工作台「我的任務」的顯示方式：list（清單）、tree（依專案分組的樹狀）或 kanban（看板）。</summary>
+    public string TaskView { get; set; } = "list";
+
+    /// <summary>工作台「我的任務」只看哪個專案（專案名稱）；空字串＝全部專案。</summary>
+    public string TaskProject { get; set; } = "";
+
     public int PollSeconds { get; set; } = 30;
 
     /// <summary>只在上班時間（或有計時在跑）自動同步；下班、休息、放假不跟 Hayaku 要資料。</summary>
@@ -56,6 +72,9 @@ public sealed class AppConfig
     /// <summary>會議開始前幾分鐘跳出提示（可一鍵加入並計時）。</summary>
     public bool MeetingAlerts { get; set; } = true;
     public int MeetingLeadMinutes { get; set; } = 5;
+
+    /// <summary>也提醒我專案裡、我不是參加者的會議（加入時 Hayaku 會自動把我加為參加者）。</summary>
+    public bool MeetingAlertsAllProjects { get; set; } = true;
 
     /// <summary>提醒到點時跳出提示（可稍後再提醒）。</summary>
     public bool ReminderAlerts { get; set; } = true;

@@ -23,6 +23,18 @@ public sealed class AppState
     /// <summary>Claude session → 使用者手動指定的任務。</summary>
     public Dictionary<string, string> SessionTasks { get; set; } = [];
 
+    /// <summary>問過「要不要建立任務」的 Claude session，不再重複問。</summary>
+    public List<string> AskedSessions { get; set; } = [];
+
+    /// <summary>資料夾 → 在那裡做事時用的 Hayaku 專案與上次新任務的上層，建立任務時自動帶入。</summary>
+    public Dictionary<string, FolderHint> FolderHints
+    {
+        get => _folderHints;
+        set => _folderHints = new Dictionary<string, FolderHint>(value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    Dictionary<string, FolderHint> _folderHints = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>換日時重設當天欄位；有換日回傳 true。</summary>
     public bool RollDay(string today)
     {
@@ -34,10 +46,19 @@ public sealed class AppState
         ClaudeOwned.Clear();
         if (SessionTasks.Count > 200)
             SessionTasks.Clear();
+        if (AskedSessions.Count > 200)
+            AskedSessions.RemoveRange(0, AskedSessions.Count - 100);
         return true;
     }
 
     public static AppState Load() => JsonFile.Load<AppState>(AppPaths.State);
 
     public void Save() => JsonFile.Save(AppPaths.State, this);
+}
+
+/// <summary>某個資料夾對應的 Hayaku 專案；Parent 是上次在這裡建立新任務時選的上層（null＝最上層）。</summary>
+public sealed class FolderHint
+{
+    public string Project { get; set; } = "";
+    public string? Parent { get; set; }
 }

@@ -76,6 +76,15 @@ public class WorkMathTests
         Assert.Equal(DayPhaseKind.After, WorkMath.Phase(schedule, day.AddHours(18), false).Kind);
         Assert.Equal(DayPhaseKind.After, WorkMath.Phase(schedule, day.AddHours(9), true).Kind);
     }
+    [Theory]
+    [InlineData(2.13, "2.1")]
+    [InlineData(3.58, "3.6")]
+    [InlineData(4, "4")]
+    [InlineData(2.25, "2.3")]
+    [InlineData(0.04, "0")]
+    public void HoursNumber_只顯示到小數點後一位(double hours, string expected) =>
+        Assert.Equal(expected, WorkMath.HoursNumber(hours));
+
     [Fact]
     public void Covered_重疊的計時合併成一段()
     {
