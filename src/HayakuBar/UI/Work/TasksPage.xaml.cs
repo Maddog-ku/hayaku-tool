@@ -668,8 +668,7 @@ public partial class TasksPage : UserControl, IWorkPage
         StatusBox.ItemsSource = statuses;
         StatusBox.SelectedItem = d.Status;
         PriorityBox.SelectedItem = PriorityBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Content == d.Priority);
-        PlannedStartBox.Text = Inputs.DateText(d.PlannedStart);
-        PlannedEndBox.Text = Inputs.DateText(d.PlannedEnd);
+        PlanDates.SetRange(d.PlannedStart, d.PlannedEnd);
         EstimateBox.Text = d.EstimatedHours?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
         RenderLogged(d);
         ActualText.Text = d.ActualStart is null && d.ActualEnd is null ? "—" :
@@ -820,29 +819,18 @@ public partial class TasksPage : UserControl, IWorkPage
         await UpdateAsync(new() { ["priority"] = priority }, "優先級");
     }
 
-    async void DateBox_LostFocus(object sender, RoutedEventArgs e)
+    /// <summary>日曆按了「套用日期」或「清除」：只送有變的那一邊。</summary>
+    async void PlanDates_Applied()
     {
-        if (_detail is null || sender is not TextBox box)
+        if (_detail is null)
             return;
-        var isStart = box == PlannedStartBox;
-        var current = isStart ? _detail.PlannedStart : _detail.PlannedEnd;
-        var text = box.Text.Trim();
-        DateOnly? value = null;
-        if (text.Length > 0)
-        {
-            value = Inputs.ParseDate(text);
-            if (value is null)
-            {
-                Inputs.Show(DetailStatus, "日期看不懂，請用 11/5、2026-11-05、明天、+3 這類寫法");
-                box.Text = Inputs.DateText(current);
-                return;
-            }
-        }
-        box.Text = Inputs.DateText(value);
-        if (value == current)
-            return;
-        await UpdateAsync(new() { [isStart ? "plannedStart" : "plannedEnd"] = value is { } v ? Inputs.DateText(v) : null },
-            isStart ? "預計開始" : "預計結束");
+        var fields = new Dictionary<string, object?>();
+        if (PlanDates.Start != _detail.PlannedStart)
+            fields["plannedStart"] = PlanDates.Start is { } s ? Inputs.DateText(s) : null;
+        if (PlanDates.End != _detail.PlannedEnd)
+            fields["plannedEnd"] = PlanDates.End is { } e ? Inputs.DateText(e) : null;
+        if (fields.Count > 0)
+            await UpdateAsync(fields, "預計日期");
     }
 
     async void EstimateBox_LostFocus(object sender, RoutedEventArgs e)
@@ -963,7 +951,8 @@ public partial class TasksPage : UserControl, IWorkPage
         DetailPanel.Visibility = Visibility.Collapsed;
         CreatePanel.Visibility = Visibility.Visible;
         CreateTitle.Text = parent is null ? "新增任務" : $"新增 {parent} 的子任務";
-        NewTitle.Text = NewStart.Text = NewEnd.Text = NewEstimate.Text = TreeFilter.Text = "";
+        NewTitle.Text = NewEstimate.Text = TreeFilter.Text = "";
+        NewDates.SetRange(null, null);
         NewPriority.SelectedIndex = 0;
         Inputs.Show(CreateStatus, null);
         OpenCreatedButton.Visibility = Visibility.Collapsed;
@@ -1182,17 +1171,10 @@ public partial class TasksPage : UserControl, IWorkPage
             fields["status"] = status;
         if (NewPriority.SelectedItem is ComboBoxItem { Content: string priority } && priority != "無")
             fields["priority"] = priority;
-        foreach (var (box, name) in new[] { (NewStart, "plannedStart"), (NewEnd, "plannedEnd") })
-        {
-            if (box.Text.Trim().Length == 0)
-                continue;
-            if (Inputs.ParseDate(box.Text) is not { } d)
-            {
-                Inputs.Show(CreateStatus, "日期看不懂，請用 11/5、明天、+3 這類寫法");
-                return;
-            }
-            fields[name] = Inputs.DateText(d);
-        }
+        if (NewDates.Start is { } start)
+            fields["plannedStart"] = Inputs.DateText(start);
+        if (NewDates.End is { } end)
+            fields["plannedEnd"] = Inputs.DateText(end);
         if (NewEstimate.Text.Trim().Length > 0)
         {
             if (!double.TryParse(NewEstimate.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var hours) || hours < 0)

@@ -144,3 +144,27 @@ public class AutoCreateTests
         Assert.Equal("PRT-3", state.FolderHints[@"d:\REPO\print-app"].Parent);
     }
 }
+
+public class CreatedKeyTests
+{
+    static string? Key(string json, string? parent = null) =>
+        HayakuBar.Mcp.HayakuApi.CreatedKey(JsonDocument.Parse(json).RootElement, parent);
+
+    [Fact]
+    public void 直接建立_task欄位() => Assert.Equal("F2P-103", Key("""{"task":"F2P-103","title":"x"}"""));
+
+    [Fact]
+    public void 要核准_包在物件裡_跳過路徑與上層() =>
+        Assert.Equal("F2P-103", Key("""{"message":"已送出","parent":"F2P-5","task":{"path":[{"task":"F2P-5"}],"task":"F2P-103"}}""", "F2P-5"));
+
+    [Fact]
+    public void 要核准_包在changeRequest裡() =>
+        Assert.Equal("F2P-103", Key("""{"changeRequest":{"id":"abc","type":"CREATE","task":{"key":"F2P-103"}}}"""));
+
+    [Fact]
+    public void 只有訊息文字_排除上層編號() =>
+        Assert.Equal("F2P-103", Key("""{"message":"已在 F2P-5 底下建立 F2P-103，等管理者核准"}""", "F2P-5"));
+
+    [Fact]
+    public void 找不到回null() => Assert.Null(Key("""{"ok":true}"""));
+}

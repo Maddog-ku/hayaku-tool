@@ -1,6 +1,7 @@
 <UserControl x:Class="HayakuBar.UI.Work.LeavesPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:HayakuBar.UI">
     <DockPanel Margin="24,18,24,16">
         <TextBlock DockPanel.Dock="Top" Text="請假" Style="{StaticResource PageTitle}" />
 
@@ -23,23 +24,19 @@
                 </Border>
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="280" />
                         <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="10" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="10" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock x:Name="DateLabel" Text="第一天" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="DateInput" Style="{StaticResource HintBox}" Tag="明天、11/5" />
+                        <TextBlock x:Name="DateLabel" Text="第一天 ～ 最後一天（只請一天就點同一天）" Style="{StaticResource FieldLabel}" />
+                        <ui:DateRangePicker x:Name="Dates" />
                     </StackPanel>
-                    <StackPanel x:Name="EndDatePanel" Grid.Column="2">
-                        <TextBlock Text="最後一天（選填）" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="EndDateInput" Style="{StaticResource HintBox}" Tag="只請一天就留空" />
-                    </StackPanel>
-                    <Grid x:Name="RangePanel" Grid.Column="2" Visibility="Collapsed">
+                    <Grid x:Name="RangePanel" Grid.Column="2" Width="160" Visibility="Collapsed">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="6" />

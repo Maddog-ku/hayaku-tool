@@ -49,6 +49,10 @@ public static partial class KeyFinder
         return m.Success ? $"{m.Groups[1].Value.ToUpperInvariant()}-{m.Groups[2].Value}" : null;
     }
 
+    /// <summary>文字裡出現的所有任務編號（照出現順序，代碼轉大寫）。</summary>
+    public static IEnumerable<string> All(string? text) =>
+        string.IsNullOrEmpty(text) ? [] : KeyRegex().Matches(text).Select(m => $"{m.Groups[1].Value.ToUpperInvariant()}-{m.Groups[2].Value}");
+
     public static string ProjectOf(string key)
     {
         var dash = key.LastIndexOf('-');

@@ -32,7 +32,8 @@ public partial class QuickCreateWindow : Window
         SubText.Text = suggestion.Title is { } t ? $"Claude 正在改程式：{t}" : "Claude 正在改程式，但對應不到任務";
         SubText.ToolTip = suggestion.UnitPath;
         NewTitle.Text = suggestion.Title?.TrimEnd('…') ?? "";
-        NewStart.Text = NewEnd.Text = Inputs.DateText(DateOnly.FromDateTime(DateTime.Today));
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        PlanDates.SetRange(today, today);
         UpdateParentText();
         SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
         Loaded += async (_, _) =>
@@ -221,6 +222,23 @@ public partial class QuickCreateWindow : Window
             node.SetWidth(e.NewSize.Width);
     }
 
+    /// <summary>回應裡沒有編號時：到專案裡找剛建好的（同名稱、同上層、編號最大的那個）。</summary>
+    async Task<string?> FindCreatedAsync(string projectKey, string title)
+    {
+        try
+        {
+            var tasks = await _engine.Api.ListProjectTasksAsync(projectKey, CancellationToken.None);
+            return tasks
+                .Where(t => t.Title == title && string.Equals(t.Parent, _parent, StringComparison.OrdinalIgnoreCase))
+                .MaxBy(t => int.TryParse(t.Key[(t.Key.LastIndexOf('-') + 1)..], out var n) ? n : 0)?.Key;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("找剛建立的任務失敗", ex);
+            return null;
+        }
+    }
+
     async void NewTitle_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter)
@@ -250,30 +268,26 @@ public partial class QuickCreateWindow : Window
             fields["parent"] = _parent;
         if (StatusBox.SelectedItem is string status)
             fields["status"] = status;
-        foreach (var (box, name) in new[] { (NewStart, "plannedStart"), (NewEnd, "plannedEnd") })
-        {
-            if (box.Text.Trim().Length == 0)
-                continue;
-            if (Inputs.ParseDate(box.Text) is not { } d)
-            {
-                Inputs.Show(StatusText, "日期看不懂，請用 11/5、明天、+3 這類寫法");
-                box.Focus();
-                return;
-            }
-            fields[name] = Inputs.DateText(d);
-        }
+        if (PlanDates.Start is { } start)
+            fields["plannedStart"] = Inputs.DateText(start);
+        if (PlanDates.End is { } end)
+            fields["plannedEnd"] = Inputs.DateText(end);
 
         var key = "";
         if (!await Inputs.Run(CreateButton, StatusText, async () => key = await _engine.Api.CreateTaskAsync(fields, CancellationToken.None)))
             return;
         _engine.RememberFolder(_suggestion.UnitPath, project.Key, _parent);
+        if (key.Length == 0)
+            key = await FindCreatedAsync(project.Key, title) ?? "";
         CreatedKey = key.Length > 0 ? key : null;
         CreatedTitle = title;
         if (CreatedKey is not null && AssignBox.IsChecked == true)
         {
             Assigned = true;
-            await _engine.AssignSessionTaskAsync(_suggestion.SessionId, CreatedKey);
+            await _engine.AssignSessionTaskAsync(_suggestion.SessionId, CreatedKey, startNow: true);
         }
+        else if (CreatedKey is null && AssignBox.IsChecked == true)
+            Log.Error($"建立「{title}」後找不到新任務的編號，沒辦法指定給 Claude session");
         _ = _engine.AfterExternalChangeAsync();
         Close();
     }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HayakuBar.Core;
+using HayakuBar.Infra;
 
 namespace HayakuBar.Mcp;
 
@@ -220,7 +221,57 @@ public sealed partial class HayakuApi
     public async Task<string> CreateTaskAsync(IDictionary<string, object?> fields, CancellationToken ct)
     {
         var r = await Mcp.CallToolAsync("create_task", fields, ct);
-        return Str(r, "task") ?? FirstStr(r, "key", "number") ?? "";
+        var key = CreatedKey(r, fields.TryGetValue("parent", out var parent) ? parent as string : null);
+        if (key is null)
+        {
+            var raw = r.ValueKind == JsonValueKind.Undefined ? "" : r.GetRawText();
+            Log.Info($"create_task 的回應裡找不到任務編號：{(raw.Length > 500 ? raw[..500] + "…" : raw)}");
+        }
+        return key ?? "";
+    }
+
+    /// <summary>上層、路徑、子任務裡的編號不是新任務的，找的時候跳過。</summary>
+    static readonly HashSet<string> NotTheNewTask = new(StringComparer.OrdinalIgnoreCase)
+        { "parent", "path", "ancestors", "children", "project", "dependsOn", "blockedBy" };
+
+    /// <summary>
+    /// create_task 的回應 → 新任務的編號。直接建立是 { task: "F2P-103" }；執行者建立（要等核准）時可能包在物件裡，
+    /// 所以由淺到深找 task／key／number／code 欄位（跳過上層、路徑）；都沒有才從訊息文字裡找（排除上層的編號）。
+    /// </summary>
+    internal static string? CreatedKey(JsonElement r, string? parent)
+    {
+        if (r.ValueKind == JsonValueKind.String)
+            return KeyFinder.Parse(r.GetString()) is { } k && !string.Equals(k, parent, StringComparison.OrdinalIgnoreCase) ? k : null;
+        if (r.ValueKind != JsonValueKind.Object)
+            return null;
+        var level = new List<JsonElement> { r };
+        var texts = new List<string>();
+        for (var depth = 0; depth < 4 && level.Count > 0; depth++)
+        {
+            var next = new List<JsonElement>();
+            foreach (var obj in level)
+            {
+                foreach (var prop in obj.EnumerateObject())
+                {
+                    if (NotTheNewTask.Contains(prop.Name))
+                        continue;
+                    var v = prop.Value;
+                    if (v.ValueKind == JsonValueKind.String)
+                    {
+                        if (prop.Name is "task" or "key" or "number" or "code" && KeyFinder.Parse(v.GetString()) is { } key)
+                            return key;
+                        texts.Add(v.GetString() ?? "");
+                    }
+                    else if (v.ValueKind == JsonValueKind.Object)
+                        next.Add(v);
+                    else if (v.ValueKind == JsonValueKind.Array)
+                        next.AddRange(v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Object));
+                }
+            }
+            level = next;
+        }
+        return texts.SelectMany(KeyFinder.All)
+            .FirstOrDefault(k => !string.Equals(k, parent, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<List<SearchHit>> SearchTasksAsync(string query, CancellationToken ct)

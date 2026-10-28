@@ -21,14 +21,29 @@ public sealed partial class TimerEngine
     /// <summary>使用者按了「選既有任務」：開任務選擇視窗。</summary>
     public event Action<NewWorkSuggestion>? PickTaskRequested;
 
-    /// <summary>把任務指定給某個 Claude session（之後這個 session 有動作就為它計時）。</summary>
-    public async Task AssignSessionTaskAsync(string sessionId, string key)
+    /// <summary>
+    /// 把任務指定給某個 Claude session（之後這個 session 有動作就為它計時）。
+    /// startNow：馬上開始計時（標成 Claude 的），不用等下一次偵測到 Claude 在動。
+    /// </summary>
+    public async Task AssignSessionTaskAsync(string sessionId, string key, bool startNow = false)
     {
         key = key.Trim().ToUpperInvariant();
         _state.SessionTasks[sessionId] = key;
         _state.Save();
         _suppressed.Remove(key);
         _knownProjects.Add(KeyFinder.ProjectOf(key));
+        Log.Info($"Claude session {sessionId} 指定為 {key}" + (startNow ? "，馬上開始計時" : ""));
+        if (startNow)
+            await Guarded(async ct =>
+            {
+                if (RunningKeys().Contains(key))
+                    return;
+                await _api.StartTimerAsync(key, ct);
+                if (!IsClaudeOwned(key))
+                    _state.ClaudeOwned.Add(key);
+                _state.Save();
+                await RefreshCoreAsync(ct);
+            });
         await ClaudeTickAsync(wait: true);
     }
 

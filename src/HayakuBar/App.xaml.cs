@@ -365,7 +365,7 @@ public partial class App : Application
             return;
         var picker = new TaskPickerWindow(engine.MyTasks, $"「{suggestion.UnitName}」這個 Claude session 在做哪個任務？", multiSelect: false);
         if (picker.ShowDialog() == true && picker.SelectedKeys.Count > 0)
-            await engine.AssignSessionTaskAsync(suggestion.SessionId, picker.SelectedKeys[0]); // 資料夾對應的專案會自動記下
+            await engine.AssignSessionTaskAsync(suggestion.SessionId, picker.SelectedKeys[0], startNow: true); // 資料夾對應的專案會自動記下
     }
 
     async Task ShootAsync(string pages)

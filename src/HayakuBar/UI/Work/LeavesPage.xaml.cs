@@ -29,7 +29,8 @@ public partial class LeavesPage : UserControl, IWorkPage
     {
         _engine = engine;
         InitializeComponent();
-        DateInput.Text = "明天";
+        var tomorrow = DateOnly.FromDateTime(DateTime.Today).AddDays(1);
+        Dates.SetRange(tomorrow, tomorrow);
     }
 
     public Task ActivateAsync(object? arg) => LoadAsync();
@@ -93,34 +94,25 @@ public partial class LeavesPage : UserControl, IWorkPage
         if (sender is not RadioButton { Tag: string span } || RangePanel is null)
             return;
         _span = span;
-        EndDatePanel.Visibility = span == "DAY" ? Visibility.Visible : Visibility.Collapsed;
+        Dates.Single = span != "DAY"; // 整天可以請一段；半天、指定時段只有一天
         RangePanel.Visibility = span == "RANGE" ? Visibility.Visible : Visibility.Collapsed;
-        DateLabel.Text = span == "DAY" ? "第一天" : "日期";
+        DateLabel.Text = span == "DAY" ? "第一天 ～ 最後一天（只請一天就點同一天）" : "日期";
     }
 
     async void Add_Click(object sender, RoutedEventArgs e)
     {
-        if (Inputs.ParseDate(DateInput.Text) is not { } date)
+        if (Dates.Start is not { } date)
         {
-            Inputs.Show(FormStatus, "日期看不懂，請用 明天、11/5 這類寫法");
+            Inputs.Show(FormStatus, "請選日期");
             return;
         }
         var args = new Dictionary<string, object?> { ["span"] = _span, ["date"] = Inputs.DateText(date) };
         var summary = date.ToString("M/d（ddd）", Inputs.Zh);
         switch (_span)
         {
-            case "DAY" when EndDateInput.Text.Trim().Length > 0:
-                if (Inputs.ParseDate(EndDateInput.Text) is not { } endDate || endDate < date)
-                {
-                    Inputs.Show(FormStatus, "最後一天要在第一天之後");
-                    return;
-                }
-                if (endDate > date)
-                {
-                    args["endDate"] = Inputs.DateText(endDate);
-                    summary += $" 到 {endDate.ToString("M/d（ddd）", Inputs.Zh)}";
-                }
-                summary += " 整天";
+            case "DAY" when Dates.End is { } endDate && endDate > date:
+                args["endDate"] = Inputs.DateText(endDate);
+                summary += $" 到 {endDate.ToString("M/d（ddd）", Inputs.Zh)} 整天";
                 break;
             case "DAY":
                 summary += " 整天";
@@ -149,7 +141,7 @@ public partial class LeavesPage : UserControl, IWorkPage
             return;
         if (!await Inputs.Run(AddButton, FormStatus, () => _engine.Api.AddLeaveAsync(args, CancellationToken.None), $"已登記：{summary}"))
             return;
-        EndDateInput.Text = NoteInput.Text = StartInput.Text = EndInput.Text = "";
+        NoteInput.Text = StartInput.Text = EndInput.Text = "";
         await _engine.AfterExternalChangeAsync();
         await LoadAsync();
     }
