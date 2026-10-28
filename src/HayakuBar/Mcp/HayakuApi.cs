@@ -11,7 +11,8 @@ public sealed record TimeEntry(
     DateTimeOffset? EndedAt,
     int? DurationMinutes,
     bool Running,
-    string? StopReason);
+    string? StopReason,
+    string? Note = null);
 
 public sealed record WorkSegment(TimeOnly Start, TimeOnly End);
 
@@ -27,8 +28,10 @@ public sealed record TaskItem(string Key, string Title, string Project, string S
 public sealed record UserInfo(string Username, string DisplayName);
 
 /// <summary>把需要的 Hayaku MCP 工具包成強型別方法。</summary>
-public sealed class HayakuApi(McpClient mcp)
+public sealed partial class HayakuApi(McpClient mcp)
 {
+    McpClient Mcp => mcp;
+
     static string Iso(DateOnly d) => d.ToString("yyyy-MM-dd");
 
     public async Task<UserInfo> WhoAmIAsync(CancellationToken ct)
@@ -124,7 +127,8 @@ public sealed class HayakuApi(McpClient mcp)
                 Date(e, "endedAt"),
                 duration,
                 e.TryGetProperty("running", out var run) && run.ValueKind == JsonValueKind.True,
-                Str(e, "stopReason")));
+                Str(e, "stopReason"),
+                Str(e, "note")));
         }
         return list;
     }

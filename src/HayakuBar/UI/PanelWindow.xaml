@@ -4,38 +4,131 @@
         Title="HayakuBar"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
-        Width="392" SizeToContent="Height"
+        Width="432" SizeToContent="Height"
         FontFamily="{StaticResource UiFont}" FontSize="12"
-        Foreground="{StaticResource TextBrush}"
+        Foreground="{DynamicResource TextBrush}"
         UseLayoutRounding="True">
 
     <Window.Resources>
+        <!-- 分頁按鈕 -->
+        <Style x:Key="TabButton" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" CornerRadius="6" Padding="0,5" Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SegmentSelectedBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 可點的列（滑過變色） -->
+        <Style x:Key="ClickRow" TargetType="Border">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Margin" Value="-6,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="Badge" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="MinWidth" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Margin" Value="5,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
         <DataTemplate x:Key="TaskRowTemplate">
-            <Grid Margin="0,1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="16" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="26" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding Icon}" Foreground="{Binding IconBrush}" ToolTip="{Binding IconTip}"
-                           VerticalAlignment="Center" FontSize="11" />
-                <TextBlock Grid.Column="1" Text="{Binding Key}" FontWeight="SemiBold" Margin="0,0,6,0"
-                           VerticalAlignment="Center" />
-                <TextBlock Grid.Column="2" Text="{Binding Title}" ToolTip="{Binding Title}"
-                           TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedBrush}"
-                           VerticalAlignment="Center" />
-                <TextBlock Grid.Column="3" Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}"
-                           Margin="6,0,2,0" VerticalAlignment="Center" />
-                <Button Grid.Column="4" Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}"
-                        Tag="{Binding}" Click="TaskAction_Click" Style="{StaticResource IconButton}"
-                        FontSize="10" />
-            </Grid>
+            <Border x:Name="Row" Style="{StaticResource ClickRow}" MouseLeftButtonUp="TaskRow_Click" MouseRightButtonUp="TaskRow_RightClick"
+                    Tag="{Binding}" ToolTip="點一下看詳細；右鍵有更多動作">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="22" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Icon}" Foreground="{Binding IconBrush}" ToolTip="{Binding IconTip}"
+                               VerticalAlignment="Center" FontSize="11" />
+                    <TextBlock Grid.Column="1" Text="{Binding Key}" FontWeight="SemiBold" Margin="0,0,6,0"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="3" Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}"
+                               Margin="6,0,2,0" VerticalAlignment="Center" />
+                    <Button Grid.Column="4" Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}"
+                            IsEnabled="{Binding NotBusy}" Tag="{Binding}" Click="TaskAction_Click"
+                            Style="{StaticResource IconButton}" FontSize="10" />
+                    <Button x:Name="More" Grid.Column="5" Content="⋯" ToolTip="更多：停止並完成、改狀態、提醒…" Tag="{Binding}"
+                            Click="TaskMore_Click" Style="{StaticResource IconButton}" Opacity="0" />
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="More" Property="Opacity" Value="1" />
+                </Trigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- 任務分頁的一列 -->
+        <DataTemplate x:Key="MyTaskRowTemplate">
+            <Border x:Name="Row" Style="{StaticResource ClickRow}" MouseLeftButtonUp="MyTaskRow_Click" MouseRightButtonUp="TaskRow_RightClick"
+                    Tag="{Binding}" Padding="6,5">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="22" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
+                            <Run Text="{Binding Title, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
+                        </TextBlock>
+                        <TextBlock FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,1,0,0">
+                            <Run Text="{Binding Status, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
+                            <Run Text="{Binding DueText, Mode=OneWay}" Foreground="{Binding DueBrush, Mode=OneWay}" />
+                        </TextBlock>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}" Foreground="{Binding ActionBrush}"
+                            IsEnabled="{Binding NotBusy}" Tag="{Binding}" Click="MyTaskAction_Click"
+                            Style="{StaticResource IconButton}" FontSize="10" VerticalAlignment="Center" />
+                    <Button x:Name="More" Grid.Column="2" Content="⋯" ToolTip="更多" Tag="{Binding}" Click="TaskMore_Click"
+                            Style="{StaticResource IconButton}" Opacity="0" VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="More" Property="Opacity" Value="1" />
+                </Trigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
 
         <DataTemplate x:Key="RepoRowTemplate">
-            <Grid Margin="0,1">
+            <Grid Margin="0,2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -47,91 +140,351 @@
                 <TextBlock Grid.Column="1" Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"
                            Margin="8,0" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="2" Text="{Binding TaskText}" ToolTip="{Binding TaskTip}"
-                           Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+                           Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
                 <Button Grid.Column="3" Content="選擇" Tag="{Binding}" Click="RepoPick_Click"
                         Visibility="{Binding PickVisibility}" Style="{StaticResource IconButton}"
-                        Margin="4,0,0,0" ToolTip="為這個 repo 目前的 Claude session 指定任務" />
+                        Margin="4,0,0,0" ToolTip="為這個專案目前的 Claude session 指定任務" />
             </Grid>
         </DataTemplate>
-    </Window.Resources>
 
-    <Border Background="{StaticResource BgBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
-            CornerRadius="8" Padding="14,12,14,10" Margin="6">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.18" />
-        </Border.Effect>
-        <StackPanel>
-            <Grid>
-                <TextBlock x:Name="UserText" FontWeight="SemiBold" FontSize="13" Text="Hayaku" />
-                <TextBlock x:Name="StatusText" HorizontalAlignment="Right" Foreground="{StaticResource MutedBrush}"
-                           VerticalAlignment="Center" />
-            </Grid>
-
-            <StackPanel x:Name="SummaryRow" Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock x:Name="TotalText" FontSize="22" FontWeight="SemiBold" FontFamily="{StaticResource MonoFont}" />
-                <TextBlock x:Name="ExpectedText" FontSize="22" Foreground="{StaticResource MutedBrush}"
-                           FontFamily="{StaticResource MonoFont}" />
-                <Grid Width="90" Height="5" Margin="12,0,0,0" VerticalAlignment="Center">
-                    <Border Background="{StaticResource LineBrush}" CornerRadius="2.5" />
-                    <Border x:Name="ProgressFill" Background="{StaticResource AccentBrush}" CornerRadius="2.5"
-                            HorizontalAlignment="Left" Width="0" />
-                </Grid>
-                <TextBlock x:Name="SummaryDetail" Margin="10,0,0,0" VerticalAlignment="Center"
-                           Foreground="{StaticResource MutedBrush}" />
-            </StackPanel>
-
-            <TextBlock x:Name="ErrorText" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap"
-                       Margin="0,6,0,0" Visibility="Collapsed" />
-
-            <Button x:Name="LoginButton" Content="登入 Hayaku" Style="{StaticResource PrimaryButton}"
-                    Margin="0,10,0,4" Padding="12,6" Click="Login_Click" Visibility="Collapsed" />
-            <TextBlock x:Name="LoginHint" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"
-                       Visibility="Collapsed"
-                       Text="會開啟瀏覽器到 Hayaku 登入並授權，之後這個工具會出現在「我的 › 已連線的應用程式」。" />
-
-            <StackPanel x:Name="MainContent">
-                <TextBlock Text="計時中" Style="{StaticResource SectionTitle}" />
-                <ItemsControl x:Name="RunningList" ItemTemplate="{StaticResource TaskRowTemplate}" />
-                <TextBlock x:Name="RunningEmpty" Text="目前沒有計時" Foreground="{StaticResource MutedBrush}" />
-
-                <StackPanel x:Name="PausedSection">
-                    <TextBlock Text="今天做過" Style="{StaticResource SectionTitle}" />
-                    <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="PausedList" ItemTemplate="{StaticResource TaskRowTemplate}" />
-                    </ScrollViewer>
-                </StackPanel>
-
-                <Grid Margin="0,10,0,0">
+        <DataTemplate x:Key="MeetingRowTemplate">
+            <Border Style="{StaticResource ClickRow}" MouseLeftButtonUp="MeetingRow_Click" Tag="{Binding}" ToolTip="點一下在 Hayaku 開啟">
+                <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <ComboBox x:Name="TaskCombo" IsEditable="True" IsTextSearchEnabled="True"
-                              ToolTip="輸入或選擇任務編號（例 F2P-97）" />
-                    <Button Grid.Column="1" Content="開始" Margin="6,0,0,0" Style="{StaticResource FlatButton}"
-                            Click="StartTask_Click" />
+                    <TextBlock Text="{Binding Time}" FontFamily="{StaticResource MonoFont}" Foreground="{Binding TimeBrush}"
+                               VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Detail}" Foreground="{DynamicResource MutedBrush}" FontSize="11"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="加入並計時" Style="{StaticResource PrimaryButton}" Padding="10,3"
+                            Visibility="{Binding JoinVisibility}" Tag="{Binding}" Click="JoinMeeting_Click" Margin="8,0,0,0" />
                 </Grid>
+            </Border>
+        </DataTemplate>
 
-                <StackPanel x:Name="ClaudeSection">
-                    <TextBlock Text="Claude Code" Style="{StaticResource SectionTitle}" />
-                    <ItemsControl x:Name="RepoList" ItemTemplate="{StaticResource RepoRowTemplate}" />
-                </StackPanel>
-            </StackPanel>
-
-            <Grid Margin="0,12,0,0">
-                <StackPanel Orientation="Horizontal">
-                    <Button x:Name="ClockInButton" Content="上班" Style="{StaticResource PrimaryButton}"
-                            Click="ClockIn_Click" ToolTip="恢復上次的任務並開始計時" />
-                    <Button x:Name="ClockOutButton" Content="下班" Style="{StaticResource FlatButton}"
-                            Margin="6,0,0,0" Click="ClockOut_Click" ToolTip="停止所有計時，今天不再自動上班" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="⟳" Style="{StaticResource IconButton}" FontSize="14" ToolTip="立即同步"
-                            Click="Refresh_Click" />
-                    <Button Content="⚙" Style="{StaticResource IconButton}" FontSize="14" ToolTip="設定"
-                            Click="Settings_Click" />
+        <DataTemplate x:Key="TodoRowTemplate">
+            <Grid Margin="0,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <CheckBox VerticalAlignment="Top" Margin="0,1,8,0" Tag="{Binding}" Checked="Todo_Checked"
+                          IsEnabled="{Binding NotBusy}" ToolTip="勾掉這則待辦" />
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Detail}" Foreground="{DynamicResource MutedBrush}" FontSize="11"
+                               Visibility="{Binding DetailVisibility}" />
                 </StackPanel>
             </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ReminderRowTemplate">
+            <Grid Margin="0,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Time}" FontFamily="{StaticResource MonoFont}" Foreground="{DynamicResource MutedBrush}"
+                           Margin="0,0,10,0" />
+                <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="NotificationRowTemplate">
+            <Border x:Name="Row" Style="{StaticResource ClickRow}" MouseLeftButtonUp="NotificationRow_Click" Tag="{Binding}" Padding="6,6"
+                    ToolTip="點一下在 Hayaku 開啟並標為已讀">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel x:Name="Actions" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Visibility="Hidden">
+                        <Button Content="稍後" Style="{StaticResource IconButton}" Tag="{Binding}" Click="NotificationSnooze_Click"
+                                ToolTip="先收起來，晚點再出現" />
+                        <Button Content="封存" Style="{StaticResource IconButton}" Tag="{Binding}" Click="NotificationArchive_Click"
+                                ToolTip="從收件匣移除" />
+                    </StackPanel>
+                    <Ellipse Width="7" Height="7" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Top" Margin="0,5,0,0"
+                             HorizontalAlignment="Left" Visibility="{Binding UnreadVisibility}" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock>
+                            <Run Text="{Binding Label, Mode=OneWay}" FontWeight="SemiBold" />
+                            <Run Text="{Binding CountText, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
+                        </TextBlock>
+                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Foreground="{Binding TextBrush}" Margin="0,1,0,0" />
+                        <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,1,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Actions" Property="Visibility" Value="Visible" />
+                </Trigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Border x:Name="Root" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+            CornerRadius="10" Margin="6" Opacity="0">
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="Slide" />
+        </Border.RenderTransform>
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.2" />
+        </Border.Effect>
+        <StackPanel>
+            <!-- 標題與今天工時 -->
+            <StackPanel Margin="16,14,16,0">
+                <Grid>
+                    <TextBlock x:Name="UserText" FontWeight="SemiBold" FontSize="13" Text="Hayaku" />
+                    <TextBlock x:Name="StatusText" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}"
+                               VerticalAlignment="Center" />
+                </Grid>
+                <StackPanel x:Name="SummaryRow" Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock x:Name="TotalText" FontSize="22" FontWeight="SemiBold" FontFamily="{StaticResource MonoFont}" />
+                    <TextBlock x:Name="ExpectedText" FontSize="22" Foreground="{DynamicResource MutedBrush}"
+                               FontFamily="{StaticResource MonoFont}" />
+                    <Grid Width="90" Height="5" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <Border Background="{DynamicResource LineBrush}" CornerRadius="2.5" />
+                        <Border x:Name="ProgressFill" Background="{DynamicResource AccentBrush}" CornerRadius="2.5"
+                                HorizontalAlignment="Left" Width="0" />
+                    </Grid>
+                    <TextBlock x:Name="SummaryDetail" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Foreground="{DynamicResource MutedBrush}" />
+                </StackPanel>
+
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"
+                           Margin="0,6,0,0" Visibility="Collapsed" />
+
+                <!-- 第一次同步 -->
+                <StackPanel x:Name="SyncingPanel" Orientation="Horizontal" Margin="0,18,0,14" HorizontalAlignment="Center"
+                            Visibility="Collapsed">
+                    <Grid Width="18" Height="18" Margin="0,0,10,0" VerticalAlignment="Center">
+                        <Ellipse Stroke="{DynamicResource LineBrush}" StrokeThickness="2.5" />
+                        <Path Data="M9,1.25 A7.75,7.75 0 0 1 16.75,9" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" RenderTransformOrigin="0.5,0.5">
+                            <Path.RenderTransform>
+                                <RotateTransform x:Name="SpinnerRotate" />
+                            </Path.RenderTransform>
+                        </Path>
+                    </Grid>
+                    <StackPanel>
+                        <TextBlock Text="同步中，請稍候…" FontWeight="SemiBold" />
+                        <TextBlock Text="正在從 Hayaku 讀取今天的計時與班表" Foreground="{DynamicResource MutedBrush}" FontSize="11" />
+                    </StackPanel>
+                </StackPanel>
+
+                <Button x:Name="LoginButton" Content="登入 Hayaku" Style="{StaticResource PrimaryButton}"
+                        Margin="0,12,0,4" Padding="12,6" Click="Login_Click" Visibility="Collapsed" />
+                <TextBlock x:Name="LoginHint" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,10"
+                           Visibility="Collapsed"
+                           Text="會開啟瀏覽器到 Hayaku 登入並授權，之後這個工具會出現在「我的 › 已連線的應用程式」。" />
+            </StackPanel>
+
+            <StackPanel x:Name="MainContent">
+                <!-- 分頁 -->
+                <Border Background="{DynamicResource SegmentTrackBrush}" CornerRadius="8" Padding="3" Margin="14,12,14,0">
+                    <UniformGrid Columns="4">
+                        <RadioButton x:Name="TabTimerButton" Style="{StaticResource TabButton}" GroupName="PanelTab" IsChecked="True"
+                                     Checked="Tab_Checked" Tag="Timer">
+                            <TextBlock Text="計時" />
+                        </RadioButton>
+                        <RadioButton x:Name="TabTasksButton" Style="{StaticResource TabButton}" GroupName="PanelTab"
+                                     Checked="Tab_Checked" Tag="Tasks">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="任務" />
+                                <Border x:Name="TasksBadge" Style="{StaticResource Badge}" Background="{DynamicResource ErrorBrush}"
+                                        Visibility="Collapsed" ToolTip="逾期的任務">
+                                    <TextBlock x:Name="TasksBadgeText" Foreground="White" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="TabTodayButton" Style="{StaticResource TabButton}" GroupName="PanelTab"
+                                     Checked="Tab_Checked" Tag="Today">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="今天" />
+                                <Border x:Name="TodayBadge" Style="{StaticResource Badge}" Background="{DynamicResource MutedBrush}" Visibility="Collapsed">
+                                    <TextBlock x:Name="TodayBadgeText" Foreground="White" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="TabNotifyButton" Style="{StaticResource TabButton}" GroupName="PanelTab"
+                                     Checked="Tab_Checked" Tag="Notify">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="通知" />
+                                <Border x:Name="NotifyBadge" Style="{StaticResource Badge}" Visibility="Collapsed">
+                                    <TextBlock x:Name="NotifyBadgeText" Foreground="White" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                        </RadioButton>
+                    </UniformGrid>
+                </Border>
+
+                <ScrollViewer x:Name="ContentScroll" Height="440" MaxHeight="440" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0" Padding="16,0,12,0">
+                    <Grid Margin="0,0,4,0">
+                        <!-- 計時 -->
+                        <StackPanel x:Name="TabTimer">
+                            <TextBlock Text="計時中" Style="{StaticResource SectionTitle}" />
+                            <ItemsControl x:Name="RunningList" ItemTemplate="{StaticResource TaskRowTemplate}" />
+                            <TextBlock x:Name="RunningEmpty" Text="目前沒有計時" Foreground="{DynamicResource MutedBrush}" />
+
+                            <StackPanel x:Name="PausedSection">
+                                <TextBlock Text="今天做過" Style="{StaticResource SectionTitle}" />
+                                <ItemsControl x:Name="PausedList" ItemTemplate="{StaticResource TaskRowTemplate}" />
+                            </StackPanel>
+
+                            <!-- 開始任務：打字即篩選 -->
+                            <Grid Margin="0,12,0,0">
+                                <TextBox x:Name="StartBox" Padding="8,5" TextChanged="StartBox_TextChanged"
+                                         PreviewKeyDown="StartBox_PreviewKeyDown" GotKeyboardFocus="StartBox_GotFocus"
+                                         LostKeyboardFocus="StartBox_LostFocus" />
+                                <TextBlock x:Name="StartHint" Text="🔍  輸入任務編號或關鍵字開始計時" IsHitTestVisible="False"
+                                           Foreground="{DynamicResource HintBrush}" Margin="10,0" VerticalAlignment="Center" />
+                                <Popup x:Name="StartPopup" PlacementTarget="{Binding ElementName=StartBox}" Placement="Top"
+                                       AllowsTransparency="True" StaysOpen="True" PopupAnimation="Fade">
+                                    <Border Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                            CornerRadius="8" Padding="4" Margin="0,0,0,4"
+                                            Width="{Binding ActualWidth, ElementName=StartBox}">
+                                        <ListBox x:Name="StartList" MaxHeight="260" BorderThickness="0" Background="Transparent"
+                                                 PreviewMouseLeftButtonUp="StartList_Click">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel>
+                                                        <TextBlock TextTrimming="CharacterEllipsis">
+                                                            <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
+                                                            <Run Text="{Binding Title, Mode=OneWay}" />
+                                                        </TextBlock>
+                                                        <TextBlock Text="{Binding Detail}" Foreground="{DynamicResource MutedBrush}" FontSize="11" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+
+                            <StackPanel x:Name="ClaudeSection">
+                                <TextBlock Text="Claude Code" Style="{StaticResource SectionTitle}" />
+                                <ItemsControl x:Name="RepoList" ItemTemplate="{StaticResource RepoRowTemplate}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 任務 -->
+                        <StackPanel x:Name="TabTasks" Visibility="Collapsed">
+                            <WrapPanel x:Name="TaskFilterPanel" Margin="0,10,0,6" />
+                            <ItemsControl x:Name="MyTaskList" ItemTemplate="{StaticResource MyTaskRowTemplate}" />
+                            <TextBlock x:Name="MyTaskEmpty" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0" />
+                            <Grid Margin="0,10,0,0">
+                                <Button x:Name="MoreTasksButton" Style="{StaticResource LinkButton}" Click="AllTasks_Click"
+                                        Content="在工作台看全部 ›" HorizontalAlignment="Left" />
+                                <Button Style="{StaticResource LinkButton}" Click="NewTask_Click" Content="＋ 新增任務" HorizontalAlignment="Right" />
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- 今天 -->
+                        <StackPanel x:Name="TabToday" Visibility="Collapsed">
+                            <Border x:Name="DueCard" Background="{DynamicResource SubtleBrush}" CornerRadius="6" Padding="10,7" Margin="0,10,0,0"
+                                    Cursor="Hand" MouseLeftButtonUp="DueCard_Click" ToolTip="在工作台看逾期的任務">
+                                <Grid>
+                                    <TextBlock x:Name="DueText" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="›" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+                                </Grid>
+                            </Border>
+                            <TextBlock x:Name="LeaveText" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="2,6,0,0"
+                                       Visibility="Collapsed" />
+
+                            <Grid>
+                                <TextBlock Text="會議" Style="{StaticResource SectionTitle}" />
+                                <Button Content="＋ 新增" Style="{StaticResource LinkButton}" FontSize="11" HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom" Margin="0,0,0,4" Click="NewMeeting_Click" />
+                            </Grid>
+                            <ItemsControl x:Name="MeetingList" ItemTemplate="{StaticResource MeetingRowTemplate}" />
+                            <TextBlock x:Name="MeetingEmpty" Text="今天沒有會議" Foreground="{DynamicResource MutedBrush}" />
+
+                            <TextBlock Text="待辦" Style="{StaticResource SectionTitle}" />
+                            <ItemsControl x:Name="TodoList" ItemTemplate="{StaticResource TodoRowTemplate}" />
+                            <TextBlock x:Name="TodoEmpty" Text="沒有待辦" Foreground="{DynamicResource MutedBrush}" />
+
+                            <StackPanel x:Name="ReminderSection">
+                                <Grid>
+                                    <TextBlock Text="即將提醒" Style="{StaticResource SectionTitle}" />
+                                    <Button Content="＋ 新增" Style="{StaticResource LinkButton}" FontSize="11" HorizontalAlignment="Right"
+                                            VerticalAlignment="Bottom" Margin="0,0,0,4" Click="NewReminder_Click" />
+                                </Grid>
+                                <ItemsControl x:Name="ReminderList" ItemTemplate="{StaticResource ReminderRowTemplate}" />
+                                <TextBlock x:Name="ReminderEmpty" Text="沒有即將到來的提醒" Foreground="{DynamicResource MutedBrush}" />
+                            </StackPanel>
+
+                            <TextBlock Text="隨手記" Style="{StaticResource SectionTitle}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid>
+                                    <TextBox x:Name="CaptureBox" Padding="8,5" KeyDown="CaptureBox_KeyDown" TextChanged="CaptureBox_TextChanged" />
+                                    <TextBlock x:Name="CaptureHint" Text="記一筆，按 Enter 存到筆記本" IsHitTestVisible="False"
+                                               Foreground="{DynamicResource HintBrush}" Margin="10,0" VerticalAlignment="Center" />
+                                </Grid>
+                                <CheckBox x:Name="CaptureTodo" Grid.Column="1" Content="待辦" Margin="8,0" VerticalAlignment="Center"
+                                          ToolTip="存成待辦（會出現在上面的待辦清單）" />
+                                <Button Grid.Column="2" Content="存" Style="{StaticResource FlatButton}" Click="Capture_Click" />
+                            </Grid>
+                            <Button x:Name="WorkLogButton" Style="{StaticResource LinkButton}" Margin="0,12,0,0" HorizontalAlignment="Left"
+                                    Click="WorkLog_Click" Content="昨天的工作日誌 ›" />
+                        </StackPanel>
+
+                        <!-- 通知 -->
+                        <StackPanel x:Name="TabNotify" Visibility="Collapsed">
+                            <Grid Margin="0,8,0,4">
+                                <TextBlock x:Name="UnreadText" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button x:Name="MarkAllButton" Content="全部標為已讀" Style="{StaticResource IconButton}" Click="MarkAll_Click" />
+                                    <Button Content="在網頁看全部 ↗" Style="{StaticResource IconButton}" Click="OpenNotifications_Click" Margin="6,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <WrapPanel x:Name="NotifyFilterPanel" Margin="0,0,0,6" />
+                            <ItemsControl x:Name="NotificationList" ItemTemplate="{StaticResource NotificationRowTemplate}" />
+                            <TextBlock x:Name="NotificationEmpty" Text="沒有通知" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </StackPanel>
+
+            <!-- 底部 -->
+            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="16,10,12,12">
+                <Grid>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="ClockInButton" Content="上班" Style="{StaticResource PrimaryButton}" Padding="12,4"
+                                Click="ClockIn_Click" ToolTip="恢復上次的任務並開始計時" />
+                        <Button x:Name="ClockOutButton" Content="下班" Style="{StaticResource FlatButton}" Padding="12,4"
+                                Margin="6,0,0,0" Click="ClockOut_Click" ToolTip="停止所有計時（之後可以復原）" />
+                        <Button x:Name="EntriesButton" Content="工時紀錄" Style="{StaticResource IconButton}" Margin="6,0,0,0"
+                                Click="Entries_Click" ToolTip="查看、修改、補登計時紀錄" />
+                        <Button x:Name="WorkspaceButton" Content="工作台" Style="{StaticResource IconButton}" Margin="2,0,0,0"
+                                Click="Workspace_Click" ToolTip="任務、工時月曆、提醒、會議、聊天、請假、統計" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock x:Name="SyncText" Foreground="{DynamicResource MutedBrush}" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,4,0" />
+                        <Button x:Name="RefreshButton" Content="⟳" Style="{StaticResource IconButton}" FontSize="14" ToolTip="立即同步"
+                                Click="Refresh_Click" />
+                        <Button Content="⚙" Style="{StaticResource IconButton}" FontSize="14" ToolTip="設定"
+                                Click="Settings_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
         </StackPanel>
     </Border>
 </Window>

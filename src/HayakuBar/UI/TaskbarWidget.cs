@@ -17,7 +17,7 @@ public enum WidgetStatus { Idle, Running, Error }
 /// <summary>工作列上的顯示方式：一排（寬）或兩排（窄）。</summary>
 public enum WidgetLayout { OneLine, TwoLine }
 
-public sealed record WidgetContent(string Total, string Expected, double Progress, int Running, bool Claude, WidgetStatus Status);
+public sealed record WidgetContent(string Total, string Expected, double Progress, int Running, bool Claude, WidgetStatus Status, int Unread = 0);
 
 /// <summary>
 /// 嵌進 Windows 工作列（Shell_TrayWnd 的子視窗）的工時顯示。用 UpdateLayeredWindow 畫逐像素透明的內容，
@@ -71,6 +71,9 @@ internal sealed class TaskbarWidget : IDisposable
     public event Action? Clicked;
     public event Action<Drawing.Point>? MenuRequested;
     public event Action<double>? OffsetCommitted;
+
+    /// <summary>滑鼠移進（true）／移出、按下（false）工時。</summary>
+    public event Action<bool>? HoverChanged;
 
     public void Start()
     {
@@ -269,7 +272,19 @@ internal sealed class TaskbarWidget : IDisposable
             claudeSize = claudeText.Length > 0 ? pg.MeasureString(claudeText, small, int.MaxValue, fmt) : Drawing.SizeF.Empty;
         }
         var line1 = dot + gap + totalSize.Width + expectedSize.Width;
-        var extras = (runSize.Width > 0 ? gap + runSize.Width : 0) + (claudeSize.Width > 0 ? gap * 0.6f + claudeSize.Width : 0);
+        var unreadText = _content.Unread > 9 ? "9+" : _content.Unread > 0 ? _content.Unread.ToString() : "";
+        using var badgeFont = new Drawing.Font("Segoe UI", (float)(8.5 * s), Drawing.FontStyle.Bold, Drawing.GraphicsUnit.Pixel);
+        var badgeSize = Drawing.SizeF.Empty;
+        if (unreadText.Length > 0)
+        {
+            using var probe2 = new Drawing.Bitmap(1, 1);
+            using var pg2 = Drawing.Graphics.FromImage(probe2);
+            var t = pg2.MeasureString(unreadText, badgeFont, int.MaxValue, fmt);
+            var h = (float)(13 * s);
+            badgeSize = new Drawing.SizeF(Math.Max(h, t.Width + (float)(6 * s)), h);
+        }
+        var extras = (runSize.Width > 0 ? gap + runSize.Width : 0) + (claudeSize.Width > 0 ? gap * 0.6f + claudeSize.Width : 0)
+                     + (badgeSize.Width > 0 ? gap * 0.7f + badgeSize.Width : 0);
         float barW, contentWidth;
         if (twoLine)
         {
@@ -360,6 +375,19 @@ internal sealed class TaskbarWidget : IDisposable
                 x += gap * 0.6f;
                 using var b = new Drawing.SolidBrush(claude);
                 g.DrawString(claudeText, small, b, x, cy2 - claudeSize.Height / 2, fmt);
+                x += claudeSize.Width;
+            }
+            if (badgeSize.Width > 0)
+            {
+                // 未讀通知：紅色圓角徽章
+                x += gap * 0.7f;
+                var rect = new Drawing.RectangleF(x, cy2 - badgeSize.Height / 2, badgeSize.Width, badgeSize.Height);
+                using (var b = new Drawing.SolidBrush(error))
+                using (var path = RoundRect(rect, badgeSize.Height / 2))
+                    g.FillPath(b, path);
+                using var white = new Drawing.SolidBrush(Drawing.Color.White);
+                using var center = new Drawing.StringFormat(fmt) { Alignment = Drawing.StringAlignment.Center, LineAlignment = Drawing.StringAlignment.Center };
+                g.DrawString(unreadText, badgeFont, white, rect, center);
             }
         }
         Present(bmp);
@@ -423,6 +451,7 @@ internal sealed class TaskbarWidget : IDisposable
                     };
                     TrackMouseEvent(ref tme);
                     Render();
+                    HoverChanged?.Invoke(true);
                 }
                 if (_down && GetCursorPos(out var p))
                 {
@@ -437,6 +466,7 @@ internal sealed class TaskbarWidget : IDisposable
                 break;
 
             case WM_LBUTTONDOWN:
+                HoverChanged?.Invoke(false);
                 if (GetCursorPos(out var down))
                 {
                     _down = true;
@@ -480,6 +510,7 @@ internal sealed class TaskbarWidget : IDisposable
             case WM_MOUSELEAVE:
                 _hover = false;
                 Render();
+                HoverChanged?.Invoke(false);
                 break;
 
             case WM_RBUTTONUP:

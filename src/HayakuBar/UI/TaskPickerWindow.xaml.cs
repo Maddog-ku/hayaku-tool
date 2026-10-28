@@ -21,6 +21,7 @@ public partial class TaskPickerWindow : Window
         _all = tasks.Select(t => new PickItem(t.Key, t.Title, $"{t.Project} · {t.Status}")).ToList();
         TaskList.ItemsSource = _all;
         Loaded += (_, _) => SearchBox.Focus();
+        SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
     }
 
     public IReadOnlyList<string> SelectedKeys { get; private set; } = [];

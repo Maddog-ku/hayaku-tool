@@ -1,0 +1,54 @@
+<Window x:Class="HayakuBar.UI.Work.WorkspaceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HayakuBar 工作台" Width="1080" Height="720" MinWidth="860" MinHeight="520"
+        Icon="/Assets/app.ico" WindowStartupLocation="CenterScreen"
+        FontFamily="{StaticResource UiFont}" FontSize="13"
+        Background="{DynamicResource SubtleBrush}" Foreground="{DynamicResource TextBrush}"
+        UseLayoutRounding="True">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 導覽 -->
+        <DockPanel Margin="12,16,8,14">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,0,0,16">
+                <Image Source="/Assets/app.ico" Width="28" Height="28" RenderOptions.BitmapScalingMode="HighQuality" />
+                <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="工作台" FontWeight="SemiBold" FontSize="14" />
+                    <TextBlock x:Name="UserText" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
+                </StackPanel>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom">
+                <Button Content="在網頁開啟 Hayaku ↗" Style="{StaticResource LinkButton}" Margin="10,0,0,6"
+                        Click="OpenWeb_Click" FontSize="12" />
+                <TextBlock Text="Ctrl+1～9 切換頁面" FontSize="11" Foreground="{DynamicResource HintBrush}" Margin="10,0,0,0" />
+            </StackPanel>
+            <StackPanel x:Name="NavPanel">
+                <TextBlock Text="工作" Style="{StaticResource FieldLabel}" Margin="10,0,0,4" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="tasks" Checked="Nav_Checked">
+                    <Grid>
+                        <TextBlock Text="我的任務" />
+                        <TextBlock x:Name="TasksBadge" HorizontalAlignment="Right" FontSize="11"
+                                   Foreground="{DynamicResource ErrorBrush}" />
+                    </Grid>
+                </RadioButton>
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="hours" Checked="Nav_Checked" Content="我的工時" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="worklog" Checked="Nav_Checked" Content="工作日誌" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="reminders" Checked="Nav_Checked" Content="提醒" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="meetings" Checked="Nav_Checked" Content="會議" />
+                <TextBlock Text="團隊" Style="{StaticResource FieldLabel}" Margin="10,12,0,4" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="chat" Checked="Nav_Checked" Content="聊天" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="team" Checked="Nav_Checked" Content="團隊狀況" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="leaves" Checked="Nav_Checked" Content="請假" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="stats" Checked="Nav_Checked" Content="統計" />
+            </StackPanel>
+        </DockPanel>
+
+        <Border Grid.Column="1" Background="{DynamicResource SubtleBrush}">
+            <ContentControl x:Name="PageHost" Focusable="False" />
+        </Border>
+    </Grid>
+</Window>

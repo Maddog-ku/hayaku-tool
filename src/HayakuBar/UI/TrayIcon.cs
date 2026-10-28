@@ -15,6 +15,8 @@ public sealed record TrayActions(
     Action ResetOffset,
     Func<WidgetLayout> GetLayout,
     Action<WidgetLayout> SetLayout,
+    Action TimeEntries,
+    Action Workspace,
     Action OpenWeb,
     Action OpenLog,
     Action Exit);
@@ -29,6 +31,8 @@ public sealed class TrayIcon : IDisposable
     {
         _menu = new WinForms.ContextMenuStrip();
         _menu.Items.Add("開啟面板", null, (_, _) => actions.TogglePanel());
+        _menu.Items.Add("工作台…", null, (_, _) => actions.Workspace());
+        _menu.Items.Add("工時紀錄…", null, (_, _) => actions.TimeEntries());
         _menu.Items.Add("立即同步", null, (_, _) => actions.Refresh());
         _menu.Items.Add(new WinForms.ToolStripSeparator());
 
@@ -113,8 +117,22 @@ public sealed class TrayIcon : IDisposable
 
     public void SetTooltip(string text) => _icon.Text = text.Length > 63 ? text[..63] : text;
 
+    /// <summary>系統匣圖示：用 Assets\app.ico 裡最接近系統小圖示大小的版本；讀不到才自己畫。</summary>
     static Drawing.Icon CreateIcon()
     {
+        try
+        {
+            var resource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"));
+            if (resource is not null)
+            {
+                using var stream = resource.Stream;
+                return new Drawing.Icon(stream, WinForms.SystemInformation.SmallIconSize);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("讀取圖示失敗", ex);
+        }
         using var bmp = new Drawing.Bitmap(32, 32);
         using (var g = Drawing.Graphics.FromImage(bmp))
         {

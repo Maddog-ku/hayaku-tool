@@ -13,7 +13,7 @@ namespace HayakuBar.Core;
 /// 定期同步 Hayaku 計時 → 依班表自動上下班 → 依 Claude 活動自動計時。
 /// 所有會打 API 的流程都經過同一個 gate，避免同時開始／暫停同一個任務。
 /// </summary>
-public sealed class TimerEngine
+public sealed partial class TimerEngine
 {
     static readonly TimeSpan EndActionWindow = TimeSpan.FromMinutes(30);
 
@@ -44,12 +44,12 @@ public sealed class TimerEngine
         _claude.IsKnownKey = key => _knownProjects.Count == 0 || _knownProjects.Contains(KeyFinder.ProjectOf(key));
 
         _poll.Interval = TimeSpan.FromSeconds(Math.Max(10, config.PollSeconds));
-        _poll.Tick += async (_, _) =>
+        _poll.Tick += async (_, _) => await AutoRefreshAsync();
+        _claudeTimer.Tick += async (_, _) =>
         {
-            if (_auth.HasSession && !LoggingIn)
-                await RefreshAsync(userAction: false);
+            CheckAlerts();
+            await ClaudeTickAsync();
         };
-        _claudeTimer.Tick += async (_, _) => await ClaudeTickAsync();
         _hookDebounce.Tick += async (_, _) =>
         {
             _hookDebounce.Stop();
@@ -83,11 +83,32 @@ public sealed class TimerEngine
         _claudeTimer.Start();
         if (!_auth.HasSession)
         {
+            _initialSyncDone = true;
             Raise();
             return;
         }
-        await RefreshAsync(userAction: false);
+        Raise(); // 讓畫面先顯示「同步中」
+        try
+        {
+            await RefreshAsync(userAction: true);
+        }
+        finally
+        {
+            _initialSyncDone = true;
+            Raise();
+        }
     }
+
+    bool _initialSyncDone;
+
+    /// <summary>有登入資料、第一次同步還沒完成：畫面顯示「同步中，請稍候」。</summary>
+    public bool InitialSyncing => !_initialSyncDone && _auth.HasSession;
+
+    /// <summary>正在跟 Hayaku 同步。</summary>
+    public bool Syncing { get; private set; }
+
+    /// <summary>上次同步成功的時間。</summary>
+    public DateTime? LastSynced { get; private set; }
 
     public event Action? ConfigApplied;
 
@@ -95,6 +116,8 @@ public sealed class TimerEngine
     {
         _poll.Interval = TimeSpan.FromSeconds(Math.Max(10, _config.PollSeconds));
         _config.Save();
+        if (!_config.SyncOnlyDuringWork)
+            AutoSyncPaused = false;
         ConfigApplied?.Invoke();
         _ = ClaudeTickAsync();
     }
@@ -153,6 +176,37 @@ public sealed class TimerEngine
         await ClaudeCoreAsync(ct);
     }, wait: userAction);
 
+    /// <summary>定時、喚醒、解鎖時的自動同步；設定「只在上班時間自動同步」時，下班、休息、放假就不打 Hayaku。</summary>
+    public async Task AutoRefreshAsync()
+    {
+        if (!_auth.HasSession || LoggingIn)
+            return;
+        var paused = !ShouldAutoSync(DateTime.Now);
+        if (paused != AutoSyncPaused)
+        {
+            AutoSyncPaused = paused;
+            Log.Info(paused ? "不在上班時間，暫停自動同步" : "恢復自動同步");
+            Raise();
+        }
+        if (!paused)
+            await RefreshAsync(userAction: false);
+    }
+
+    /// <summary>目前不在上班時間，自動同步暫停中（打開面板、按重新整理仍會同步）。</summary>
+    public bool AutoSyncPaused { get; private set; }
+
+    bool ShouldAutoSync(DateTime now)
+    {
+        if (!_config.SyncOnlyDuringWork || Schedule is null || Schedule.Date != DateOnly.FromDateTime(now))
+            return true; // 沒開這個設定，或還不知道今天的班表（跨日後要先讀一次）
+        if (Entries.Any(e => e.Running))
+            return true; // 有計時在跑：加班中，照常同步
+        if (_config.AutoSchedule && !_state.ClockedOut
+            && Boundaries(Schedule.Working, now.Date).Any(b => b.At <= now && !_state.HandledBoundaries.Contains(b.Id)))
+            return true; // 上班、休息、下班的自動動作還沒做
+        return !_state.ClockedOut && WorkMath.Phase(Schedule, now, false).Kind == DayPhaseKind.Working;
+    }
+
     public Task StartTaskAsync(string key) => Guarded(async ct =>
     {
         key = key.Trim().ToUpperInvariant();
@@ -196,40 +250,55 @@ public sealed class TimerEngine
     public Task ClockOutAsync() => Guarded(async ct =>
     {
         await RefreshCoreAsync(ct);
-        var running = RunningKeys();
+        var running = RunningKeys().OrderBy(k => k).ToList();
         if (running.Count > 0)
-            _state.ResumeSet = running.OrderBy(k => k).ToList();
+            _state.ResumeSet = running;
         _state.ClockedOut = true;
         _state.Save();
         if (running.Count > 0)
             await PauseAllCoreAsync(ct);
         var worked = WorkMath.UnionMinutes(Entries, DateTime.Today, DateTime.Now);
-        var expected = Schedule?.ExpectedMinutes ?? 0;
-        Notify?.Invoke($"已下班，停止 {running.Count} 個計時。今天 {WorkMath.HoursMinutes(worked)}" +
-                       (expected > 0 ? $"／應出勤 {WorkMath.HoursMinutes(expected)}" : ""));
+        AfterClockOut(running, worked, Schedule?.ExpectedMinutes ?? 0);
     });
 
     /// <summary>為 repo 目前的 Claude session 指定任務；makeDefault 時同時設成 repo 預設。</summary>
-    public async Task PickTaskForRepoAsync(string repoPath, string key, bool makeDefault)
+    public async Task PickTaskForRepoAsync(string unitPath, string key, bool makeDefault)
     {
         key = key.ToUpperInvariant();
-        var activity = _claude.Repos.FirstOrDefault(r => string.Equals(r.Repo.Path, repoPath, StringComparison.OrdinalIgnoreCase));
+        var activity = _claude.Repos.FirstOrDefault(r => string.Equals(r.Path, unitPath, StringComparison.OrdinalIgnoreCase));
         if (activity?.SessionId is { } sid)
         {
             _state.SessionTasks[sid] = key;
             _state.Save();
         }
         if (makeDefault || activity?.SessionId is null)
-        {
-            var repo = _config.Repos.FirstOrDefault(r => string.Equals(r.Path, repoPath, StringComparison.OrdinalIgnoreCase));
-            if (repo is not null)
-            {
-                repo.DefaultTask = key;
-                _config.Save();
-            }
-        }
+            SetDefaultTask(unitPath, activity?.RootPath, key);
         _suppressed.Remove(key);
         await ClaudeTickAsync(wait: true);
+    }
+
+    /// <summary>設定主資料夾或其中某個專案的預設任務。</summary>
+    void SetDefaultTask(string unitPath, string? rootPath, string key)
+    {
+        if (rootPath is null)
+        {
+            var repo = _config.Repos.FirstOrDefault(r => string.Equals(ClaudeMonitor.Normalize(r.Path), unitPath, StringComparison.OrdinalIgnoreCase));
+            if (repo is not null)
+                repo.DefaultTask = key;
+        }
+        else
+        {
+            var repo = _config.Repos.FirstOrDefault(r => string.Equals(ClaudeMonitor.Normalize(r.Path), rootPath, StringComparison.OrdinalIgnoreCase));
+            if (repo is not null)
+            {
+                var name = Path.GetFileName(unitPath);
+                var project = repo.Projects.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (project is null)
+                    repo.Projects.Add(project = new ProjectConfig { Name = name });
+                project.DefaultTask = key;
+            }
+        }
+        _config.Save();
     }
 
     public void OnHook(JsonElement payload)
@@ -274,6 +343,21 @@ public sealed class TimerEngine
 
     async Task RefreshCoreAsync(CancellationToken ct)
     {
+        Syncing = true;
+        Raise();
+        try
+        {
+            await SyncAsync(ct);
+            LastSynced = DateTime.Now;
+        }
+        finally
+        {
+            Syncing = false;
+        }
+    }
+
+    async Task SyncAsync(CancellationToken ct)
+    {
         var now = DateTime.Now;
         var today = DateOnly.FromDateTime(now);
         if (_state.RollDay(today.ToString("yyyy-MM-dd")))
@@ -301,6 +385,7 @@ public sealed class TimerEngine
         LoggedIn = true;
         Error = null;
         TrackExternalStops();
+        await RefreshExtrasCoreAsync(ct);
     }
 
     async Task RefreshTasksAsync(CancellationToken ct)

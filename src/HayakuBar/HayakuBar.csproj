@@ -13,6 +13,7 @@
     <Product>HayakuBar</Product>
     <Description>Hayaku 工時工作列小工具</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <!-- DPI 由 manifest 設定（WPF 為主），WinForms 只用在系統匣選單 -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
@@ -23,6 +24,10 @@
     <Using Remove="System.Drawing" />
     <Using Include="System.IO" />
     <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
   <ItemGroup>

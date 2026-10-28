@@ -1,0 +1,37 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- 淺色主題；鍵名要跟 Dark.xaml 一致 -->
+    <SolidColorBrush x:Key="BgBrush" Color="#FBFAF7" />
+    <SolidColorBrush x:Key="SubtleBrush" Color="#F1EEE8" />
+    <SolidColorBrush x:Key="LineBrush" Color="#E3DED5" />
+    <SolidColorBrush x:Key="TextBrush" Color="#2B2925" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#8A857C" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#D9622B" />
+    <SolidColorBrush x:Key="RunBrush" Color="#2F9E6E" />
+    <SolidColorBrush x:Key="ClaudeBrush" Color="#C15F3C" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#C0392B" />
+
+    <SolidColorBrush x:Key="ButtonBrush" Color="#F1EEE8" />
+    <SolidColorBrush x:Key="InputBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="HintBrush" Color="#ADA79D" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#EFEBE4" />
+    <SolidColorBrush x:Key="SelectedBrush" Color="#F6E3D7" />
+    <SolidColorBrush x:Key="NavHoverBrush" Color="#E8E3DA" />
+    <SolidColorBrush x:Key="NavSelectedBrush" Color="#E3DDD2" />
+    <SolidColorBrush x:Key="InfoBrush" Color="#EDE9E1" />
+    <SolidColorBrush x:Key="AvatarBrush" Color="#E6E1D8" />
+    <SolidColorBrush x:Key="FolderBrush" Color="#E8C9A8" />
+    <SolidColorBrush x:Key="ToggleOffTrackBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ToggleOffBorderBrush" Color="#8A857C" />
+    <SolidColorBrush x:Key="ToggleOffThumbBrush" Color="#5E5A53" />
+    <SolidColorBrush x:Key="SegmentTrackBrush" Color="#E6E1D8" />
+    <SolidColorBrush x:Key="SegmentSelectedBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#C9C3B8" />
+    <!-- 工時月曆：填滿、不足、沒填；以及警示文字 -->
+    <SolidColorBrush x:Key="FilledBrush" Color="#FBF0C9" />
+    <SolidColorBrush x:Key="PartialBrush" Color="#FBE3CF" />
+    <SolidColorBrush x:Key="MissingBrush" Color="#F6DCDA" />
+    <SolidColorBrush x:Key="OffDayBrush" Color="#ECE8E1" />
+    <SolidColorBrush x:Key="WarnBrush" Color="#B7791F" />
+    <Color x:Key="ShadowColor">#000000</Color>
+</ResourceDictionary>

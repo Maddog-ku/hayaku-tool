@@ -2,12 +2,15 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using HayakuBar.Core;
+using HayakuBar.Infra;
 
 namespace HayakuBar.UI;
 
-/// <summary>點工作列上的工時後往上彈出的面板；失去焦點就收起來。</summary>
+/// <summary>點工作列上的工時後往上彈出的面板（計時／今天／通知三個分頁）；失去焦點就收起來。</summary>
 public partial class PanelWindow : Window
 {
     const double ProgressWidth = 90;
@@ -17,11 +20,14 @@ public partial class PanelWindow : Window
     readonly ObservableCollection<TaskRowVm> _paused = [];
     readonly ObservableCollection<RepoRowVm> _repos = [];
     readonly DispatcherTimer _tick = new() { Interval = TimeSpan.FromSeconds(1) };
+    List<PickItem> _allTasks = [];
     Rect _anchor;
     bool _alignLeft;
     bool _dialogOpen;
+    bool _hiding;
 
     public event Action? SettingsRequested;
+    public event Action? TimeEntriesRequested;
 
     public PanelWindow(TimerEngine engine)
     {
@@ -30,50 +36,128 @@ public partial class PanelWindow : Window
         RunningList.ItemsSource = _running;
         PausedList.ItemsSource = _paused;
         RepoList.ItemsSource = _repos;
+        InitWork();
 
         _engine.Changed += () =>
         {
             if (IsVisible)
                 Render();
         };
+        ThemeManager.Changed += () =>
+        {
+            if (IsVisible)
+                Render(); // 列表裡的顏色是建立時取的，換主題要重建
+        };
         _tick.Tick += (_, _) => UpdateNumbers();
         SizeChanged += (_, _) => Reposition();
         Deactivated += (_, _) =>
         {
-            if (!_dialogOpen)
+            StartPopup.IsOpen = false;
+            if (!_dialogOpen && !StayOpen)
                 HidePanel();
         };
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape)
+            if (e.Key != Key.Escape)
+                return;
+            if (StartPopup.IsOpen)
+                StartPopup.IsOpen = false;
+            else
                 HidePanel();
+            e.Handled = true;
         };
     }
 
     /// <summary>上一次因為失去焦點而收起的時間；用來避免「點工作列 → 收起 → 又被同一下點擊打開」。</summary>
     public DateTime HiddenAt { get; private set; }
 
-    /// <summary>anchor：工作列上工時的位置（DIP）；面板出現在它正上方。</summary>
+    /// <summary>失去焦點也不收起（--panel 啟動時用，方便檢查畫面）。</summary>
+    public bool StayOpen { get; set; }
+
+    /// <summary>面板開著（收起動畫進行中不算）。</summary>
+    public bool IsOpen => IsVisible && !_hiding;
+
+    /// <summary>anchor：工作列上工時的位置（DIP）；面板從它正上方往上滑出來。</summary>
     public void ShowAt(Rect anchor, bool alignLeft)
     {
         _anchor = anchor;
         _alignLeft = alignLeft;
+        _hiding = false;
         Render();
         Show();
+        UpdateLayout();
         Reposition();
         Activate();
+        AnimateIn();
         _tick.Start();
-        if (_engine.LoggedIn)
-            _ = _engine.RefreshAsync(userAction: false);
+        _ = _engine.RefreshAllAsync(userAction: false);
+    }
+
+    /// <summary>直接切到某個分頁：Timer、Today、Notify。</summary>
+    public void SelectTab(string tab)
+    {
+        (tab switch
+        {
+            "Tasks" => TabTasksButton,
+            "Today" => TabTodayButton,
+            "Notify" => TabNotifyButton,
+            _ => TabTimerButton,
+        }).IsChecked = true;
     }
 
     public void HidePanel()
     {
-        if (!IsVisible)
+        if (!IsVisible || _hiding)
             return;
-        Hide();
-        _tick.Stop();
         HiddenAt = DateTime.Now;
+        _tick.Stop();
+        StartPopup.IsOpen = false;
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            Hide();
+            return;
+        }
+        _hiding = true;
+        var duration = TimeSpan.FromMilliseconds(150);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var slide = new DoubleAnimation(Slide.Y, SlideDistance * 0.5, duration) { EasingFunction = ease };
+        var fade = new DoubleAnimation(Root.Opacity, 0, duration);
+        fade.Completed += (_, _) =>
+        {
+            if (!_hiding)
+                return; // 收起途中又被打開了
+            _hiding = false;
+            Hide();
+        };
+        Slide.BeginAnimation(TranslateTransform.YProperty, slide);
+        Root.BeginAnimation(OpacityProperty, fade);
+    }
+
+    void StartSpinner()
+    {
+        if (SpinnerRotate.HasAnimatedProperties)
+            return;
+        SpinnerRotate.BeginAnimation(RotateTransform.AngleProperty,
+            new DoubleAnimation(0, 360, TimeSpan.FromSeconds(0.9)) { RepeatBehavior = RepeatBehavior.Forever });
+    }
+
+    double SlideDistance => Math.Clamp(ActualHeight * 0.45, 40, 220);
+
+    /// <summary>從工作列往上滑出＋淡入（Windows 關閉動畫效果時直接出現）。</summary>
+    void AnimateIn()
+    {
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            Slide.BeginAnimation(TranslateTransform.YProperty, null);
+            Root.BeginAnimation(OpacityProperty, null);
+            Slide.Y = 0;
+            Root.Opacity = 1;
+            return;
+        }
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        Slide.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(SlideDistance, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
+        Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(170)));
     }
 
     void Reposition()
@@ -88,12 +172,29 @@ public partial class PanelWindow : Window
 
     void Render()
     {
+        var panelHeight = _engine.Config.PanelHeight;
+        ContentScroll.Height = panelHeight > 0 ? panelHeight : double.NaN;
+        ContentScroll.MaxHeight = panelHeight > 0 ? panelHeight : 440;
+
         var loggedIn = _engine.LoggedIn;
-        LoginButton.Visibility = LoginHint.Visibility = loggedIn ? Visibility.Collapsed : Visibility.Visible;
+        var initialSyncing = _engine.InitialSyncing;
+        SyncingPanel.Visibility = initialSyncing ? Visibility.Visible : Visibility.Collapsed;
+        LoginButton.Visibility = LoginHint.Visibility = loggedIn || initialSyncing ? Visibility.Collapsed : Visibility.Visible;
         LoginButton.IsEnabled = !_engine.LoggingIn;
         LoginButton.Content = _engine.LoggingIn ? "等待瀏覽器登入…" : "登入 Hayaku";
-        MainContent.Visibility = SummaryRow.Visibility = loggedIn ? Visibility.Visible : Visibility.Collapsed;
-        ClockInButton.IsEnabled = ClockOutButton.IsEnabled = loggedIn;
+        MainContent.Visibility = SummaryRow.Visibility = loggedIn && !initialSyncing ? Visibility.Visible : Visibility.Collapsed;
+        ClockInButton.IsEnabled = ClockOutButton.IsEnabled = EntriesButton.IsEnabled = loggedIn && !initialSyncing;
+        SyncText.Text = _engine.Syncing ? "同步中…" :
+            _engine.AutoSyncPaused ? $"{_engine.LastSynced:HH:mm} 同步 · 暫停自動" :
+            _engine.LastSynced is { } synced ? $"{synced:HH:mm} 已同步" : "";
+        SyncText.ToolTip = _engine.AutoSyncPaused
+            ? "不在上班時間，暫停自動同步（打開面板或按 ⟳ 仍會同步）；可在設定 › 一般關掉"
+            : null;
+        RefreshButton.IsEnabled = !_engine.Syncing;
+        if (initialSyncing)
+            StartSpinner();
+        else
+            SpinnerRotate.BeginAnimation(RotateTransform.AngleProperty, null);
 
         ErrorText.Text = _engine.Error ?? "";
         ErrorText.Visibility = _engine.Error is null ? Visibility.Collapsed : Visibility.Visible;
@@ -102,6 +203,16 @@ public partial class PanelWindow : Window
         UserText.Text = _engine.User?.DisplayName ?? "Hayaku";
         StatusText.Text = WorkMath.Phase(_engine.Schedule, now, _engine.State.ClockedOut).Text;
 
+        RenderTimer(now);
+        RenderTasks();
+        RenderToday(now);
+        RenderTodayExtras();
+        RenderNotifications();
+        UpdateNumbers();
+    }
+
+    void RenderTimer(DateTime now)
+    {
         var running = _engine.RunningKeys();
         var tasks = _engine.Entries
             .GroupBy(e => e.Task, StringComparer.OrdinalIgnoreCase)
@@ -123,19 +234,52 @@ public partial class PanelWindow : Window
         RunningEmpty.Visibility = _running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         PausedSection.Visibility = _paused.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
-        if (!TaskCombo.IsKeyboardFocusWithin && !TaskCombo.IsDropDownOpen)
-        {
-            var text = TaskCombo.Text;
-            TaskCombo.ItemsSource = _engine.MyTasks.Select(t => $"{t.Key}  {t.Title}").ToList();
-            TaskCombo.Text = text;
-        }
+        _allTasks = _engine.MyTasks.Select(t => new PickItem(t.Key, t.Title, $"{t.Project} · {t.Status}")).ToList();
 
+        // 主資料夾裡可能有很多專案：只列活動中或今天有用過的，都沒有就列主資料夾
         _repos.Clear();
-        foreach (var repo in _engine.Claude.Repos.OrderBy(r => r.Name))
+        var units = _engine.Claude.Repos
+            .Where(r => r.Active || r.LastActivity.Date == now.Date)
+            .OrderByDescending(r => r.Active)
+            .ThenByDescending(r => r.LastActivity)
+            .ToList();
+        if (units.Count == 0)
+            units = _engine.Claude.Repos.Where(r => r.RootPath is null).OrderBy(r => r.Name).ToList();
+        foreach (var repo in units)
             _repos.Add(RepoRowVm.From(repo, now, _engine.Config.ClaudeIdleMinutes));
         ClaudeSection.Visibility = _repos.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
 
-        UpdateNumbers();
+    void RenderToday(DateTime now)
+    {
+        var offsetNow = DateTimeOffset.Now;
+        var meetings = _engine.Meetings.Select(m => MeetingRowVm.From(m, offsetNow)).ToList();
+        MeetingList.ItemsSource = meetings;
+        MeetingEmpty.Visibility = meetings.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var todos = _engine.Todos.Select(t => new TodoRowVm { Item = t }).ToList();
+        TodoList.ItemsSource = todos;
+        TodoEmpty.Visibility = todos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var reminders = _engine.Reminders.Where(r => r.At is null || r.At > offsetNow).Take(5).Select(r => new ReminderRowVm { Item = r }).ToList();
+        ReminderList.ItemsSource = reminders;
+        ReminderEmpty.Visibility = reminders.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var pending = _engine.Meetings.Count(m => m.EndAt > offsetNow) + todos.Count;
+        TodayBadge.Visibility = pending > 0 ? Visibility.Visible : Visibility.Collapsed;
+        TodayBadgeText.Text = pending > 99 ? "99+" : pending.ToString();
+    }
+
+    void RenderNotifications()
+    {
+        var rows = FilteredNotifications().Take(30).Select(n => new NotificationRowVm { Item = n }).ToList();
+        NotificationList.ItemsSource = rows;
+        NotificationEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var unread = _engine.UnreadCount;
+        UnreadText.Text = unread > 0 ? $"{unread} 則未讀" : "都已讀";
+        MarkAllButton.IsEnabled = unread > 0;
+        NotifyBadge.Visibility = unread > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NotifyBadgeText.Text = unread > 99 ? "99+" : unread.ToString();
     }
 
     void UpdateNumbers()
@@ -159,44 +303,225 @@ public partial class PanelWindow : Window
             vm.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, vm.Key, today, now));
     }
 
-    // ───────────── 動作 ─────────────
+    void Tab_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { Tag: string tab } || TabTimer is null)
+            return;
+        TabTimer.Visibility = tab == "Timer" ? Visibility.Visible : Visibility.Collapsed;
+        TabTasks.Visibility = tab == "Tasks" ? Visibility.Visible : Visibility.Collapsed;
+        TabToday.Visibility = tab == "Today" ? Visibility.Visible : Visibility.Collapsed;
+        TabNotify.Visibility = tab == "Notify" ? Visibility.Visible : Visibility.Collapsed;
+        StartPopup.IsOpen = false;
+    }
+
+    // ───────────── 計時 ─────────────
 
     async void TaskAction_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as Button)?.Tag is not TaskRowVm vm)
             return;
+        vm.Busy = true;
         if (vm.Running)
             await _engine.PauseTaskAsync(vm.Key);
         else
             await _engine.StartTaskAsync(vm.Key);
+        vm.Busy = false;
     }
 
-    async void StartTask_Click(object sender, RoutedEventArgs e)
+    void TaskRow_Click(object sender, MouseButtonEventArgs e)
     {
-        if (KeyFinder.Parse(TaskCombo.Text) is not { } key)
+        if ((sender as FrameworkElement)?.Tag is TaskRowVm vm)
+            RequestWorkspace("tasks", vm.Key);
+    }
+
+    void StartBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        StartHint.Visibility = StartBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        FilterStart();
+    }
+
+    void StartBox_GotFocus(object sender, KeyboardFocusChangedEventArgs e) => FilterStart();
+
+    void StartBox_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (!StartList.IsMouseOver && !StartList.IsKeyboardFocusWithin)
+            StartPopup.IsOpen = false;
+    }
+
+    /// <summary>依輸入篩選我的任務；輸入的編號不在清單裡時，也提供「直接開始」。</summary>
+    void FilterStart()
+    {
+        var q = StartBox.Text.Trim();
+        var items = (q.Length == 0
+                ? _allTasks
+                : _allTasks.Where(t => t.Key.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                       || t.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                       || t.Detail.Contains(q, StringComparison.OrdinalIgnoreCase)))
+            .Take(12)
+            .ToList();
+        if (q.Length >= 2)
+            items.AddRange(RemoteResults(q)
+                .Where(r => !items.Any(i => string.Equals(i.Key, r.Key, StringComparison.OrdinalIgnoreCase)))
+                .Take(Math.Max(0, 12 - items.Count)));
+        QueueRemoteSearch(q, items.Count);
+        if (KeyFinder.Parse(q) is { } typed && !items.Any(i => string.Equals(i.Key, typed, StringComparison.OrdinalIgnoreCase)))
+            items.Insert(0, new PickItem(typed, "直接開始這個任務", "不在我的任務清單裡"));
+        StartList.ItemsSource = items;
+        StartList.SelectedIndex = items.Count > 0 ? 0 : -1;
+        StartPopup.IsOpen = StartBox.IsKeyboardFocused && items.Count > 0;
+    }
+
+    async void StartBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
         {
-            TaskCombo.Focus();
-            return;
+            case Key.Down when StartList.Items.Count > 0:
+                StartList.SelectedIndex = Math.Min(StartList.Items.Count - 1, StartList.SelectedIndex + 1);
+                StartList.ScrollIntoView(StartList.SelectedItem);
+                e.Handled = true;
+                break;
+            case Key.Up when StartList.Items.Count > 0:
+                StartList.SelectedIndex = Math.Max(0, StartList.SelectedIndex - 1);
+                StartList.ScrollIntoView(StartList.SelectedItem);
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                e.Handled = true;
+                await StartSelectedAsync();
+                break;
         }
-        TaskCombo.Text = "";
+    }
+
+    async void StartList_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((e.OriginalSource as FrameworkElement)?.DataContext is PickItem item)
+        {
+            StartList.SelectedItem = item;
+            await StartSelectedAsync();
+        }
+    }
+
+    async Task StartSelectedAsync()
+    {
+        var key = (StartList.SelectedItem as PickItem)?.Key ?? KeyFinder.Parse(StartBox.Text);
+        if (key is null)
+            return;
+        StartPopup.IsOpen = false;
+        StartBox.Text = "";
+        Keyboard.ClearFocus();
         await _engine.StartTaskAsync(key);
     }
 
-    async void ClockIn_Click(object sender, RoutedEventArgs e)
+    // ───────────── 今天 ─────────────
+
+    void MeetingRow_Click(object sender, MouseButtonEventArgs e)
     {
-        if (_engine.ResumeCandidates().Count > 0)
-        {
-            await _engine.ClockInAsync();
-            return;
-        }
-        var picker = new TaskPickerWindow(_engine.MyTasks, "上班要開始計時哪些任務？（可多選）", multiSelect: true, showMakeDefault: false);
-        if (ShowDialogSafe(picker) && picker.SelectedKeys.Count > 0)
-            await _engine.ClockInAsync(picker.SelectedKeys);
+        if ((sender as FrameworkElement)?.Tag is MeetingRowVm vm)
+            Web.Open(_engine.MeetingUrl(vm.Item.Id));
     }
 
-    async void ClockOut_Click(object sender, RoutedEventArgs e) => await _engine.ClockOutAsync();
+    async void JoinMeeting_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not MeetingRowVm vm)
+            return;
+        e.Handled = true;
+        ((Button)sender).IsEnabled = false;
+        await _engine.JoinMeetingAsync(vm.Item);
+    }
 
-    async void Refresh_Click(object sender, RoutedEventArgs e) => await _engine.RefreshAsync();
+    async void Todo_Checked(object sender, RoutedEventArgs e)
+    {
+        if ((sender as CheckBox)?.Tag is not TodoRowVm vm)
+            return;
+        vm.Busy = true;
+        await _engine.CompleteTodoAsync(vm.Item);
+    }
+
+    void CaptureBox_TextChanged(object sender, TextChangedEventArgs e) =>
+        CaptureHint.Visibility = CaptureBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    async void CaptureBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+            return;
+        e.Handled = true;
+        await CaptureAsync();
+    }
+
+    async void Capture_Click(object sender, RoutedEventArgs e) => await CaptureAsync();
+
+    async Task CaptureAsync()
+    {
+        var text = CaptureBox.Text.Trim();
+        if (text.Length == 0)
+            return;
+        CaptureBox.IsEnabled = false;
+        await _engine.QuickCaptureAsync(text, CaptureTodo.IsChecked == true);
+        CaptureBox.IsEnabled = true;
+        if (_engine.Error is null)
+            CaptureBox.Text = "";
+    }
+
+    // ───────────── 通知 ─────────────
+
+    async void NotificationRow_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not NotificationRowVm vm)
+            return;
+        Web.Open(_engine.NotificationUrl(vm.Item));
+        if (vm.Item.Unread)
+            await _engine.MarkNotificationsReadAsync([vm.Item.Id]);
+    }
+
+    async void MarkAll_Click(object sender, RoutedEventArgs e)
+    {
+        MarkAllButton.IsEnabled = false;
+        await _engine.MarkNotificationsReadAsync(null);
+    }
+
+    void OpenNotifications_Click(object sender, RoutedEventArgs e) => Web.Open(_engine.WebUrl("/notifications"));
+
+    // ───────────── 底部 ─────────────
+
+    async void ClockIn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.ResumeCandidates().Count == 0)
+        {
+            var picker = new TaskPickerWindow(_engine.MyTasks, "上班要開始計時哪些任務？（可多選）", multiSelect: true, showMakeDefault: false);
+            if (!ShowDialogSafe(picker) || picker.SelectedKeys.Count == 0)
+                return;
+            await WithBusyButton(ClockInButton, () => _engine.ClockInAsync(picker.SelectedKeys));
+            return;
+        }
+        await WithBusyButton(ClockInButton, () => _engine.ClockInAsync());
+    }
+
+    async void ClockOut_Click(object sender, RoutedEventArgs e) =>
+        await WithBusyButton(ClockOutButton, _engine.ClockOutAsync);
+
+    static async Task WithBusyButton(Button button, Func<Task> action)
+    {
+        var content = button.Content;
+        button.Content = "處理中…";
+        button.IsEnabled = false;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            button.Content = content;
+            button.IsEnabled = true;
+        }
+    }
+
+    void Entries_Click(object sender, RoutedEventArgs e)
+    {
+        HidePanel();
+        TimeEntriesRequested?.Invoke();
+    }
+
+    async void Refresh_Click(object sender, RoutedEventArgs e) => await _engine.RefreshAllAsync(userAction: true);
 
     void Settings_Click(object sender, RoutedEventArgs e)
     {
