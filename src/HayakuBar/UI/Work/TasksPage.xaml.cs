@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using HayakuBar.Core;
 using HayakuBar.Infra;
 using HayakuBar.Mcp;
@@ -64,6 +66,13 @@ public partial class TasksPage : UserControl, IWorkPage
     bool _buildingFilters;
     List<SearchHit> _searchHits = [];
     TaskDetail? _detail;
+    string? _creatingChildOf;
+    string? _pickedParent; // 新任務的上層，null＝最上層
+    string? _lastCreated;
+    bool _keepParentOnProjectChange;
+    int _treeVersion;
+    List<ProjectTask> _projectTasks = [];
+    List<TreeNodeVm> _treeNodes = [];
     bool _loadingDetail;
     int _detailVersion;
 
@@ -98,6 +107,14 @@ public partial class TasksPage : UserControl, IWorkPage
         SortBox.SelectedIndex = Math.Max(0, sortIndex);
         _buildingFilters = false;
 
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && Overlay.Visibility == Visibility.Visible)
+            {
+                CloseDialog();
+                e.Handled = true;
+            }
+        };
         Loaded += (_, _) => _engine.Changed += OnEngineChanged;
         Unloaded += (_, _) => _engine.Changed -= OnEngineChanged;
     }
@@ -108,7 +125,7 @@ public partial class TasksPage : UserControl, IWorkPage
             RenderList(keepSelection: true);
     }
 
-    /// <summary>arg：任務編號（直接打開那個任務）、"new"（新增）、或分頁名稱（overdue…）。</summary>
+    /// <summary>arg：任務編號（直接打開那個任務）、"new"（新增）、"new:F2P-5"（新增 F2P-5 的子任務）、或分頁名稱（overdue…）。</summary>
     public async Task ActivateAsync(object? arg)
     {
         RenderList(keepSelection: true);
@@ -116,6 +133,9 @@ public partial class TasksPage : UserControl, IWorkPage
         {
             case "new":
                 ShowCreate(null);
+                break;
+            case string s when s.StartsWith("new:", StringComparison.OrdinalIgnoreCase) && KeyFinder.Parse(s[4..]) is { } parent:
+                ShowCreate(parent);
                 break;
             case string tab when _tabs.ContainsKey(tab):
                 _tabs[tab].IsChecked = true;
@@ -274,12 +294,52 @@ public partial class TasksPage : UserControl, IWorkPage
             _tabs[SearchTab].IsChecked = true;
     }
 
-    async void TaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>點清單裡的任務：跳出彈窗。點到列上的計時按鈕不算。</summary>
+    async void TaskList_Click(object sender, MouseButtonEventArgs e)
     {
-        if (_loadingDetail || TaskList.SelectedItem is not TaskListRowVm row)
-            return;
-        await OpenTaskAsync(row.Key);
+        for (var d = e.OriginalSource as DependencyObject; d is not null && d != TaskList; d = VisualTreeHelper.GetParent(d))
+            if (d is ButtonBase)
+                return;
+        if ((e.OriginalSource as FrameworkElement)?.DataContext is TaskListRowVm row)
+            await OpenTaskAsync(row.Key);
     }
+
+    async void TaskList_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && TaskList.SelectedItem is TaskListRowVm row)
+        {
+            e.Handled = true;
+            await OpenTaskAsync(row.Key);
+        }
+    }
+
+    // ───────────── 彈窗 ─────────────
+
+    void ShowDialog()
+    {
+        if (Overlay.Visibility == Visibility.Visible)
+            return;
+        Overlay.Visibility = Visibility.Visible;
+        if (SystemParameters.ClientAreaAnimation)
+            Overlay.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)));
+    }
+
+    /// <summary>關掉彈窗：正在讀取的任務作廢，正在編輯的欄位先存（LostFocus 會送出）。</summary>
+    void CloseDialog()
+    {
+        if (Overlay.Visibility != Visibility.Visible)
+            return;
+        Keyboard.ClearFocus();
+        _detailVersion++;
+        Overlay.BeginAnimation(OpacityProperty, null);
+        Overlay.Visibility = Visibility.Collapsed;
+        DetailPanel.Visibility = CreatePanel.Visibility = Visibility.Collapsed;
+        TaskList.Focus();
+    }
+
+    void Backdrop_Click(object sender, MouseButtonEventArgs e) => CloseDialog();
+
+    void CloseDialog_Click(object sender, RoutedEventArgs e) => CloseDialog();
 
     async void RowTimer_Click(object sender, RoutedEventArgs e)
     {
@@ -299,6 +359,8 @@ public partial class TasksPage : UserControl, IWorkPage
     async Task OpenTaskAsync(string key)
     {
         var version = ++_detailVersion;
+        ShowDialog();
+        SetDialogWidth(wide: false);
         CreatePanel.Visibility = Visibility.Collapsed;
         DetailEmpty.Text = "讀取中…";
         DetailEmpty.Visibility = Visibility.Visible;
@@ -555,8 +617,10 @@ public partial class TasksPage : UserControl, IWorkPage
 
     void Remind_Click(object sender, RoutedEventArgs e)
     {
-        if (_detail is not null)
-            _host.ShowPage("reminders", _detail.Key);
+        if (_detail is null)
+            return;
+        CloseDialog();
+        _host.ShowPage("reminders", _detail.Key);
     }
 
     void OpenWeb_Click(object sender, RoutedEventArgs e)
@@ -602,17 +666,22 @@ public partial class TasksPage : UserControl, IWorkPage
 
     void ShowCreate(string? parent) => _ = ShowCreateAsync(parent);
 
+    /// <summary>開新增任務的彈窗；parent 有值時（任務的「＋ 子任務」）先選好那個專案與上層。</summary>
     async Task ShowCreateAsync(string? parent)
     {
         _detailVersion++;
+        ShowDialog();
+        SetDialogWidth(wide: true);
+        _creatingChildOf = parent;
+        _pickedParent = parent;
         DetailEmpty.Visibility = Visibility.Collapsed;
         DetailPanel.Visibility = Visibility.Collapsed;
         CreatePanel.Visibility = Visibility.Visible;
         CreateTitle.Text = parent is null ? "新增任務" : $"新增 {parent} 的子任務";
-        NewParent.Text = parent ?? "";
-        NewTitle.Text = NewStart.Text = NewEnd.Text = NewEstimate.Text = "";
+        NewTitle.Text = NewStart.Text = NewEnd.Text = NewEstimate.Text = TreeFilter.Text = "";
+        NewPriority.SelectedIndex = 0;
         Inputs.Show(CreateStatus, null);
-        NewTitle.Focus();
+        OpenCreatedButton.Visibility = Visibility.Collapsed;
         if (NewProject.ItemsSource is null)
         {
             try
@@ -628,22 +697,186 @@ public partial class TasksPage : UserControl, IWorkPage
             : _detail is not null ? KeyFinder.ProjectOf(_detail.Key)
             : _engine.RunningKeys().Select(KeyFinder.ProjectOf).FirstOrDefault();
         if (NewProject.ItemsSource is IEnumerable<ProjectInfo> projects)
-            NewProject.SelectedItem = projects.FirstOrDefault(p => p.Key == projectKey) ?? projects.FirstOrDefault();
+        {
+            var target = projects.FirstOrDefault(p => p.Key == projectKey) ?? projects.FirstOrDefault();
+            if (target is not null && Equals(NewProject.SelectedItem, target))
+                await LoadTreeAsync(target.Key); // 同一個專案不會觸發 SelectionChanged，自己重讀
+            else
+            {
+                _keepParentOnProjectChange = true;
+                NewProject.SelectedItem = target;
+            }
+        }
+        NewTitle.Focus();
     }
 
-    void CancelCreate_Click(object sender, RoutedEventArgs e)
+    /// <summary>詳細最寬 700；新增任務有專案樹，最寬 1040。視窗不夠寬時跟著縮（彈窗是置中撐滿、限制最大寬度）。</summary>
+    void SetDialogWidth(bool wide) => Dialog.MaxWidth = wide ? 1040 : 700;
+
+    async void NewProject_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        CreatePanel.Visibility = Visibility.Collapsed;
-        if (_detail is not null)
-            DetailPanel.Visibility = Visibility.Visible;
-        else
+        if (NewProject.SelectedItem is not ProjectInfo project)
+            return;
+        if (!_keepParentOnProjectChange)
+            _pickedParent = null; // 換專案時上層歸零
+        _keepParentOnProjectChange = false;
+        await LoadTreeAsync(project.Key);
+    }
+
+    /// <summary>讀專案的全部任務與狀態清單，畫出專案樹。</summary>
+    async Task LoadTreeAsync(string projectKey)
+    {
+        var version = ++_treeVersion;
+        TreeMessage.Text = "讀取中…";
+        TreeMessage.Visibility = Visibility.Visible;
+        ProjectTree.ItemsSource = null;
+        try
         {
-            DetailEmpty.Text = "從左邊選一個任務";
-            DetailEmpty.Visibility = Visibility.Visible;
+            var tasks = await _engine.Api.ListProjectTasksAsync(projectKey, CancellationToken.None);
+            var project = await _engine.GetProjectAsync(projectKey);
+            if (version != _treeVersion)
+                return;
+            _projectTasks = tasks;
+            var statuses = project.Statuses.Select(s => s.Name).ToList();
+            NewStatus.ItemsSource = statuses;
+            NewStatus.SelectedItem = project.Statuses.FirstOrDefault(s => s.IsDefault)?.Name ?? statuses.FirstOrDefault();
+            if (_pickedParent is not null && !tasks.Any(t => string.Equals(t.Key, _pickedParent, StringComparison.OrdinalIgnoreCase)))
+                _pickedParent = null;
+            RenderTree(scrollToPicked: true);
+        }
+        catch (Exception ex)
+        {
+            if (version != _treeVersion)
+                return;
+            Log.Error($"讀取 {projectKey} 的任務樹失敗", ex);
+            _projectTasks = [];
+            TreeMessage.Text = $"讀不到專案的任務：{ex.Message}";
+        }
+        UpdateParentText();
+    }
+
+    void RenderTree(bool scrollToPicked = false)
+    {
+        var filter = TreeFilter.Text.Trim();
+        var roots = TaskTree.Build(_projectTasks, ShowDoneBox.IsChecked == true, filter);
+        var expandAll = filter.Length > 0 || _projectTasks.Count <= 150;
+        var picked = _pickedParent is null ? new HashSet<string>() : AncestorsOf(_pickedParent);
+        _treeNodes = roots.Select(r => TreeNodeVm.From(r, _pickedParent, expandAll, picked)).ToList();
+        foreach (var node in _treeNodes)
+            node.SetWidth(ProjectTree.ActualWidth);
+        ProjectTree.ItemsSource = _treeNodes;
+        RootRow.Background = _pickedParent is null ? Brushes2.Get("SelectedBrush") : Brushes.Transparent;
+        TreeMessage.Text = _projectTasks.Count == 0 ? "這個專案還沒有任務，新增的會在最上層"
+            : roots.Count == 0 ? "沒有符合的任務" : "";
+        TreeMessage.Visibility = TreeMessage.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (scrollToPicked && _pickedParent is not null)
+            Dispatcher.InvokeAsync(() => BringIntoView(ProjectTree, _pickedParent), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>某任務的所有上層（含自己），展開用。</summary>
+    HashSet<string> AncestorsOf(string key)
+    {
+        var byKey = _projectTasks.ToDictionary(t => t.Key, StringComparer.OrdinalIgnoreCase);
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var k = key; k is not null && set.Add(k) && byKey.TryGetValue(k, out var t);)
+            k = t.Parent;
+        return set;
+    }
+
+    /// <summary>把樹裡某個任務捲到看得到的地方（容器要等畫面產生後才找得到）。</summary>
+    static bool BringIntoView(ItemsControl parent, string key)
+    {
+        foreach (var item in parent.Items.OfType<TreeNodeVm>())
+        {
+            if (parent.ItemContainerGenerator.ContainerFromItem(item) is not TreeViewItem container)
+                continue;
+            if (string.Equals(item.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                container.BringIntoView();
+                return true;
+            }
+            if (item.Children.Count > 0 && container.IsExpanded)
+            {
+                container.UpdateLayout();
+                if (BringIntoView(container, key))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    void UpdateParentText()
+    {
+        if (_pickedParent is null)
+        {
+            ParentText.Text = "最上層（不屬於任何任務）";
+            return;
+        }
+        var byKey = _projectTasks.ToDictionary(t => t.Key, StringComparer.OrdinalIgnoreCase);
+        var chain = AncestorsOf(_pickedParent).Reverse()
+            .Select(k => byKey.TryGetValue(k, out var t) ? $"{t.Key} {t.Title}" : k);
+        ParentText.Text = string.Join(" › ", chain);
+    }
+
+    void PickParent(string? key)
+    {
+        _pickedParent = key;
+        foreach (var node in _treeNodes)
+            node.SetPicked(key);
+        RootRow.Background = key is null ? Brushes2.Get("SelectedBrush") : Brushes.Transparent;
+        UpdateParentText();
+        NewTitle.Focus();
+    }
+
+    void TreeRow_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is TreeNodeVm node)
+            PickParent(node.Key);
+    }
+
+    void TreeAdd_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is TreeNodeVm node)
+        {
+            e.Handled = true;
+            PickParent(node.Key);
         }
     }
 
-    async void Create_Click(object sender, RoutedEventArgs e)
+    void RootAdd_Click(object sender, MouseButtonEventArgs e) => PickParent(null);
+
+    void TreeFilter_TextChanged(object sender, TextChangedEventArgs e) => RenderTree();
+
+    /// <summary>樹變寬變窄時，各列的名稱跟著截短，讓前面的 ＋ 與狀態都看得到。</summary>
+    void ProjectTree_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        foreach (var node in _treeNodes)
+            node.SetWidth(e.NewSize.Width);
+    }
+
+    void ShowDone_Click(object sender, RoutedEventArgs e) => RenderTree();
+
+    async void NewTitle_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+            return;
+        e.Handled = true;
+        await CreateAsync();
+    }
+
+    /// <summary>取消：從任務的「＋ 子任務」進來的回到那個任務，否則關掉彈窗。</summary>
+    async void CancelCreate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_creatingChildOf is { } parent)
+            await OpenTaskAsync(parent);
+        else
+            CloseDialog();
+    }
+
+    async void Create_Click(object sender, RoutedEventArgs e) => await CreateAsync();
+
+    /// <summary>建立任務；成功後留在彈窗、重讀專案樹並標出新任務，可以接著新增下一筆。</summary>
+    async Task CreateAsync()
     {
         if (NewProject.SelectedItem is not ProjectInfo project)
         {
@@ -658,15 +891,12 @@ public partial class TasksPage : UserControl, IWorkPage
             return;
         }
         var fields = new Dictionary<string, object?> { ["project"] = project.Key, ["title"] = title };
-        if (NewParent.Text.Trim().Length > 0)
-        {
-            if (KeyFinder.Parse(NewParent.Text) is not { } parent)
-            {
-                Inputs.Show(CreateStatus, "上層任務請填任務編號，例 F2P-5");
-                return;
-            }
-            fields["parent"] = parent;
-        }
+        if (_pickedParent is not null)
+            fields["parent"] = _pickedParent;
+        if (NewStatus.SelectedItem is string status)
+            fields["status"] = status;
+        if (NewPriority.SelectedItem is ComboBoxItem { Content: string priority } && priority != "無")
+            fields["priority"] = priority;
         foreach (var (box, name) in new[] { (NewStart, "plannedStart"), (NewEnd, "plannedEnd") })
         {
             if (box.Text.Trim().Length == 0)
@@ -691,14 +921,103 @@ public partial class TasksPage : UserControl, IWorkPage
             fields["assignees"] = new[] { "me" };
 
         string key = "";
+        OpenCreatedButton.Visibility = Visibility.Collapsed;
         if (!await Inputs.Run(CreateButton, CreateStatus, async () => key = await _engine.Api.CreateTaskAsync(fields, CancellationToken.None)))
             return;
         if (NewStartTimer.IsChecked == true && key.Length > 0)
             await _engine.StartTaskAsync(key);
-        await _engine.AfterExternalChangeAsync();
-        if (key.Length > 0)
-            await OpenTaskAsync(key);
-        else
-            Inputs.Show(CreateStatus, "已建立", error: false);
+        _lastCreated = key.Length > 0 ? key : null;
+        Inputs.Show(CreateStatus, key.Length > 0 ? $"已建立 {key}　{title}" : "已建立", error: false);
+        if (_lastCreated is not null)
+        {
+            OpenCreatedButton.Content = $"開啟 {_lastCreated} ›";
+            OpenCreatedButton.Visibility = Visibility.Visible;
+        }
+        NewTitle.Text = "";
+        NewTitle.Focus();
+        _ = _engine.AfterExternalChangeAsync();
+        await LoadTreeAsync(project.Key);
+        if (_lastCreated is not null)
+            Dispatcher.InvokeAsync(() => BringIntoView(ProjectTree, _lastCreated), System.Windows.Threading.DispatcherPriority.Loaded);
     }
+
+    async void OpenCreated_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastCreated is { } key)
+            await OpenTaskAsync(key);
+    }
+}
+
+/// <summary>專案樹的一列：選為上層時底色標出來，已完成的淡一點。</summary>
+public sealed class TreeNodeVm : System.ComponentModel.INotifyPropertyChanged
+{
+    bool _isExpanded;
+    bool _picked;
+    double _textMaxWidth = 240;
+
+    public required ProjectTask Task { get; init; }
+    public string Key => Task.Key;
+    public string Title => Task.Title;
+    public string Status => Task.Status;
+    public string StatusSuffix => $"  · {Task.Status}";
+    public int Depth { get; private init; }
+    public List<TreeNodeVm> Children { get; } = [];
+
+    /// <summary>名稱最多多寬：樹的寬度扣掉每層縮排（19）、展開箭頭、＋ 按鈕與捲軸。</summary>
+    public double TextMaxWidth => _textMaxWidth;
+
+    public void SetWidth(double treeWidth)
+    {
+        var width = Math.Max(80, treeWidth - 19 * (Depth + 1) - 34 - 26);
+        if (Math.Abs(width - _textMaxWidth) > 0.5)
+        {
+            _textMaxWidth = width;
+            Raise(nameof(TextMaxWidth));
+        }
+        foreach (var c in Children)
+            c.SetWidth(treeWidth);
+    }
+    public double TextOpacity => Task.StatusCategory is "DONE" or "CANCELLED" ? 0.55 : 1;
+    public string Tip => $"{Task.Key} {Task.Title}" +
+                         (Task.PlannedStart is not null || Task.PlannedEnd is not null
+                             ? $"\n預計 {Inputs.DateText(Task.PlannedStart)} → {Inputs.DateText(Task.PlannedEnd)}" : "") +
+                         "\n點一下或按 ＋：在這個任務底下新增";
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            _isExpanded = value;
+            Raise(nameof(IsExpanded));
+        }
+    }
+
+    public Brush RowBrush => _picked ? Brushes2.Get("SelectedBrush") : Brushes.Transparent;
+
+    public void SetPicked(string? key)
+    {
+        var picked = string.Equals(Key, key, StringComparison.OrdinalIgnoreCase);
+        if (picked != _picked)
+        {
+            _picked = picked;
+            Raise(nameof(RowBrush));
+        }
+        foreach (var c in Children)
+            c.SetPicked(key);
+    }
+
+    /// <summary>expandAll：全部展開；否則只展開第一層與選中任務的上層。</summary>
+    public static TreeNodeVm From(TaskTreeNode node, string? picked, bool expandAll, IReadOnlySet<string> pickedAncestors, int depth = 0)
+    {
+        var vm = new TreeNodeVm { Task = node.Task, Depth = depth };
+        vm._picked = string.Equals(node.Task.Key, picked, StringComparison.OrdinalIgnoreCase);
+        vm._isExpanded = expandAll || depth == 0 || pickedAncestors.Contains(node.Task.Key);
+        vm.Children.AddRange(node.Children.Select(c => From(c, picked, expandAll, pickedAncestors, depth + 1)));
+        return vm;
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    void Raise(string name) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
 }

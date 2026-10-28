@@ -366,7 +366,7 @@ public partial class App : Application
                 bmp.Render(target);
                 var encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bmp));
-                await using var file = File.Create(Path.Combine(dir, $"{page}.png"));
+                await using var file = File.Create(Path.Combine(dir, $"{page.Replace(':', '_')}.png"));
                 encoder.Save(file);
             }
             catch (Exception ex)

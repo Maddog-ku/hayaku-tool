@@ -70,6 +70,9 @@ public sealed class McpClient
         }
     }
 
+    /// <summary>列出伺服器提供的所有工具（診斷用）。</summary>
+    public Task<JsonElement> ListToolsAsync(CancellationToken ct) => RpcAsync("tools/list", new { }, ct);
+
     async Task<JsonElement> RpcAsync(string method, object parameters, CancellationToken ct)
     {
         for (var attempt = 0; ; attempt++)

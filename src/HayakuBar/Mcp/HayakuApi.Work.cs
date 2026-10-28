@@ -18,6 +18,16 @@ public sealed record TaskSummary(
 
 public sealed record PersonRef(string Username, string DisplayName);
 
+/// <summary>專案裡的一個任務（list_tasks）；Parent 是直接上層的編號，最上層為 null。</summary>
+public sealed record ProjectTask(
+    string Key,
+    string Title,
+    string Status,
+    string StatusCategory,
+    string? Parent,
+    DateOnly? PlannedStart,
+    DateOnly? PlannedEnd);
+
 /// <summary>任務完整資料（get_task）。</summary>
 public sealed record TaskDetail(
     string Key,
@@ -100,6 +110,38 @@ public sealed partial class HayakuApi
         }
         return list;
     }
+
+    /// <summary>專案的全部任務（含各層子任務），依 Hayaku 的順序；一頁 200 筆，自動翻頁。</summary>
+    public async Task<List<ProjectTask>> ListProjectTasksAsync(string project, CancellationToken ct)
+    {
+        var list = new List<ProjectTask>();
+        string? cursor = null;
+        for (var page = 0; page < 25; page++)
+        {
+            var args = new Dictionary<string, object?> { ["project"] = project, ["limit"] = 200 };
+            if (cursor is not null)
+                args["cursor"] = cursor;
+            var r = await Mcp.CallToolAsync("list_tasks", args, ct);
+            list.AddRange(ParseProjectTasks(r));
+            cursor = Str(r, "cursor");
+            if (string.IsNullOrEmpty(cursor))
+                break;
+        }
+        return list;
+    }
+
+    internal static List<ProjectTask> ParseProjectTasks(JsonElement r) =>
+        Items(r, "tasks")
+            .Where(t => Str(t, "task") is not null)
+            .Select(t => new ProjectTask(
+                Str(t, "task")!,
+                Str(t, "title") ?? "",
+                Str(t, "status") ?? "",
+                Str(t, "statusCategory") ?? "",
+                Items(t, "path").Select(p => Str(p, "task")).LastOrDefault(k => k is not null),
+                Day(t, "plannedStart"),
+                Day(t, "plannedEnd")))
+            .ToList();
 
     public async Task<TaskDetail> GetTaskAsync(string task, CancellationToken ct)
     {
