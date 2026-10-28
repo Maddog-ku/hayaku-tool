@@ -27,7 +27,7 @@ public partial class WorkspaceWindow : Window
         RefreshChrome();
     }
 
-    /// <summary>頁面：tasks、hours、worklog、reminders、meetings、chat、team、leaves、stats。</summary>
+    /// <summary>頁面：tasks、hours、entries、worklog、reminders、meetings、chat、team、leaves、stats。</summary>
     public void ShowPage(string page, object? arg = null)
     {
         _pendingArg = arg;
@@ -52,6 +52,7 @@ public partial class WorkspaceWindow : Window
             view = page switch
             {
                 "hours" => new HoursPage(_engine, this),
+                "entries" => new DayEntriesPage(_engine),
                 "worklog" => new WorkLogPage(_engine),
                 "reminders" => new RemindersPage(_engine),
                 "meetings" => new MeetingsPage(_engine),
@@ -85,10 +86,10 @@ public partial class WorkspaceWindow : Window
 
     void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Keyboard.Modifiers != ModifierKeys.Control || e.Key is < Key.D1 or > Key.D9)
+        if (Keyboard.Modifiers != ModifierKeys.Control || e.Key is < Key.D0 or > Key.D9)
             return;
         var navs = NavPanel.Children.OfType<RadioButton>().ToList();
-        var index = e.Key - Key.D1;
+        var index = e.Key == Key.D0 ? 9 : e.Key - Key.D1;
         if (index < navs.Count)
         {
             navs[index].IsChecked = true;
@@ -96,10 +97,8 @@ public partial class WorkspaceWindow : Window
         }
     }
 
-    /// <summary>開某天的工時紀錄（App 提供）。</summary>
-    public event Action<DateOnly>? DayRequested;
-
-    public void OpenDay(DateOnly day) => DayRequested?.Invoke(day);
+    /// <summary>切到「工時紀錄」看某一天。</summary>
+    public void OpenDay(DateOnly day) => ShowPage("entries", day);
 
     void OpenWeb_Click(object sender, RoutedEventArgs e) => Web.Open(_engine.Config.BaseUrl);
 }

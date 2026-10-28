@@ -47,7 +47,7 @@ public class ClaudeMonitorTests
             File.WriteAllText(Path.Combine(sessionDir, "s1.jsonl"), string.Join("\n", lines) + "\n");
 
             var monitor = new ClaudeMonitor { IsKnownKey = k => k.StartsWith("EG-") || k.StartsWith("F2P-") };
-            var repo = new RepoConfig { Path = ClaudeMonitor.Normalize(repoDir.Path), DefaultTask = "F2P-5" };
+            var repo = new RepoConfig { Path = ClaudeMonitor.Normalize(repoDir.Path) };
             monitor.Sync([repo]);
             monitor.Scan();
             monitor.Resolve(DateTime.Now, 10, new Dictionary<string, string>());
@@ -126,7 +126,7 @@ public class ClaudeMonitorTests
     }
 
     [Fact]
-    public void 主資料夾_自動偵測專案_各自計時與預設任務()
+    public void 主資料夾_自動偵測專案_各自計時_偵測不到任務就不計時()
     {
         using var claudeDir = new TempDir();
         using var work = new TempDir();
@@ -156,8 +156,7 @@ public class ClaudeMonitorTests
             monitor.Sync([new RepoConfig
             {
                 Path = root,
-                DefaultTask = "F2P-99",
-                Projects = [new ProjectConfig { Name = "Print-App", DefaultTask = "F2P-14" }],
+                Projects = [new ProjectConfig { Name = "Print-Server", Enabled = false }],
             }]);
             monitor.Scan();
             monitor.Resolve(DateTime.Now, 10, new Dictionary<string, string>());
@@ -166,12 +165,12 @@ public class ClaudeMonitorTests
             Assert.Equal(3, units.Count); // repo、Print-App、Print-Server
             // Print-App 子資料夾開的 session 算 Print-App，不重複算主資料夾
             Assert.Equal("b", units["Print-App"].SessionId);
-            Assert.Equal("F2P-14", units["Print-App"].ResolvedTask);
-            Assert.Equal("專案預設", units["Print-App"].TaskSource);
+            Assert.True(units["Print-App"].Active);
+            Assert.Null(units["Print-App"].ResolvedTask); // 沒有編號、沒有分支：不計時，沒有預設任務
             Assert.Equal("c", units["repo"].SessionId);
-            Assert.Equal("F2P-99", units["repo"].ResolvedTask);
+            Assert.Null(units["repo"].ResolvedTask);
             Assert.False(units["Print-Server"].Active);
-            Assert.Equal("F2P-99", units["Print-Server"].DefaultTask); // 沒設就用主資料夾的
+            Assert.False(units["Print-Server"].Enabled);
             Assert.Equal(root, units["Print-Server"].RootPath);
         }
         finally
@@ -249,7 +248,7 @@ public class ClaudeMonitorTests
     {
         using var repoDir = new TempDir();
         var monitor = new ClaudeMonitor();
-        monitor.Sync([new RepoConfig { Path = repoDir.Path, DefaultTask = "F2P-5" }]);
+        monitor.Sync([new RepoConfig { Path = repoDir.Path }]);
         var now = DateTime.Now;
         JsonElement Hook(string ev, string? prompt = null) => JsonSerializer.SerializeToElement(new
         {

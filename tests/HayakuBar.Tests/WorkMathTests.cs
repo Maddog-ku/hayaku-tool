@@ -76,4 +76,32 @@ public class WorkMathTests
         Assert.Equal(DayPhaseKind.After, WorkMath.Phase(schedule, day.AddHours(18), false).Kind);
         Assert.Equal(DayPhaseKind.After, WorkMath.Phase(schedule, day.AddHours(9), true).Kind);
     }
+    [Fact]
+    public void Covered_重疊的計時合併成一段()
+    {
+        var day = new DateTime(2026, 10, 28);
+        var entries = new[]
+        {
+            Entry("A", day.AddHours(9), day.AddHours(11)),
+            Entry("B", day.AddHours(10), day.AddHours(12)),
+            Entry("C", day.AddHours(13), day.AddHours(14)),
+        };
+        var covered = WorkMath.Covered(entries, day, day.AddHours(20));
+        Assert.Equal([(day.AddHours(9), day.AddHours(12)), (day.AddHours(13), day.AddHours(14))], covered);
+    }
+
+    [Fact]
+    public void Gaps_只列班表內沒計到的空檔且算到現在()
+    {
+        var day = new DateTime(2026, 10, 28);
+        var segs = WorkMath.ParseSegments("08:30–12:00、13:00–17:30");
+        var entries = new[]
+        {
+            Entry("A", day.AddHours(9), day.AddHours(11.5)),
+            Entry("B", day.AddHours(11.5).AddMinutes(2), day.AddHours(12)), // 2 分鐘的縫不算
+            Entry("C", day.AddHours(12), day.AddHours(13.5)),                // 午休的計時不影響
+        };
+        var gaps = WorkMath.Gaps(segs, entries, day, day.AddHours(15));
+        Assert.Equal([(day.AddHours(8.5), day.AddHours(9)), (day.AddHours(13.5), day.AddHours(15))], gaps);
+    }
 }

@@ -38,53 +38,77 @@ public static class WorkMath
     /// </summary>
     public static double UnionMinutes(IEnumerable<TimeEntry> entries, DateTime day, DateTime now)
     {
+        var extra = entries.Where(e => e.StartedAt is null).Sum(e => e.DurationMinutes ?? 0);
+        return Covered(entries, day, now).Sum(i => (i.End - i.Start).TotalMinutes) + extra;
+    }
+
+    /// <summary>某天各計時段（裁到當天、進行中算到 now）；沒有起訖時間的段落不算。</summary>
+    public static List<(DateTime Start, DateTime End)> Intervals(IEnumerable<TimeEntry> entries, DateTime day, DateTime now)
+    {
         var dayStart = day.Date;
         var dayEnd = dayStart.AddDays(1);
-        var intervals = new List<(DateTime Start, DateTime End)>();
-        double extra = 0;
-
+        var list = new List<(DateTime Start, DateTime End)>();
         foreach (var e in entries)
         {
-            if (e.StartedAt is { } started)
-            {
-                var s = started.LocalDateTime;
-                var end = e.Running
-                    ? now
-                    : e.EndedAt?.LocalDateTime ?? (e.DurationMinutes is { } d ? s.AddMinutes(d) : s);
-                if (s < dayStart) s = dayStart;
-                if (end > dayEnd) end = dayEnd;
-                if (end > now) end = now;
-                if (end > s)
-                    intervals.Add((s, end));
-            }
-            else if (e.DurationMinutes is { } d)
-            {
-                extra += d;
-            }
+            if (e.StartedAt is not { } started)
+                continue;
+            var s = started.LocalDateTime;
+            var end = e.Running
+                ? now
+                : e.EndedAt?.LocalDateTime ?? (e.DurationMinutes is { } d ? s.AddMinutes(d) : s);
+            if (s < dayStart) s = dayStart;
+            if (end > dayEnd) end = dayEnd;
+            if (end > now) end = now;
+            if (end > s)
+                list.Add((s, end));
         }
+        list.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return list;
+    }
 
-        intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
-        double total = 0;
-        DateTime? curStart = null, curEnd = null;
-        foreach (var (s, end) in intervals)
+    /// <summary>某天有在計時的時段（所有計時段的聯集，依時間排序、不重疊）。</summary>
+    public static List<(DateTime Start, DateTime End)> Covered(IEnumerable<TimeEntry> entries, DateTime day, DateTime now)
+    {
+        var merged = new List<(DateTime Start, DateTime End)>();
+        foreach (var (s, e) in Intervals(entries, day, now))
         {
-            if (curStart is null)
+            if (merged.Count > 0 && s <= merged[^1].End)
             {
-                (curStart, curEnd) = (s, end);
-            }
-            else if (s <= curEnd)
-            {
-                if (end > curEnd) curEnd = end;
+                if (e > merged[^1].End)
+                    merged[^1] = (merged[^1].Start, e);
             }
             else
             {
-                total += (curEnd!.Value - curStart.Value).TotalMinutes;
-                (curStart, curEnd) = (s, end);
+                merged.Add((s, e));
             }
         }
-        if (curStart is not null)
-            total += (curEnd!.Value - curStart.Value).TotalMinutes;
-        return total + extra;
+        return merged;
+    }
+
+    /// <summary>班表時段裡沒有任何計時的空檔（到 now 為止、至少 minMinutes 分鐘）。</summary>
+    public static List<(DateTime Start, DateTime End)> Gaps(IReadOnlyList<WorkSegment> segments, IEnumerable<TimeEntry> entries,
+        DateTime day, DateTime now, double minMinutes = 5)
+    {
+        var covered = Covered(entries, day, now);
+        var gaps = new List<(DateTime Start, DateTime End)>();
+        foreach (var seg in segments)
+        {
+            var cursor = day.Date + seg.Start.ToTimeSpan();
+            var segEnd = day.Date + seg.End.ToTimeSpan();
+            if (segEnd > now)
+                segEnd = now;
+            foreach (var (s, e) in covered)
+            {
+                if (e <= cursor || s >= segEnd)
+                    continue;
+                if (s > cursor)
+                    gaps.Add((cursor, s));
+                cursor = e;
+            }
+            if (cursor < segEnd)
+                gaps.Add((cursor, segEnd));
+        }
+        return gaps.Where(g => (g.End - g.Start).TotalMinutes >= minMinutes).ToList();
     }
 
     public static double TaskMinutes(IEnumerable<TimeEntry> entries, string task, DateTime day, DateTime now) =>

@@ -1,6 +1,10 @@
+using HayakuBar.Claude;
 using HayakuBar.Mcp;
 
 namespace HayakuBar.Core;
+
+/// <summary>Claude 整理的工作日誌：Markdown 草稿、建議的計時備註（計時段 id → 備註）、用到的指令與 commit 數。</summary>
+public sealed record ClaudeDigest(string Markdown, IReadOnlyDictionary<string, string> Notes, int PromptCount, int CommitCount);
 
 /// <summary>我的任務分頁、團隊請假、任務狀態、通知封存／稍後提醒。</summary>
 public sealed partial class TimerEngine
@@ -107,6 +111,42 @@ public sealed partial class TimerEngine
         _tasksFetched = DateTime.MinValue;
         return RefreshAllAsync(userAction: false);
     }
+
+    // ───────────── Claude 整理的工作日誌 ─────────────
+
+    /// <summary>要開工作台的某一頁（提示上的按鈕用）。</summary>
+    public event Action<string, object?>? WorkspaceRequested;
+
+    /// <summary>
+    /// 把某天的 Claude Code 對話與 git commit 整理成工作日誌草稿，並替還沒寫備註的計時段產生備註。
+    /// 讀檔與 git 在背景執行。
+    /// </summary>
+    public async Task<ClaudeDigest> BuildDigestAsync(DateOnly day, IReadOnlyList<WorkLogEntry> logEntries, IReadOnlyList<TimeEntry> entries)
+    {
+        var units = _claude.Repos.ToList();
+        var sessionTasks = new Dictionary<string, string>(_state.SessionTasks);
+        var isKnown = _claude.IsKnownKey;
+        var now = DateTime.Now;
+        var (prompts, commits) = await Task.Run(async () =>
+        {
+            var prompts = SessionDigest.Collect(day, units, sessionTasks, isKnown);
+            var folders = prompts.Select(p => p.Folder).Concat(units.Where(u => u.Enabled).Select(u => u.Path));
+            return (prompts, await SessionDigest.CommitsAsync(day, folders, prompts, isKnown));
+        });
+        return new ClaudeDigest(
+            SessionDigest.Markdown(day, prompts, commits, logEntries, TitleOf),
+            SessionDigest.NotesFor(entries, prompts, commits, now),
+            prompts.Count,
+            commits.Count);
+    }
+
+    /// <summary>一次寫入多段計時的備註，最後同步一次。</summary>
+    public Task SetEntryNotesAsync(IReadOnlyDictionary<string, string> notes) => Guarded(async ct =>
+    {
+        foreach (var (id, note) in notes)
+            await _api.UpdateTimeEntryAsync(id, null, null, note, ct);
+        await RefreshCoreAsync(ct);
+    });
 
     /// <summary>計時中或我的任務裡找得到的任務名稱。</summary>
     public string? TitleOf(string key) =>

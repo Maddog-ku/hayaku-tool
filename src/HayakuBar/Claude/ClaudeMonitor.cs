@@ -17,8 +17,6 @@ public sealed class RepoActivity(string path)
     public string? RootPath { get; set; }
 
     public bool Enabled { get; set; } = true;
-    public string? DefaultTask { get; set; }
-    public string DefaultSource { get; set; } = "repo 預設";
 
     public DateTime LastActivity { get; set; } = DateTime.MinValue;
     public DateTime? EndedAt { get; set; }
@@ -138,8 +136,6 @@ public sealed partial class ClaudeMonitor
             {
                 a.RootPath = null;
                 a.Enabled = repo.Enabled;
-                a.DefaultTask = KeyFinder.Parse(repo.DefaultTask);
-                a.DefaultSource = "repo 預設";
             };
         }
         foreach (var repo in configs.Where(r => r.IncludeSubprojects))
@@ -150,13 +146,10 @@ public sealed partial class ClaudeMonitor
                 if (wanted.ContainsKey(project.Path))
                     continue; // 使用者另外單獨加的資料夾，以它自己的設定為準
                 var custom = repo.Projects.FirstOrDefault(p => string.Equals(p.Name, project.Name, StringComparison.OrdinalIgnoreCase));
-                var ownTask = KeyFinder.Parse(custom?.DefaultTask);
                 wanted[project.Path] = a =>
                 {
                     a.RootPath = root;
                     a.Enabled = repo.Enabled && (custom?.Enabled ?? true);
-                    a.DefaultTask = ownTask ?? KeyFinder.Parse(repo.DefaultTask);
-                    a.DefaultSource = ownTask is not null ? "專案預設" : "主資料夾預設";
                 };
             }
         }
@@ -528,8 +521,7 @@ public sealed partial class ClaudeMonitor
                 (task, source) = (promptKey, "對話內容");
             else if (KeyFinder.FindInBranch(a.Branch, IsKnownKey) is { } branchKey)
                 (task, source) = (branchKey, $"分支 {a.Branch}");
-            else if (a.DefaultTask is { } defaultKey)
-                (task, source) = (defaultKey, a.DefaultSource);
+            // 沒有預設任務：偵測不到任務編號就不計時
             a.ResolvedTask = task;
             a.TaskSource = source;
         }

@@ -11,15 +11,21 @@
   - 位置可選：最左邊、工作列圖示左側、工作列圖示右側、通知區域左側（右鍵選單或設定），也可以直接左右拖曳微調。
   - 用 UI Automation 讀工作列圖示的範圍，開了很多 app 放不下時會自動移到不會蓋到圖示的位置。
   - explorer 重啟後會自動重新嵌入。
-  - 有未讀通知時顯示紅色數字；滑鼠停在上面會跳出今天各任務的明細。
-- **彈出面板**：點工作列上的工時（或按快捷鍵，預設 Win+Shift+H），面板從工作列往上滑出。分三頁：
+  - 有未讀通知時顯示紅色數字；滑鼠停在上面會跳出今天各任務的明細與時間軸。
+- **彈出面板**：點工作列上的工時（或按快捷鍵，預設 Win+Shift+H），面板從工作列往上滑出。
+  上方是今天的時間軸（班表時段、有計時的時段、班表內沒計到的空檔標紅，滑鼠移上去看那時在跑哪些任務）。分四頁：
   - **計時**：計時中的任務（● 手動、✦ Claude 自動）與今天累計時間、今天做過的任務；點任務在 Hayaku 開啟；
     「開始任務」打字即篩選（↑↓ 選、Enter 開始）；各專案的 Claude 狀態
+  - **任務**：我的任務（進行中、逾期…），右鍵可停止並完成、改狀態、提醒、聊天
   - **今天**：今天的會議（快開始時可「加入並計時」）、待辦（直接勾掉）、即將到來的提醒、隨手記（可存成待辦）
   - **通知**：最新通知，點一下在 Hayaku 開啟並標為已讀；全部標為已讀
   - 底部：上班／下班（下班後可「復原」）、工時紀錄、同步狀態
-- **工時紀錄**：任一天的計時段，直接改起訖時間、備註、刪除；列出班表裡沒有紀錄的時段，點一下帶入補登。
-- **右下角提示**：會議快開始（加入並計時）、提醒到點（10 分鐘後再提醒）、新通知、下班時工時沒滿（補登工時）。
+- **工作台**：我的任務、我的工時（月曆）、工時紀錄、工作日誌、提醒、會議、聊天、團隊狀況、請假、統計（Ctrl+1～9、0 切換）。
+  - **工時紀錄**：任一天的計時段與時間軸，直接改起訖時間、備註、刪除；列出班表裡沒有紀錄的時段，點一下帶入補登。
+  - **工作日誌 › ✦ Claude 整理**：把那天在「專案」資料夾裡的 Claude Code 指令與自己的 git commit 依任務整理成草稿，
+    可以先改再複製或存到隨手記；也能把同一段時間的指令與 commit 寫進還沒有備註的計時段（不會動已有的備註）。
+- **提示**：從工作列的工時上方滑出。會議快開始（加入並計時）、提醒到點（10 分鐘後再提醒）、新通知、
+  下班（復原、工時沒滿時補登工時、整理日誌）。全螢幕、簡報、Windows 勿擾時段或鎖定時先存起來，結束後再跳出（會議提示照跳，可在設定關掉）。
 - **深色模式**：跟隨 Windows，或在設定指定淺色／深色。
 - **依班表自動上下班**（班表、請假、國定假日都以 Hayaku 為準）
   - 上班時間到：恢復上次那組任務
@@ -29,11 +35,12 @@
   - 手動「上班」隨時可以按；按了「下班」當天就不再自動上班。電腦睡眠錯過的時間點，醒來後只補做最後一個。
 - **Claude Code 自動計時**
   - 只要加入放專案的**主資料夾**（例 `D:\repo`），裡面的專案會自動偵測（git repo，或 Claude 開過 session 的子資料夾），
-    每個專案各自計時，可個別設定預設任務或停用；主資料夾本身是 git repo 時，一般子資料夾不算專案
+    每個專案各自計時，可個別停用；主資料夾本身是 git repo 時，一般子資料夾不算專案
   - CLI 和桌面版的 session 都在 `%USERPROFILE%\.claude\projects\<編碼路徑>\*.jsonl`，用檔案裡的 `cwd` 決定歸屬
     （避免中文路徑撞名、名稱前綴相同的 repo 誤判），Git Bash 格式的路徑（`/d/repo/...`）也認得
   - 設定頁可「從最近的 session 加入」，直接挑 Claude 用過的資料夾
-  - 任務判斷順序：手動指定 → 對話裡提到的任務編號 → git 分支名稱（`feature/F2P-97-xxx`）→ repo 預設任務
+  - 任務判斷順序：手動指定（面板 Claude 區的「選擇」，只對那個 session 有效）→ 對話裡提到的任務編號 → git 分支名稱（`feature/F2P-97-xxx`）。
+    **沒有預設任務**：都偵測不到就不計時
   - Claude 有動作就開始計時，跟其他計時並行，之後**持續計時**，不會因為閒置而暫停；休息、下班或手動暫停才會停。
   - 選用：一鍵安裝 Claude Code hooks（寫進 repo 的 `.claude/settings.local.json`），反應更即時。
   - 預設只在上班時間（或你有手動計時）時才自動計時。
@@ -64,8 +71,10 @@ dotnet run --project src\HayakuBar
 | 參數 | 用途 |
 | --- | --- |
 | `--settings[:分頁]` | 開設定頁（account、taskbar、schedule、repos、claude、general） |
-| `--panel[:分頁]` | 打開面板且不會自動收起（timer、today、notify），檢查畫面用 |
-| `--entries` | 開工時紀錄 |
+| `--workspace[:頁面]` | 開工作台（tasks、hours、entries、worklog、reminders、meetings、chat、team、leaves、stats） |
+| `--panel[:分頁]` | 打開面板且不會自動收起（timer、tasks、today、notify），檢查畫面用 |
+| `--entries` | 開工作台的工時紀錄（今天） |
+| `--shot:頁面,…` | 把各頁畫面存成 PNG 到 `%APPDATA%\HayakuBar\shots`（例 `panel-today,tasks,settings-general,toast`） |
 | `--toast-test` | 顯示一則範例提示 |
 | `--mcp-call <工具> <參數JSON> <輸出檔>` | 診斷：用目前登入呼叫一支 MCP 工具（先關掉執行中的 HayakuBar） |
 
@@ -87,9 +96,10 @@ src/HayakuBar
 ├─ Auth/      OAuthClient（動態註冊、PKCE、refresh）、TokenStore（DPAPI）
 ├─ Mcp/       McpClient（JSON-RPC over POST /mcp）、HayakuApi（whoami、get_my_schedule、list_time_entries、
 │             get_running_timers、start_timer、pause_timer、my_tasks、list_projects）
-├─ Core/      TimerEngine（同步、上下班自動化、Claude 計時）、WorkMath（工時聯集、班表）、KeyFinder
-├─ Claude/    ClaudeMonitor（讀 session jsonl、hook 事件）、HookInstaller
+├─ Core/      TimerEngine（同步、上下班自動化、Claude 計時、提示）、WorkMath（工時聯集、班表空檔）、KeyFinder
+├─ Claude/    ClaudeMonitor（讀 session jsonl、hook 事件）、SessionDigest（對話與 commit 整理成日誌）、HookInstaller
 ├─ UI/        TaskbarWidget（嵌進 Shell_TrayWnd 的 layered 子視窗）、TaskbarIconScanner（UIA 讀圖示範圍）、
-│             PanelWindow（彈出面板）、TaskPickerWindow、SettingsWindow、TrayIcon
+│             PanelWindow（彈出面板）、DayTimeline（時間軸）、HoverCard、ToastWindow、TaskPickerWindow、SettingsWindow、TrayIcon
+│  └─ Work/   WorkspaceWindow（工作台）與各頁
 └─ Infra/     MiniHttpServer、Log、JsonFile、StartupRegistration
 ```

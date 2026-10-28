@@ -60,6 +60,8 @@ public partial class TasksPage : UserControl, IWorkPage
     readonly WorkspaceWindow _host;
     readonly Dictionary<string, RadioButton> _tabs = [];
     string _tab = "in_progress";
+    string? _statusFilter; // null：全部狀態
+    bool _buildingFilters;
     List<SearchHit> _searchHits = [];
     TaskDetail? _detail;
     bool _loadingDetail;
@@ -89,6 +91,13 @@ public partial class TasksPage : UserControl, IWorkPage
             TabPanel.Children.Add(button);
         }
         _tabs[_tab].IsChecked = true;
+
+        _buildingFilters = true;
+        SortBox.ItemsSource = TaskOrder.Sorts.Select(s => s.Label).ToList();
+        var sortIndex = TaskOrder.Sorts.ToList().FindIndex(s => s.Key == _engine.Config.TaskSort);
+        SortBox.SelectedIndex = Math.Max(0, sortIndex);
+        _buildingFilters = false;
+
         Loaded += (_, _) => _engine.Changed += OnEngineChanged;
         Unloaded += (_, _) => _engine.Changed -= OnEngineChanged;
     }
@@ -128,9 +137,18 @@ public partial class TasksPage : UserControl, IWorkPage
             _tabs[tab].Content = count > 0 ? $"{label} {count}" : label;
         }
         List<TaskListRowVm> rows;
+        var sort = TaskOrder.Sorts[Math.Max(0, SortBox.SelectedIndex)].Key;
         if (_tab == SearchTab)
         {
-            rows = _searchHits.Select(h => new TaskListRowVm
+            RenderStatusFilters([]);
+            var hits = sort switch
+            {
+                "key" => _searchHits.OrderBy(h => KeyFinder.ProjectOf(h.Key), StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(h => int.TryParse(h.Key[(h.Key.LastIndexOf('-') + 1)..], out var n) ? n : int.MaxValue).ToList(),
+                "timing" => _searchHits.OrderByDescending(h => running.Contains(h.Key)).ToList(),
+                _ => _searchHits,
+            };
+            rows = hits.Select(h => new TaskListRowVm
             {
                 Key = h.Key,
                 Title = h.Title,
@@ -141,7 +159,10 @@ public partial class TasksPage : UserControl, IWorkPage
         }
         else
         {
-            rows = _engine.TaskList(_tab).Select(t => new TaskListRowVm
+            var tasks = _engine.TaskList(_tab);
+            RenderStatusFilters(TaskOrder.Statuses(tasks), tasks.Count);
+            var shown = TaskOrder.Sort(tasks.Where(t => _statusFilter is null || t.Status == _statusFilter), sort, running);
+            rows = shown.Select(t => new TaskListRowVm
             {
                 Key = t.Key,
                 Title = t.Title,
@@ -151,7 +172,8 @@ public partial class TasksPage : UserControl, IWorkPage
                 Timing = running.Contains(t.Key) || t.Timing,
                 Done = t.StatusCategory is "DONE" or "CANCELLED",
             }).ToList();
-            ListMessage.Text = rows.Count > 0 ? "" : _engine.TaskLists.Count == 0 ? "讀取中…" : _tab switch
+            ListMessage.Text = rows.Count > 0 ? "" : _engine.TaskLists.Count == 0 ? "讀取中…" : _statusFilter is not null
+                ? $"沒有「{_statusFilter}」的任務" : _tab switch
             {
                 "overdue" => "沒有逾期的任務 🎉",
                 "should_start" => "沒有該開始還沒開始的任務",
@@ -166,6 +188,50 @@ public partial class TasksPage : UserControl, IWorkPage
             TaskList.SelectedItem = rows.FirstOrDefault(r => r.Key == selected);
             _loadingDetail = false;
         }
+    }
+
+    /// <summary>
+    /// 狀態篩選的小標籤：「全部 27」加上這個分頁裡出現的每個狀態與數量；點了只顯示那個狀態。
+    /// 選的狀態在新清單裡不見了（換分頁、任務改狀態）就回到全部。搜尋結果沒有狀態，不顯示。
+    /// </summary>
+    void RenderStatusFilters(List<(string Status, int Count)> statuses, int total = 0)
+    {
+        if (_statusFilter is not null && !statuses.Any(s => s.Status == _statusFilter))
+            _statusFilter = null;
+        StatusFilterPanel.Visibility = statuses.Count > 1 || _statusFilter is not null ? Visibility.Visible : Visibility.Collapsed;
+        _buildingFilters = true;
+        StatusFilterPanel.Children.Clear();
+        var chips = new List<(string? Status, int Count)> { (null, total) };
+        chips.AddRange(statuses.Select(s => ((string?)s.Status, s.Count)));
+        foreach (var (status, count) in chips)
+        {
+            var chip = new RadioButton
+            {
+                Style = (Style)FindResource("ChipToggle"),
+                GroupName = "TaskStatusFilter",
+                Content = $"{status ?? "全部"} {count}",
+                Margin = new Thickness(0, 0, 5, 4),
+                IsChecked = status == _statusFilter,
+            };
+            chip.Checked += (_, _) =>
+            {
+                if (_buildingFilters)
+                    return;
+                _statusFilter = status;
+                RenderList(keepSelection: true);
+            };
+            StatusFilterPanel.Children.Add(chip);
+        }
+        _buildingFilters = false;
+    }
+
+    void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_buildingFilters || SortBox.SelectedIndex < 0)
+            return;
+        _engine.Config.TaskSort = TaskOrder.Sorts[SortBox.SelectedIndex].Key;
+        _engine.Config.Save();
+        RenderList(keepSelection: true);
     }
 
     async void Reload_Click(object sender, RoutedEventArgs e) => await _engine.AfterExternalChangeAsync();

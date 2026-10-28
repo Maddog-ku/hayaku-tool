@@ -32,17 +32,12 @@ public abstract class Observable : INotifyPropertyChanged
         OnPropertyChanged(name);
         return true;
     }
-
-    protected static string? NormalizeTask(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : KeyFinder.Parse(value) ?? value.Trim().ToUpperInvariant();
 }
 
 /// <summary>主資料夾裡的一個專案。</summary>
 public sealed class ProjectItem : Observable
 {
-    string? _defaultTask;
     bool _enabled = true;
-    string _placeholder = "";
     string _detail = "";
     Brush _detailBrush = Brushes2.Get("MutedBrush");
     Brush _dotBrush = Brushes2.Get("LineBrush");
@@ -55,18 +50,6 @@ public sealed class ProjectItem : Observable
 
     public event Action? Edited;
 
-    public string? DefaultTask
-    {
-        get => _defaultTask;
-        set
-        {
-            if (Set(ref _defaultTask, NormalizeTask(value)))
-                Edited?.Invoke();
-            else
-                OnPropertyChanged();
-        }
-    }
-
     public bool Enabled
     {
         get => _enabled;
@@ -77,18 +60,16 @@ public sealed class ProjectItem : Observable
         }
     }
 
-    public string Placeholder { get => _placeholder; set => Set(ref _placeholder, value); }
     public string Detail { get => _detail; set => Set(ref _detail, value); }
     public Brush DetailBrush { get => _detailBrush; set => Set(ref _detailBrush, value); }
     public Brush DotBrush { get => _dotBrush; set => Set(ref _dotBrush, value); }
 
-    public void Init(string? defaultTask, bool enabled) => (_defaultTask, _enabled) = (defaultTask, enabled);
+    public void Init(bool enabled) => _enabled = enabled;
 }
 
 /// <summary>一個主資料夾（例 D:\repo）與裡面偵測到的專案。</summary>
 public sealed class RepoItem : Observable
 {
-    string? _defaultTask;
     bool _enabled = true;
     bool _includeSubprojects = true;
     int _hooksDone;
@@ -106,23 +87,6 @@ public sealed class RepoItem : Observable
 
     /// <summary>使用者改了任何設定時觸發，用來立即存檔。</summary>
     public event Action? Edited;
-
-    public string? DefaultTask
-    {
-        get => _defaultTask;
-        set
-        {
-            if (Set(ref _defaultTask, NormalizeTask(value)))
-            {
-                UpdatePlaceholders();
-                Edited?.Invoke();
-            }
-            else
-            {
-                OnPropertyChanged();
-            }
-        }
-    }
 
     public bool Enabled
     {
@@ -162,7 +126,7 @@ public sealed class RepoItem : Observable
     public Visibility RootActivityVisibility { get => _rootActivityVisibility; set => Set(ref _rootActivityVisibility, value); }
 
     public void Init(RepoConfig config) =>
-        (_defaultTask, _enabled, _includeSubprojects) = (NormalizeTask(config.DefaultTask), config.Enabled, config.IncludeSubprojects);
+        (_enabled, _includeSubprojects) = (config.Enabled, config.IncludeSubprojects);
 
     public void SetHooks(int done, int total)
     {
@@ -170,12 +134,6 @@ public sealed class RepoItem : Observable
         OnPropertyChanged(nameof(HooksText));
         OnPropertyChanged(nameof(HooksBrush));
         OnPropertyChanged(nameof(HooksAction));
-    }
-
-    public void UpdatePlaceholders()
-    {
-        foreach (var p in Projects)
-            p.Placeholder = DefaultTask is null ? "未設定" : $"沿用 {DefaultTask}";
     }
 
     public void RaiseProjectsChanged()
@@ -217,6 +175,7 @@ public partial class SettingsWindow : Window
         SyncOnlyWorkBox.IsChecked = c.SyncOnlyDuringWork;
         PopupSecondsBox.IsEnabled = c.NotificationAlerts;
         PromptUnfilledBox.IsChecked = c.PromptUnfilled;
+        QuietWhenBusyBox.IsChecked = c.QuietWhenBusy;
         LoadTaskbar();
         foreach (var r in c.Repos)
             AddRepoItem(r);
@@ -321,7 +280,7 @@ public partial class SettingsWindow : Window
     }
 
     static string TaskText(RepoActivity a) =>
-        a.ResolvedTask is { } t ? $"任務 {t}（{a.TaskSource}）" : "偵測不到任務編號，可在面板上「選擇」或設定預設任務";
+        a.ResolvedTask is { } t ? $"任務 {t}（{a.TaskSource}）" : "偵測不到任務編號，不計時；可在面板上按「選擇」指定";
 
     static (string, Brush) Describe(RepoActivity? a, DateTime now)
     {
@@ -461,6 +420,7 @@ public partial class SettingsWindow : Window
         c.ReminderAlerts = ReminderAlertsBox.IsChecked == true;
         c.NotificationAlerts = NotificationAlertsBox.IsChecked == true;
         c.PromptUnfilled = PromptUnfilledBox.IsChecked == true;
+        c.QuietWhenBusy = QuietWhenBusyBox.IsChecked == true;
         c.SyncOnlyDuringWork = SyncOnlyWorkBox.IsChecked == true;
         PopupSecondsBox.IsEnabled = c.NotificationAlerts;
         Apply();
@@ -576,19 +536,15 @@ public partial class SettingsWindow : Window
         {
             var custom = configs.FirstOrDefault(c => string.Equals(c.Name, d.Name, StringComparison.OrdinalIgnoreCase));
             var project = new ProjectItem { Path = d.Path, Name = d.Name, IsGit = d.IsGit, LastSession = d.LastSession, Source = d.Source };
-            project.Init(NormalizeKey(custom?.DefaultTask), custom?.Enabled ?? true);
+            project.Init(custom?.Enabled ?? true);
             project.Edited += SaveRepos;
             item.Projects.Add(project);
         }
         item.HiddenProjectConfigs.AddRange(configs.Where(c =>
             !detected.Any(d => string.Equals(d.Name, c.Name, StringComparison.OrdinalIgnoreCase))));
-        item.UpdatePlaceholders();
         item.RaiseProjectsChanged();
         UpdateHooks(item);
     }
-
-    static string? NormalizeKey(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : KeyFinder.Parse(value) ?? value.Trim().ToUpperInvariant();
 
     void OnRepoEdited(RepoItem item)
     {
@@ -601,12 +557,11 @@ public partial class SettingsWindow : Window
         _engine.Config.Repos = _repos.Select(r => new RepoConfig
         {
             Path = r.Path,
-            DefaultTask = r.DefaultTask,
             Enabled = r.Enabled,
             IncludeSubprojects = r.IncludeSubprojects,
             Projects = r.Projects
-                .Where(p => p.DefaultTask is not null || !p.Enabled)
-                .Select(p => new ProjectConfig { Name = p.Name, DefaultTask = p.DefaultTask, Enabled = p.Enabled })
+                .Where(p => !p.Enabled)
+                .Select(p => new ProjectConfig { Name = p.Name, Enabled = p.Enabled })
                 .Concat(r.HiddenProjectConfigs)
                 .ToList(),
         }).ToList();
@@ -636,8 +591,8 @@ public partial class SettingsWindow : Window
         if ((sender as Button)?.Tag is not RepoItem item)
             return;
         var saved = item.Projects
-            .Where(p => p.DefaultTask is not null || !p.Enabled)
-            .Select(p => new ProjectConfig { Name = p.Name, DefaultTask = p.DefaultTask, Enabled = p.Enabled })
+            .Where(p => !p.Enabled)
+            .Select(p => new ProjectConfig { Name = p.Name, Enabled = p.Enabled })
             .Concat(item.HiddenProjectConfigs)
             .ToList();
         LoadProjects(item, saved, refresh: true);

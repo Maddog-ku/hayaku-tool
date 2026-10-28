@@ -24,7 +24,7 @@
             <StackPanel DockPanel.Dock="Bottom">
                 <Button Content="在網頁開啟 Hayaku ↗" Style="{StaticResource LinkButton}" Margin="10,0,0,6"
                         Click="OpenWeb_Click" FontSize="12" />
-                <TextBlock Text="Ctrl+1～9 切換頁面" FontSize="11" Foreground="{DynamicResource HintBrush}" Margin="10,0,0,0" />
+                <TextBlock Text="Ctrl+1～9、0 切換頁面" FontSize="11" Foreground="{DynamicResource HintBrush}" Margin="10,0,0,0" />
             </StackPanel>
             <StackPanel x:Name="NavPanel">
                 <TextBlock Text="工作" Style="{StaticResource FieldLabel}" Margin="10,0,0,4" />
@@ -36,6 +36,7 @@
                     </Grid>
                 </RadioButton>
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="hours" Checked="Nav_Checked" Content="我的工時" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="entries" Checked="Nav_Checked" Content="工時紀錄" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="worklog" Checked="Nav_Checked" Content="工作日誌" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="reminders" Checked="Nav_Checked" Content="提醒" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="meetings" Checked="Nav_Checked" Content="會議" />

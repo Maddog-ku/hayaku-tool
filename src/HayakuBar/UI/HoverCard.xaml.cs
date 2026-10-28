@@ -40,6 +40,7 @@ public partial class HoverCard : Window
         if (engine.UnreadCount > 0)
             parts.Add($"{engine.UnreadCount} 則未讀通知");
         SubText.Text = string.Join(" · ", parts);
+        Timeline.SetData(now.Date, engine.Schedule?.Working, engine.Entries, now);
 
         var running = engine.RunningKeys();
         Rows.ItemsSource = engine.Entries

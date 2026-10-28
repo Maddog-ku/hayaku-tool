@@ -59,6 +59,25 @@ internal static class Native
         public uint dwHoverTime;
     }
 
+    /// <summary>
+    /// 使用者現在是否不方便被打擾：全螢幕程式、簡報模式、Windows 的安靜時段、螢幕鎖定。
+    /// （SHQueryUserNotificationState：1 不在電腦前、2 全螢幕、3 全螢幕 D3D、4 簡報、5 可以通知、6 安靜時段、7 全螢幕的市集 app）
+    /// </summary>
+    public static bool UserBusy()
+    {
+        try
+        {
+            return SHQueryUserNotificationState(out var state) == 0 && state is 1 or 2 or 3 or 4 or 6 or 7;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [DllImport("shell32.dll")]
+    static extern int SHQueryUserNotificationState(out int state);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
 

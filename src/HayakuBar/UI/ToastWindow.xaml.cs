@@ -158,7 +158,46 @@ public sealed class ToastManager
     /// <summary>一般提示停留多久（設定的秒數）；null 表示不自動收回。</summary>
     public Func<TimeSpan?>? DefaultDuration { get; set; }
 
+    /// <summary>現在要不要先別跳提示（全螢幕、簡報…）；回 true 時先存起來，之後再顯示。</summary>
+    public Func<bool>? IsQuiet { get; set; }
+
+    readonly List<ToastRequest> _held = [];
+    DispatcherTimer? _heldTimer;
+
     public void Show(ToastRequest request)
+    {
+        if (!request.Important && IsQuiet?.Invoke() == true)
+        {
+            Hold(request);
+            return;
+        }
+        ShowNow(request);
+    }
+
+    /// <summary>勿擾中：先存起來，每 5 秒看一次，結束後依序顯示（太多則只留最新的幾則）。</summary>
+    void Hold(ToastRequest request)
+    {
+        _held.Add(request);
+        if (_held.Count > MaxVisible)
+            _held.RemoveAt(0);
+        if (_heldTimer is not null)
+            return;
+        _heldTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _heldTimer.Tick += (_, _) =>
+        {
+            if (IsQuiet?.Invoke() == true)
+                return;
+            _heldTimer.Stop();
+            _heldTimer = null;
+            var pending = _held.ToList();
+            _held.Clear();
+            foreach (var r in pending)
+                ShowNow(r);
+        };
+        _heldTimer.Start();
+    }
+
+    void ShowNow(ToastRequest request)
     {
         // 所有提示都一樣：從工作列工時的位置滑上來，停留設定的秒數後滑回去；
         // 要你處理的（會議快開始、提醒到了…）會停到你按按鈕或關掉

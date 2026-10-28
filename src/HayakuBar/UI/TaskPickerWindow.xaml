@@ -11,8 +11,6 @@
         <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Padding="4,3" Margin="0,0,0,8"
                  TextChanged="SearchBox_TextChanged" />
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-            <CheckBox x:Name="MakeDefaultBox" Content="同時設為這個 repo 的預設任務" VerticalAlignment="Center"
-                      Margin="0,0,14,0" Visibility="Collapsed" />
             <Button Content="確定" IsDefault="True" Style="{StaticResource PrimaryButton}" Padding="16,5"
                     Click="Ok_Click" />
             <Button Content="取消" IsCancel="True" Style="{StaticResource FlatButton}" Padding="16,5" Margin="8,0,0,0" />

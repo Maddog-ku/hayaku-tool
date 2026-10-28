@@ -261,45 +261,19 @@ public sealed partial class TimerEngine
         AfterClockOut(running, worked, Schedule?.ExpectedMinutes ?? 0);
     });
 
-    /// <summary>為 repo 目前的 Claude session 指定任務；makeDefault 時同時設成 repo 預設。</summary>
-    public async Task PickTaskForRepoAsync(string unitPath, string key, bool makeDefault)
+    /// <summary>為 repo 目前的 Claude session 指定任務（只對這個 session 有效，沒有預設任務）。</summary>
+    public async Task PickTaskForRepoAsync(string unitPath, string key)
     {
         key = key.ToUpperInvariant();
         var activity = _claude.Repos.FirstOrDefault(r => string.Equals(r.Path, unitPath, StringComparison.OrdinalIgnoreCase));
-        if (activity?.SessionId is { } sid)
-        {
-            _state.SessionTasks[sid] = key;
-            _state.Save();
-        }
-        if (makeDefault || activity?.SessionId is null)
-            SetDefaultTask(unitPath, activity?.RootPath, key);
+        if (activity?.SessionId is not { } sid)
+            return;
+        _state.SessionTasks[sid] = key;
+        _state.Save();
         _suppressed.Remove(key);
         await ClaudeTickAsync(wait: true);
     }
 
-    /// <summary>設定主資料夾或其中某個專案的預設任務。</summary>
-    void SetDefaultTask(string unitPath, string? rootPath, string key)
-    {
-        if (rootPath is null)
-        {
-            var repo = _config.Repos.FirstOrDefault(r => string.Equals(ClaudeMonitor.Normalize(r.Path), unitPath, StringComparison.OrdinalIgnoreCase));
-            if (repo is not null)
-                repo.DefaultTask = key;
-        }
-        else
-        {
-            var repo = _config.Repos.FirstOrDefault(r => string.Equals(ClaudeMonitor.Normalize(r.Path), rootPath, StringComparison.OrdinalIgnoreCase));
-            if (repo is not null)
-            {
-                var name = Path.GetFileName(unitPath);
-                var project = repo.Projects.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
-                if (project is null)
-                    repo.Projects.Add(project = new ProjectConfig { Name = name });
-                project.DefaultTask = key;
-            }
-        }
-        _config.Save();
-    }
 
     public void OnHook(JsonElement payload)
     {
@@ -552,6 +526,14 @@ public sealed partial class TimerEngine
             await RefreshCoreAsync(ct);
         }
     }
+
+    /// <summary>
+    /// 面板用的上班狀態：有計時在跑，或在班表的上班／休息時段內且今天沒按過下班。
+    /// 上班狀態只顯示「下班」按鈕，否則只顯示「上班」。
+    /// </summary>
+    public bool OnDuty =>
+        Entries.Any(e => e.Running)
+        || WorkMath.Phase(Schedule, DateTime.Now, _state.ClockedOut).Kind is DayPhaseKind.Working or DayPhaseKind.Break;
 
     /// <summary>「上班中」：在班表時段內（且今天沒手動下班），或有計時在跑（加班）。</summary>
     bool IsWorking(DateTime now)

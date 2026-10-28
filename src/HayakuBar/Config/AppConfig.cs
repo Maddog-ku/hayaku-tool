@@ -7,9 +7,6 @@ public sealed class RepoConfig
 {
     public string Path { get; set; } = "";
 
-    /// <summary>主資料夾的預設任務；子專案沒設自己的預設任務時也用這個。</summary>
-    public string? DefaultTask { get; set; }
-
     public bool Enabled { get; set; } = true;
 
     /// <summary>自動偵測裡面的專案（子資料夾是 git repo，或 Claude 曾在裡面開過 session）。</summary>
@@ -23,7 +20,6 @@ public sealed class RepoConfig
 public sealed class ProjectConfig
 {
     public string Name { get; set; } = "";
-    public string? DefaultTask { get; set; }
     public bool Enabled { get; set; } = true;
 }
 
@@ -46,6 +42,9 @@ public sealed class AppConfig
     /// <summary>面板內容區的高度（DIP），切分頁時不會跳；0 表示跟著內容伸縮（最高 440）。</summary>
     public int PanelHeight { get; set; } = 440;
 
+    /// <summary>工作台「我的任務」的排序：default、due、dueDesc、priority、status、key、timing。</summary>
+    public string TaskSort { get; set; } = "default";
+
     public int PollSeconds { get; set; } = 30;
 
     /// <summary>只在上班時間（或有計時在跑）自動同步；下班、休息、放假不跟 Hayaku 要資料。</summary>
@@ -66,6 +65,9 @@ public sealed class AppConfig
 
     /// <summary>新通知的彈窗停留幾秒後自動收回；0 表示不自動收回。</summary>
     public int NotificationPopupSeconds { get; set; } = 3;
+
+    /// <summary>全螢幕、簡報、Windows 安靜時段或鎖定時先不跳提示，結束後再一起顯示（會議快開始除外）。</summary>
+    public bool QuietWhenBusy { get; set; } = true;
 
     /// <summary>下班時工時沒滿應出勤，提示補登。</summary>
     public bool PromptUnfilled { get; set; } = true;

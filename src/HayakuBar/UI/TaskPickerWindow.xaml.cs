@@ -12,12 +12,11 @@ public partial class TaskPickerWindow : Window
 {
     readonly List<PickItem> _all;
 
-    public TaskPickerWindow(IEnumerable<TaskItem> tasks, string prompt, bool multiSelect, bool showMakeDefault)
+    public TaskPickerWindow(IEnumerable<TaskItem> tasks, string prompt, bool multiSelect)
     {
         InitializeComponent();
         PromptText.Text = prompt;
         TaskList.SelectionMode = multiSelect ? SelectionMode.Extended : SelectionMode.Single;
-        MakeDefaultBox.Visibility = showMakeDefault ? Visibility.Visible : Visibility.Collapsed;
         _all = tasks.Select(t => new PickItem(t.Key, t.Title, $"{t.Project} · {t.Status}")).ToList();
         TaskList.ItemsSource = _all;
         Loaded += (_, _) => SearchBox.Focus();
@@ -25,8 +24,6 @@ public partial class TaskPickerWindow : Window
     }
 
     public IReadOnlyList<string> SelectedKeys { get; private set; } = [];
-
-    public bool MakeDefault => MakeDefaultBox.IsChecked == true;
 
     void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {

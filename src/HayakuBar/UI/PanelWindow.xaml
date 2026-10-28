@@ -1,6 +1,7 @@
 <Window x:Class="HayakuBar.UI.PanelWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:HayakuBar.UI"
         Title="HayakuBar"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
@@ -231,14 +232,18 @@
         </DataTemplate>
     </Window.Resources>
 
-    <Border x:Name="Root" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
-            CornerRadius="10" Margin="6" Opacity="0">
-        <Border.RenderTransform>
+    <!-- 陰影放在獨立的空白圖層：效果套在有內容的元素上，動畫每一格都要重算整個面板，會卡 -->
+    <Grid x:Name="Root" Margin="6" Opacity="0">
+        <Grid.RenderTransform>
             <TranslateTransform x:Name="Slide" />
-        </Border.RenderTransform>
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.2" />
-        </Border.Effect>
+        </Grid.RenderTransform>
+        <Border Background="{DynamicResource BgBrush}" CornerRadius="10">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.2" />
+            </Border.Effect>
+        </Border>
+        <Border x:Name="Card" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                CornerRadius="10">
         <StackPanel>
             <!-- 標題與今天工時 -->
             <StackPanel Margin="16,14,16,0">
@@ -259,6 +264,8 @@
                     <TextBlock x:Name="SummaryDetail" Margin="10,0,0,0" VerticalAlignment="Center"
                                Foreground="{DynamicResource MutedBrush}" />
                 </StackPanel>
+
+                <ui:DayTimeline x:Name="Timeline" Margin="0,10,0,0" />
 
                 <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"
                            Margin="0,6,0,0" Visibility="Collapsed" />
@@ -469,7 +476,7 @@
                         <Button x:Name="ClockInButton" Content="上班" Style="{StaticResource PrimaryButton}" Padding="12,4"
                                 Click="ClockIn_Click" ToolTip="恢復上次的任務並開始計時" />
                         <Button x:Name="ClockOutButton" Content="下班" Style="{StaticResource FlatButton}" Padding="12,4"
-                                Margin="6,0,0,0" Click="ClockOut_Click" ToolTip="停止所有計時（之後可以復原）" />
+                                Visibility="Collapsed" Click="ClockOut_Click" ToolTip="停止所有計時（之後可以復原）" />
                         <Button x:Name="EntriesButton" Content="工時紀錄" Style="{StaticResource IconButton}" Margin="6,0,0,0"
                                 Click="Entries_Click" ToolTip="查看、修改、補登計時紀錄" />
                         <Button x:Name="WorkspaceButton" Content="工作台" Style="{StaticResource IconButton}" Margin="2,0,0,0"
@@ -486,5 +493,6 @@
                 </Grid>
             </Border>
         </StackPanel>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

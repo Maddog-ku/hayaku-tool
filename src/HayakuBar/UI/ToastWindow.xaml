@@ -8,14 +8,18 @@
         UseLayoutRounding="True">
     <!-- 外層裁切：從下緣滑上來時，超出視窗的部分不顯示 -->
     <Grid ClipToBounds="True">
-    <Border x:Name="Root" Margin="8" Padding="14,12,10,12" CornerRadius="10" Opacity="0"
-            Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
-        <Border.RenderTransform>
+    <!-- 陰影放在獨立的空白圖層，滑動時不用每一格重算整張卡片 -->
+    <Grid x:Name="Root" Margin="8" Opacity="0">
+        <Grid.RenderTransform>
             <TranslateTransform x:Name="Slide" />
-        </Border.RenderTransform>
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.22" />
-        </Border.Effect>
+        </Grid.RenderTransform>
+        <Border Background="{DynamicResource BgBrush}" CornerRadius="10">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.22" />
+            </Border.Effect>
+        </Border>
+    <Border Padding="14,12,10,12" CornerRadius="10"
+            Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -33,5 +37,6 @@
                     Margin="6,-4,0,0" ToolTip="關閉" Click="Close_Click" />
         </Grid>
     </Border>
+    </Grid>
     </Grid>
 </Window>

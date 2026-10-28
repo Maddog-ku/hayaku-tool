@@ -7,8 +7,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using HayakuBar.Core;
 using HayakuBar.Mcp;
+using HayakuBar.UI;
 
-namespace HayakuBar.UI;
+namespace HayakuBar.UI.Work;
 
 /// <summary>一段計時紀錄（可直接改起訖、備註）。</summary>
 public sealed class EntryRowVm : INotifyPropertyChanged
@@ -61,31 +62,37 @@ public sealed class EntryRowVm : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-/// <summary>查看、修改、補登某一天的計時紀錄。</summary>
-public partial class TimeEntriesWindow : Window
+/// <summary>工作台的「工時紀錄」：查看、修改、補登某一天的計時紀錄。</summary>
+public partial class DayEntriesPage : UserControl, IWorkPage
 {
     readonly TimerEngine _engine;
     DateOnly _day;
     DaySchedule? _schedule;
     bool _busy;
 
-    public TimeEntriesWindow(TimerEngine engine, DateOnly day)
+    public DayEntriesPage(TimerEngine engine)
     {
         _engine = engine;
-        _day = day;
+        _day = DateOnly.FromDateTime(DateTime.Today);
         InitializeComponent();
-        NewTask.ItemsSource = engine.MyTasks.Select(t => $"{t.Key}  {t.Title}").ToList();
-        SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
-        Loaded += async (_, _) => await LoadAsync();
     }
 
-    public async Task ShowDayAsync(DateOnly day)
+    /// <summary>arg：要看的日期（DateOnly）；沒給就是上次看的那天。</summary>
+    public Task ActivateAsync(object? arg)
+    {
+        if (arg is DateOnly day)
+            _day = day;
+        NewTask.ItemsSource = _engine.MyTasks.Select(t => $"{t.Key}  {t.Title}").ToList();
+        return LoadAsync();
+    }
+
+    async Task ShowDayAsync(DateOnly day)
     {
         _day = day;
         await LoadAsync();
     }
 
-    static readonly CultureInfo Zh = new("zh-TW");
+    static readonly CultureInfo Zh = Inputs.Zh;
 
     async Task LoadAsync()
     {
@@ -96,7 +103,10 @@ public partial class TimeEntriesWindow : Window
         ShowError(null);
         try
         {
-            var (entries, schedule) = await _engine.LoadDayAsync(_day);
+            var day = _day;
+            var (entries, schedule) = await _engine.LoadDayAsync(day);
+            if (day != _day)
+                return; // 讀取途中又換了一天
             _schedule = schedule;
             Render(entries);
         }
@@ -135,6 +145,7 @@ public partial class TimeEntriesWindow : Window
             : "班表 " + string.Join("、", _schedule.Working.Select(s => $"{s.Start:HH:mm}–{s.End:HH:mm}")) +
               (expected > 0 && worked < expected ? $"　還差 {WorkMath.HoursMinutes(expected - worked)}" : "");
 
+        Timeline.SetData(dayStart, _schedule?.Working, entries, now);
         RenderGaps(entries, dayStart, now);
     }
 
@@ -144,31 +155,7 @@ public partial class TimeEntriesWindow : Window
         GapsPanel.Children.Clear();
         if (_schedule is null)
             return;
-        var covered = entries
-            .Where(e => e.StartedAt is not null)
-            .Select(e => (Start: e.StartedAt!.Value.LocalDateTime, End: e.Running ? now : e.EndedAt?.LocalDateTime ?? e.StartedAt!.Value.LocalDateTime))
-            .OrderBy(x => x.Start)
-            .ToList();
-        var gaps = new List<(DateTime Start, DateTime End)>();
-        foreach (var seg in _schedule.Working)
-        {
-            var cursor = dayStart + seg.Start.ToTimeSpan();
-            var segEnd = dayStart + seg.End.ToTimeSpan();
-            if (segEnd > now)
-                segEnd = now;
-            foreach (var (s, e) in covered)
-            {
-                if (e <= cursor || s >= segEnd)
-                    continue;
-                if (s > cursor)
-                    gaps.Add((cursor, s < segEnd ? s : segEnd));
-                if (e > cursor)
-                    cursor = e;
-            }
-            if (cursor < segEnd)
-                gaps.Add((cursor, segEnd));
-        }
-        gaps = gaps.Where(g => (g.End - g.Start).TotalMinutes >= 5).ToList();
+        var gaps = WorkMath.Gaps(_schedule.Working, entries, dayStart, now);
         if (gaps.Count == 0)
         {
             GapsPanel.Children.Add(new TextBlock
@@ -258,7 +245,7 @@ public partial class TimeEntriesWindow : Window
     {
         if ((sender as Button)?.Tag is not EntryRowVm row)
             return;
-        var ok = MessageBox.Show(this, $"刪除 {row.Key} {row.StartText}–{(row.Running ? "進行中" : row.EndText)} 這段紀錄？", "刪除紀錄",
+        var ok = MessageBox.Show(Window.GetWindow(this)!, $"刪除 {row.Key} {row.StartText}–{(row.Running ? "進行中" : row.EndText)} 這段紀錄？", "刪除紀錄",
             MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (ok == MessageBoxResult.OK)
             await RunAsync(() => _engine.DeleteTimeEntryAsync(row.Entry.Id));

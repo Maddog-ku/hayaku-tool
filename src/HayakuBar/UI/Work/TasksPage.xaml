@@ -84,6 +84,17 @@
 
             <!-- 清單 -->
             <Border Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8">
+                <DockPanel>
+                <!-- 狀態篩選與排序 -->
+                <Grid DockPanel.Dock="Top" Margin="10,8,8,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <WrapPanel x:Name="StatusFilterPanel" VerticalAlignment="Center" />
+                    <ComboBox x:Name="SortBox" Grid.Column="1" Width="150" VerticalAlignment="Top" Margin="8,0,0,4"
+                              SelectionChanged="SortBox_SelectionChanged" ToolTip="排序方式" />
+                </Grid>
                 <Grid>
                     <ListBox x:Name="TaskList" ItemTemplate="{StaticResource TaskRow}" BorderThickness="0" Background="Transparent"
                              SelectionChanged="TaskList_SelectionChanged" Padding="4"
@@ -91,6 +102,7 @@
                     <TextBlock x:Name="ListMessage" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                                Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="20" />
                 </Grid>
+                </DockPanel>
             </Border>
 
             <!-- 詳細 -->

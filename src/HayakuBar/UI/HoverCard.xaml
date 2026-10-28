@@ -1,6 +1,7 @@
 <Window x:Class="HayakuBar.UI.HoverCard"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:HayakuBar.UI"
         Title="HayakuBar 摘要" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize" IsHitTestVisible="False"
         SizeToContent="WidthAndHeight" FontFamily="{StaticResource UiFont}" FontSize="12"
@@ -13,6 +14,7 @@
         <StackPanel>
             <TextBlock x:Name="HeaderText" FontWeight="SemiBold" />
             <TextBlock x:Name="SubText" Foreground="{DynamicResource MutedBrush}" Margin="0,2,0,0" />
+            <ui:DayTimeline x:Name="Timeline" Margin="0,8,0,0" />
             <ItemsControl x:Name="Rows" Margin="0,8,0,0">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>

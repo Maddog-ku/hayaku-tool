@@ -7,9 +7,12 @@ namespace HayakuBar.Core;
 public sealed record ToastAction(string Label, Func<Task> Run, bool Primary = false);
 
 /// <summary>右下角跳出提示。</summary>
-/// <summary>Duration：停留多久自動收回（null 用預設）；FromBottom：從螢幕下緣滑上來、時間到滑回去（新通知用）。</summary>
+/// <summary>
+/// Duration：停留多久自動收回（null 用預設）；FromBottom：從螢幕下緣滑上來、時間到滑回去（新通知用）；
+/// Important：全螢幕、簡報時也照樣跳出（會議快開始）。
+/// </summary>
 public sealed record ToastRequest(string Title, string Message, IReadOnlyList<ToastAction>? Actions = null, bool Sticky = false,
-    TimeSpan? Duration = null, bool FromBottom = false);
+    TimeSpan? Duration = null, bool FromBottom = false, bool Important = false);
 
 /// <summary>會議、待辦、提醒、通知、工時修改，以及到點跳出的提示。</summary>
 public sealed partial class TimerEngine
@@ -182,6 +185,12 @@ public sealed partial class TimerEngine
                 TimeEntriesRequested?.Invoke(DateOnly.FromDateTime(DateTime.Today));
                 return Task.CompletedTask;
             }));
+        if (_config.ClaudeEnabled && _config.Repos.Count > 0)
+            actions.Add(new ToastAction("整理日誌", () =>
+            {
+                WorkspaceRequested?.Invoke("worklog", "draft");
+                return Task.CompletedTask;
+            }));
         var message = $"停止 {stopped.Count} 個計時。今天 {WorkMath.HoursMinutes(worked)}" +
                       (expected > 0 ? $"／應出勤 {WorkMath.HoursMinutes(expected)}" : "") +
                       (unfilled ? $"，還差 {WorkMath.HoursMinutes(expected - worked)}" : "");
@@ -210,7 +219,7 @@ public sealed partial class TimerEngine
                 [
                     new ToastAction("加入並計時", () => JoinMeetingAsync(m), Primary: true),
                     new ToastAction("開啟", () => Open(MeetingUrl(m.Id))),
-                ], Sticky: true));
+                ], Sticky: true, Important: true));
             }
         }
 

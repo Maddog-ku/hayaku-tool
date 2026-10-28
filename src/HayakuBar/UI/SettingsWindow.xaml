@@ -15,7 +15,6 @@
                     <ColumnDefinition Width="16" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Ellipse Width="8" Height="8" Fill="{Binding DotBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" />
                 <StackPanel Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
@@ -23,11 +22,7 @@
                     <TextBlock Text="{Binding Detail}" Foreground="{Binding DetailBrush}" FontSize="12" Margin="0,1,0,0"
                                TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
                 </StackPanel>
-                <TextBox Grid.Column="2" Width="128" Margin="0,0,12,0" Style="{StaticResource HintBox}"
-                         Tag="{Binding Placeholder}" Text="{Binding DefaultTask, UpdateSourceTrigger=LostFocus}"
-                         KeyDown="CommitOnEnter" VerticalAlignment="Center"
-                         ToolTip="這個專案的預設任務；留空就用主資料夾的預設任務" />
-                <CheckBox Grid.Column="3" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding Enabled}"
+                <CheckBox Grid.Column="2" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding Enabled}"
                           ToolTip="這個專案要不要自動計時" />
             </Grid>
         </DataTemplate>
@@ -54,17 +49,7 @@
                     </Grid>
 
                     <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="預設任務" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" />
-                        <TextBox Grid.Column="1" Width="110" Margin="8,0,0,0" Style="{StaticResource HintBox}" Tag="例 F2P-97"
-                                 Text="{Binding DefaultTask, UpdateSourceTrigger=LostFocus}" KeyDown="CommitOnEnter"
-                                 ToolTip="偵測不到任務編號時用這個；裡面的專案沒設自己的預設任務時也用這個" />
-                        <StackPanel Grid.Column="3" Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <TextBlock Text="{Binding HooksText}" Foreground="{Binding HooksBrush}" FontSize="12"
                                        VerticalAlignment="Center" Margin="0,0,10,0" />
                             <Button Content="{Binding HooksAction}" Tag="{Binding}" Click="Hooks_Click"
@@ -95,7 +80,7 @@
                                 </StackPanel>
                             </Grid>
                             <TextBlock Style="{StaticResource CardDesc}" Margin="0,4,0,4" Visibility="{Binding ProjectsVisibility}"
-                                       Text="每個專案各自計時；預設任務留空就用主資料夾的。" />
+                                       Text="每個專案各自計時，可個別停用。" />
                             <ItemsControl ItemsSource="{Binding Projects}" ItemTemplate="{StaticResource ProjectRow}"
                                           Visibility="{Binding ProjectsVisibility}" />
                             <TextBlock Style="{StaticResource CardDesc}" Margin="0,6,0,0" Visibility="{Binding ProjectsEmptyVisibility}"
@@ -348,9 +333,9 @@
                     <Border Style="{StaticResource InfoCard}">
                         <StackPanel>
                             <TextBlock TextWrapping="Wrap"
-                                       Text="依序看：面板上手動指定 → 對話裡提到的任務編號 → git 分支名稱（例 feature/F2P-97-xxx）→ 專案的預設任務 → 主資料夾的預設任務。" />
+                                       Text="依序看：面板上手動指定 → 對話裡提到的任務編號 → git 分支名稱（例 feature/F2P-97-xxx）。都偵測不到就不計時，可在面板的 Claude 區按「選擇」指定這個 session 的任務。" />
                             <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
-                                       Text="CLI 和桌面版的 session 都存在 %USERPROFILE%\.claude\projects，兩邊都會偵測到。要監看哪些資料夾、各專案的預設任務，在「專案」頁設定。" />
+                                       Text="CLI 和桌面版的 session 都存在 %USERPROFILE%\.claude\projects，兩邊都會偵測到。要監看哪些資料夾、停用哪些專案，在「專案」頁設定。" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -499,6 +484,19 @@
                                 <ComboBoxItem Content="不自動收回" Tag="0" />
                             </ComboBox>
                             <CheckBox x:Name="NotificationAlertsBox" Grid.Column="2" Style="{StaticResource ToggleSwitch}" Click="Toggle_Click" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Style="{StaticResource SettingText}">
+                                <TextBlock Text="全螢幕或簡報時先不跳提示" Style="{StaticResource CardTitle}" />
+                                <TextBlock Style="{StaticResource CardDesc}" Text="全螢幕、簡報、Windows 的勿擾時段或鎖定螢幕時先把提示存起來，結束後再一起跳出；會議快開始的提示照樣跳。" />
+                            </StackPanel>
+                            <CheckBox x:Name="QuietWhenBusyBox" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="Toggle_Click" />
                         </Grid>
                     </Border>
                     <Border Style="{StaticResource Card}">

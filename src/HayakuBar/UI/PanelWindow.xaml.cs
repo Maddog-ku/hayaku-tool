@@ -25,6 +25,8 @@ public partial class PanelWindow : Window
     bool _alignLeft;
     bool _dialogOpen;
     bool _hiding;
+    bool _animating;
+    bool _renderQueued;
 
     public event Action? SettingsRequested;
     public event Action? TimeEntriesRequested;
@@ -38,16 +40,8 @@ public partial class PanelWindow : Window
         RepoList.ItemsSource = _repos;
         InitWork();
 
-        _engine.Changed += () =>
-        {
-            if (IsVisible)
-                Render();
-        };
-        ThemeManager.Changed += () =>
-        {
-            if (IsVisible)
-                Render(); // 列表裡的顏色是建立時取的，換主題要重建
-        };
+        _engine.Changed += QueueRender;
+        ThemeManager.Changed += QueueRender; // 列表裡的顏色是建立時取的，換主題要重建
         _tick.Tick += (_, _) => UpdateNumbers();
         SizeChanged += (_, _) => Reposition();
         Deactivated += (_, _) =>
@@ -66,6 +60,35 @@ public partial class PanelWindow : Window
                 HidePanel();
             e.Handled = true;
         };
+    }
+
+    /// <summary>
+    /// 資料變了要重畫：同一輪的多次變動合併成一次；滑出動畫進行中先不重建清單，等動畫結束再畫，避免動畫卡頓。
+    /// </summary>
+    void QueueRender()
+    {
+        if (!IsVisible || _renderQueued)
+            return;
+        _renderQueued = true;
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (_animating)
+                return; // 動畫結束時會補畫
+            _renderQueued = false;
+            if (IsVisible)
+                Render();
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>啟動後閒置時先把面板的畫面建好，第一次打開才不會因為建立畫面而卡一下。</summary>
+    public void Prewarm()
+    {
+        if (IsVisible)
+            return;
+        new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+        Render();
+        Root.Measure(new Size(Width, double.PositiveInfinity));
+        Root.Arrange(new Rect(Root.DesiredSize));
     }
 
     /// <summary>上一次因為失去焦點而收起的時間；用來避免「點工作列 → 收起 → 又被同一下點擊打開」。</summary>
@@ -88,9 +111,13 @@ public partial class PanelWindow : Window
         UpdateLayout();
         Reposition();
         Activate();
-        AnimateIn();
+        AnimateIn(() =>
+        {
+            // 動畫結束才開始同步：同步一開始就會觸發重畫，跟動畫搶時間就會卡
+            if (IsOpen)
+                _ = _engine.RefreshAllAsync(userAction: false);
+        });
         _tick.Start();
-        _ = _engine.RefreshAllAsync(userAction: false);
     }
 
     /// <summary>直接切到某個分頁：Timer、Today、Notify。</summary>
@@ -111,6 +138,8 @@ public partial class PanelWindow : Window
             return;
         HiddenAt = DateTime.Now;
         _tick.Stop();
+        _animating = false;
+        _renderQueued = false;
         StartPopup.IsOpen = false;
         if (!SystemParameters.ClientAreaAnimation)
         {
@@ -118,6 +147,7 @@ public partial class PanelWindow : Window
             return;
         }
         _hiding = true;
+        Root.CacheMode = new BitmapCache(VisualTreeHelper.GetDpi(this).DpiScaleX);
         var duration = TimeSpan.FromMilliseconds(150);
         var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
         var slide = new DoubleAnimation(Slide.Y, SlideDistance * 0.5, duration) { EasingFunction = ease };
@@ -127,6 +157,7 @@ public partial class PanelWindow : Window
             if (!_hiding)
                 return; // 收起途中又被打開了
             _hiding = false;
+            Root.CacheMode = null;
             Hide();
         };
         Slide.BeginAnimation(TranslateTransform.YProperty, slide);
@@ -143,8 +174,11 @@ public partial class PanelWindow : Window
 
     double SlideDistance => Math.Clamp(ActualHeight * 0.45, 40, 220);
 
-    /// <summary>從工作列往上滑出＋淡入（Windows 關閉動畫效果時直接出現）。</summary>
-    void AnimateIn()
+    /// <summary>
+    /// 從工作列往上滑出＋淡入（Windows 關閉動畫效果時直接出現）。動畫期間把內容快取成點陣圖，
+    /// 每一格只要移動圖片，不用重畫整個面板；結束後拿掉快取讓文字維持清晰，再呼叫 completed。
+    /// </summary>
+    void AnimateIn(Action completed)
     {
         if (!SystemParameters.ClientAreaAnimation)
         {
@@ -152,11 +186,27 @@ public partial class PanelWindow : Window
             Root.BeginAnimation(OpacityProperty, null);
             Slide.Y = 0;
             Root.Opacity = 1;
+            completed();
             return;
         }
+        _animating = true;
+        Root.CacheMode = new BitmapCache(VisualTreeHelper.GetDpi(this).DpiScaleX);
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        Slide.BeginAnimation(TranslateTransform.YProperty,
-            new DoubleAnimation(SlideDistance, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
+        var slide = new DoubleAnimation(SlideDistance, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease };
+        slide.Completed += (_, _) =>
+        {
+            if (!_animating)
+                return; // 中途被收起了
+            _animating = false;
+            Root.CacheMode = null;
+            if (_renderQueued)
+            {
+                _renderQueued = false;
+                Render();
+            }
+            completed();
+        };
+        Slide.BeginAnimation(TranslateTransform.YProperty, slide);
         Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(170)));
     }
 
@@ -182,7 +232,7 @@ public partial class PanelWindow : Window
         LoginButton.Visibility = LoginHint.Visibility = loggedIn || initialSyncing ? Visibility.Collapsed : Visibility.Visible;
         LoginButton.IsEnabled = !_engine.LoggingIn;
         LoginButton.Content = _engine.LoggingIn ? "等待瀏覽器登入…" : "登入 Hayaku";
-        MainContent.Visibility = SummaryRow.Visibility = loggedIn && !initialSyncing ? Visibility.Visible : Visibility.Collapsed;
+        MainContent.Visibility = SummaryRow.Visibility = Timeline.Visibility = loggedIn && !initialSyncing ? Visibility.Visible : Visibility.Collapsed;
         ClockInButton.IsEnabled = ClockOutButton.IsEnabled = EntriesButton.IsEnabled = loggedIn && !initialSyncing;
         SyncText.Text = _engine.Syncing ? "同步中…" :
             _engine.AutoSyncPaused ? $"{_engine.LastSynced:HH:mm} 同步 · 暫停自動" :
@@ -286,6 +336,11 @@ public partial class PanelWindow : Window
     {
         if (!_engine.LoggedIn)
             return;
+        // 上班中只給「下班」，下班後（或還沒上班）只給「上班」；放在每秒更新裡，跨過上下班時間會自己切換
+        var onDuty = _engine.OnDuty;
+        ClockInButton.Visibility = onDuty ? Visibility.Collapsed : Visibility.Visible;
+        ClockOutButton.Visibility = onDuty ? Visibility.Visible : Visibility.Collapsed;
+
         var now = DateTime.Now;
         var today = now.Date;
         var worked = WorkMath.UnionMinutes(_engine.Entries, today, now);
@@ -296,6 +351,8 @@ public partial class PanelWindow : Window
         SummaryDetail.Text = expected > 0 && worked < expected
             ? $"還差 {WorkMath.HoursMinutes(expected - worked)}"
             : WorkMath.HoursMinutes(worked);
+
+        Timeline.SetData(today, _engine.Schedule?.Working, _engine.Entries, now);
 
         foreach (var vm in _running)
             vm.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, vm.Key, today, now));
@@ -487,7 +544,7 @@ public partial class PanelWindow : Window
     {
         if (_engine.ResumeCandidates().Count == 0)
         {
-            var picker = new TaskPickerWindow(_engine.MyTasks, "上班要開始計時哪些任務？（可多選）", multiSelect: true, showMakeDefault: false);
+            var picker = new TaskPickerWindow(_engine.MyTasks, "上班要開始計時哪些任務？（可多選）", multiSelect: true);
             if (!ShowDialogSafe(picker) || picker.SelectedKeys.Count == 0)
                 return;
             await WithBusyButton(ClockInButton, () => _engine.ClockInAsync(picker.SelectedKeys));
@@ -535,9 +592,9 @@ public partial class PanelWindow : Window
     {
         if ((sender as Button)?.Tag is not RepoRowVm vm)
             return;
-        var picker = new TaskPickerWindow(_engine.MyTasks, $"「{vm.Name}」的 Claude session 在做哪個任務？", multiSelect: false, showMakeDefault: true);
+        var picker = new TaskPickerWindow(_engine.MyTasks, $"「{vm.Name}」這個 Claude session 在做哪個任務？", multiSelect: false);
         if (ShowDialogSafe(picker) && picker.SelectedKeys.Count > 0)
-            await _engine.PickTaskForRepoAsync(vm.Path, picker.SelectedKeys[0], picker.MakeDefault);
+            await _engine.PickTaskForRepoAsync(vm.Path, picker.SelectedKeys[0]);
     }
 
     bool ShowDialogSafe(Window dialog)

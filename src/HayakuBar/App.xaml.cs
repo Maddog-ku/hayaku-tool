@@ -24,7 +24,6 @@ public partial class App : Application
     TrayIcon? _tray;
     MiniHttpServer? _hookServer;
     SettingsWindow? _settings;
-    TimeEntriesWindow? _entries;
     UI.Work.WorkspaceWindow? _workspace;
     GlobalHotkey? _hotkey;
     HoverCard? _hoverCard;
@@ -74,6 +73,7 @@ public partial class App : Application
         _panel.TimeEntriesRequested += () => OpenTimeEntries(DateOnly.FromDateTime(DateTime.Today));
         _panel.WorkspaceRequested += OpenWorkspace;
         engine.TimeEntriesRequested += OpenTimeEntries;
+        engine.WorkspaceRequested += OpenWorkspace;
 
         var tray = _tray = new TrayIcon(new TrayActions(
             TogglePanel: TogglePanel,
@@ -94,6 +94,7 @@ public partial class App : Application
         engine.Notify += message => _toasts.Show(new ToastRequest("HayakuBar", message));
         engine.Toast += _toasts.Show;
         _toasts.Anchor = WidgetAnchor;
+        _toasts.IsQuiet = () => config.QuietWhenBusy && Native.UserBusy();
         _toasts.DefaultDuration = () => config.NotificationPopupSeconds > 0 ? TimeSpan.FromSeconds(config.NotificationPopupSeconds) : null;
 
         var widget = _widget = new TaskbarWidget(ParseAnchor(config.TaskbarAnchor), config.TaskbarOffset, ParseLayout(config.TaskbarLayout));
@@ -164,6 +165,7 @@ public partial class App : Application
             if (panelArg.Contains(':'))
                 _panel.SelectTab(panelArg[(panelArg.IndexOf(':') + 1)..] switch
                 {
+                    "tasks" => "Tasks",
                     "today" => "Today",
                     "notify" => "Notify",
                     _ => "Timer",
@@ -172,6 +174,7 @@ public partial class App : Application
         }
 
         await engine.StartAsync();
+        _ = Dispatcher.InvokeAsync(() => _panel?.Prewarm(), DispatcherPriority.ApplicationIdle);
         Log.Info("HayakuBar 啟動");
     }
 
@@ -289,22 +292,10 @@ public partial class App : Application
             _toasts.Show(new ToastRequest("快捷鍵無法使用", $"「{text}」可能被其他程式占用，請在設定換一組。"));
     }
 
-    void OpenTimeEntries(DateOnly day)
-    {
-        if (_engine is null)
-            return;
-        if (_entries is { IsLoaded: true })
-        {
-            _ = _entries.ShowDayAsync(day);
-            _entries.Activate();
-            return;
-        }
-        _entries = new TimeEntriesWindow(_engine, day);
-        _entries.Show();
-        _entries.Activate();
-    }
+    /// <summary>工時紀錄在工作台裡：開工作台並切到那一天。</summary>
+    void OpenTimeEntries(DateOnly day) => OpenWorkspace("entries", day);
 
-    /// <summary>開工作台到指定頁（tasks、hours、worklog、reminders、meetings、chat、team、leaves、stats）。</summary>
+    /// <summary>開工作台到指定頁（tasks、hours、entries、worklog、reminders、meetings、chat、team、leaves、stats）。</summary>
     void OpenWorkspace(string page, object? arg)
     {
         if (_engine is null)
@@ -312,7 +303,6 @@ public partial class App : Application
         if (_workspace is null)
         {
             _workspace = new UI.Work.WorkspaceWindow(_engine);
-            _workspace.DayRequested += OpenTimeEntries;
             _workspace.Closed += (_, _) => _workspace = null;
             _workspace.Show();
         }
