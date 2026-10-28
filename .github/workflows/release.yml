@@ -1,0 +1,53 @@
+# 推版本 tag（例 v1.0.0）時：跑測試 → 打包成單一 exe（不用裝 .NET）→ 發佈到 GitHub Releases 給使用者下載
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要發佈的版本 tag（例 v1.0.1，會自動建立）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 測試
+        run: dotnet test tests/HayakuBar.Tests/HayakuBar.Tests.csproj -c Release
+
+      - name: 打包單一 exe
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          dotnet publish src/HayakuBar/HayakuBar.csproj -c Release -r win-x64 --self-contained `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true -p:DebugType=none `
+            -p:Version=$version -o publish
+
+      - name: 發佈到 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: HayakuBar ${{ env.TAG }}
+          files: publish/HayakuBar.exe
+          body: |
+            ## 下載與安裝
+            1. 下載下面的 **HayakuBar.exe**（單一檔案，不用另外安裝 .NET）。
+            2. 放到固定的資料夾（例如 `D:\Tools\HayakuBar\`），雙擊執行。
+            3. 第一次開啟按「登入」，在瀏覽器授權 Hayaku 即可。
+
+            Windows 可能跳出「Windows 已保護您的電腦」：按「其他資訊」→「仍要執行」。
+            設定存在 `%APPDATA%\HayakuBar`，更新時直接用新的 exe 取代舊的即可（先在工作列右鍵結束舊的）。

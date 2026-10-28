@@ -3,6 +3,13 @@
 嵌在 Windows 工作列裡的 Hayaku 工時小工具：顯示「今天工時 / 應出勤」，點一下往上彈出面板看計時中的任務；
 依 Hayaku 班表自動上下班，並偵測 Claude Code 的活動自動為對應任務計時。
 
+## 下載
+
+到 [Releases](https://github.com/Maddog-ku/hayaku-tool/releases/latest) 下載 **HayakuBar.exe**
+（單一檔案，不用另外安裝 .NET），放到固定的資料夾後雙擊執行，第一次按「登入」在瀏覽器授權 Hayaku 即可。
+Windows 若跳出「Windows 已保護您的電腦」，按「其他資訊」→「仍要執行」。
+更新時先在工作列右鍵結束 HayakuBar，再用新的 exe 取代舊的（設定存在 `%APPDATA%\HayakuBar`，不會不見）。
+
 ## 功能
 
 - **嵌在工作列裡**：顯示 `3.5h / 8h`＋進度條＋計時數＋Claude 標記，背景透明、跟著工作列的深淺色。
@@ -44,6 +51,9 @@
   - Claude 有動作就開始計時，跟其他計時並行，之後**持續計時**，不會因為閒置而暫停；休息、下班或手動暫停才會停。
   - 選用：一鍵安裝 Claude Code hooks（寫進 repo 的 `.claude/settings.local.json`），反應更即時。
   - 預設只在上班時間（或你有手動計時）時才自動計時。
+  - **自動建立任務**（「專案」頁逐一勾選，預設關）：Claude 開始改程式（Edit、Write…）、卻對應不到任務時跳提示；
+    只是問問題、規劃不會跳，同一個 session 只問一次。按「建立任務」開小視窗，專案自動選好（記住資料夾對應的專案與上層），
+    選專案樹位置、狀態、預計起訖，建好後就為這個 session 計時；也可以「選既有任務」。
 
 ## 登入
 
@@ -66,6 +76,18 @@ dotnet run --project src\HayakuBar
 .\publish.ps1 -SelfContained   # 不需要安裝 .NET
 ```
 
+### 發佈新版本
+
+推一個版本 tag，GitHub Actions（`.github/workflows/release.yml`）會跑測試、打包成單一 exe（約 72MB，不用裝 .NET），
+並建立 Release 附上 `HayakuBar.exe` 給使用者下載：
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+也可以在 GitHub 的 Actions › Release › Run workflow 輸入版本號手動發佈。
+
 ### 啟動參數
 
 | 參數 | 用途 |
@@ -76,6 +98,7 @@ dotnet run --project src\HayakuBar
 | `--entries` | 開工作台的工時紀錄（今天） |
 | `--shot:頁面,…` | 把各頁畫面存成 PNG 到 `%APPDATA%\HayakuBar\shots`（例 `panel-today,tasks,settings-general,toast`） |
 | `--toast-test` | 顯示一則範例提示 |
+| `--meeting-test` | 模擬兩場快開始的會議提示（參加者／不是參加者），按鈕不會真的加入 |
 | `--mcp-call <工具> <參數JSON> <輸出檔>` | 診斷：用目前登入呼叫一支 MCP 工具（先關掉執行中的 HayakuBar） |
 
 ## 檔案位置
