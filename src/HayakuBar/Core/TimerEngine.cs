@@ -24,7 +24,9 @@ public sealed partial class TimerEngine
     readonly ClaudeMonitor _claude;
     readonly SemaphoreSlim _gate = new(1, 1);
     readonly DispatcherTimer _poll = new();
-    readonly DispatcherTimer _claudeTimer = new() { Interval = TimeSpan.FromSeconds(15) };
+    static readonly TimeSpan ClaudeActiveInterval = TimeSpan.FromSeconds(15);
+    static readonly TimeSpan ClaudeIdleInterval = TimeSpan.FromSeconds(60);
+    readonly DispatcherTimer _claudeTimer = new() { Interval = ClaudeActiveInterval };
     readonly DispatcherTimer _hookDebounce = new() { Interval = TimeSpan.FromSeconds(1) };
     readonly HashSet<string> _knownProjects = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> _suppressed = new(StringComparer.OrdinalIgnoreCase);
@@ -517,6 +519,11 @@ public sealed partial class TimerEngine
                 Error = $"Claude 無法開始 {key}：{ex.Message}";
             }
         }
+        // 上班中或 Claude 正在動：15 秒掃一次；其他時候 60 秒（hooks 有事件時仍會馬上反應）
+        var interval = IsWorking(now) || _claude.Repos.Any(r => r.Active) ? ClaudeActiveInterval : ClaudeIdleInterval;
+        if (_claudeTimer.Interval != interval)
+            _claudeTimer.Interval = interval;
+
         // Claude 開始的計時不會因為閒置而暫停，會一直算到休息、下班或手動暫停
         if (changed)
         {
@@ -566,6 +573,13 @@ public sealed partial class TimerEngine
     {
         if (_state.ClaudeOwned.RemoveAll(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) > 0)
             _state.Save();
+    }
+
+    /// <summary>定期清暫存：專案狀態清單（順便讓狀態更新）、Claude session 的快取。</summary>
+    public void TrimCaches()
+    {
+        _projects.Clear();
+        _claude.TrimCaches();
     }
 
     void Raise() => Changed?.Invoke();

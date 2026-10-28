@@ -9,14 +9,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>HayakuBar</RootNamespace>
     <AssemblyName>HayakuBar</AssemblyName>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Product>HayakuBar</Product>
     <Description>Hayaku 工時工作列小工具</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <!-- DPI 由 manifest 設定（WPF 為主），WinForms 只用在系統匣選單 -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <!-- 常駐小工具：省記憶體優先（不開背景 GC 執行緒、GC 積極壓縮）；只打包繁中的框架訊息，exe 小、啟動快 -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <SatelliteResourceLanguages>zh-Hant</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- WPF 與 WinForms 同時開啟時避免型別撞名（Application、MessageBox…），WinForms 只在 TrayIcon 用別名引用 -->

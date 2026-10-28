@@ -41,6 +41,11 @@ internal sealed class TaskbarWidget : IDisposable
     int _downOffsetPx;
     int _dragOffsetPx;
     string? _lastLayout;
+    int _watchCount;
+    Native.RECT _lastTray;
+
+    /// <summary>跨程序讀工作列圖示（UI Automation）很耗資源：每隔幾次檢查才掃一次。</summary>
+    const int IconScanEvery = 8;
 
     public TaskbarWidget(TaskbarAnchor anchor, double offset, WidgetLayout layout)
     {
@@ -116,9 +121,12 @@ internal sealed class TaskbarWidget : IDisposable
                 Embed();
                 return;
             }
-            _icons.ScanInBackground();
             var dpiScale = GetDpiForWindow(_tray) / 96.0;
             GetWindowRect(_tray, out var rect);
+            var trayChanged = rect.Left != _lastTray.Left || rect.Right != _lastTray.Right || rect.Height != _lastTray.Height;
+            _lastTray = rect;
+            if (trayChanged || ++_watchCount % IconScanEvery == 0)
+                _icons.ScanInBackground();
             if (Math.Abs(dpiScale - _scale) > 0.001 || rect.Height != _height)
                 Render();
             Place();

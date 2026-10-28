@@ -30,10 +30,13 @@ public partial class App : Application
     readonly ToastManager _toasts = new();
     readonly DispatcherTimer _widgetTick = new() { Interval = TimeSpan.FromSeconds(1) };
     readonly DispatcherTimer _hoverDelay = new() { Interval = TimeSpan.FromMilliseconds(450) };
+    readonly DispatcherTimer _housekeeping = new() { Interval = TimeSpan.FromMinutes(3) }; // 啟動 3 分鐘後第一次，之後每 30 分鐘
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // 畫面都是小面板與提示：用軟體繪圖，省掉 GPU（D3D）繪圖約 240MB 的記憶體，CPU 幾乎不變
+        RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         if (e.Args.Length > 0 && e.Args[0] == "--mcp-call")
         {
             var code = await Diagnostics.McpCallAsync(e.Args);
@@ -187,6 +190,12 @@ public partial class App : Application
 
         await engine.StartAsync();
         _ = Dispatcher.InvokeAsync(() => _panel?.Prewarm(), DispatcherPriority.ApplicationIdle);
+        _housekeeping.Tick += (_, _) =>
+        {
+            _housekeeping.Interval = TimeSpan.FromMinutes(30);
+            Housekeep("定期");
+        };
+        _housekeeping.Start();
         Log.Info("HayakuBar 啟動");
     }
 
@@ -195,6 +204,7 @@ public partial class App : Application
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _widgetTick.Stop();
+        _housekeeping.Stop();
         _hotkey?.Dispose();
         _widget?.Dispose();
         _hookServer?.Dispose();
@@ -524,8 +534,36 @@ public partial class App : Application
             Dispatcher.InvokeAsync(() => _engine?.AutoRefreshAsync());
     }
 
+    /// <summary>
+    /// 清暫存：舊截圖與紀錄、各處快取，再整理記憶體。
+    /// 面板、工作台、設定開著（正在用）時只清檔案與快取，不整理記憶體，避免操作時卡一下。
+    /// </summary>
+    void Housekeep(string reason)
+    {
+        try
+        {
+            var before = Housekeeping.MemoryText();
+            var deleted = Housekeeping.CleanFiles(AppPaths.Dir, DateTime.Now);
+            _engine?.TrimCaches();
+            _panel?.TrimCaches();
+            // 提示、滑鼠停留的摘要不算；面板、工作台、設定、建立任務…開著就算在用
+            var open = Windows.OfType<Window>().Where(w => w.IsVisible && w is not ToastWindow and not HoverCard)
+                .Select(w => w.GetType().Name).ToList();
+            if (open.Count == 0)
+                Housekeeping.TrimMemory();
+            Log.Info($"清暫存（{reason}）：刪除 {deleted} 個舊檔；{before} → " +
+                     (open.Count == 0 ? Housekeeping.MemoryText() : $"{string.Join("、", open)} 開著，略過整理記憶體"));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("清暫存失敗", ex);
+        }
+    }
+
     void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {
+        if (e.Reason == SessionSwitchReason.SessionLock)
+            Dispatcher.InvokeAsync(() => Housekeep("鎖定電腦"), DispatcherPriority.ApplicationIdle);
         if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)
             Dispatcher.InvokeAsync(() => _engine?.AutoRefreshAsync());
     }

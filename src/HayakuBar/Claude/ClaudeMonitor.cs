@@ -61,7 +61,9 @@ public sealed record DetectedProject(string Path, string Name, bool IsGit, DateT
 public sealed partial class ClaudeMonitor
 {
     const int InitialTailBytes = 512 * 1024;
+    const int MaxReadBytes = 1024 * 1024;
     const int HeadBytes = 256 * 1024;
+    const int QuickHeadBytes = 32 * 1024;
     static readonly TimeSpan RecentFiles = TimeSpan.FromDays(7);
     static readonly TimeSpan DetectCacheTime = TimeSpan.FromMinutes(2);
     static readonly TimeSpan IndexCacheTime = TimeSpan.FromSeconds(60);
@@ -264,6 +266,20 @@ public sealed partial class ClaudeMonitor
         return sessions;
     }
 
+    /// <summary>清暫存：已刪除或超過 7 天沒動的 session 檔的開頭資訊、專案偵測與 session 索引（下次用到再重建）。</summary>
+    public void TrimCaches()
+    {
+        var since = DateTime.Now - RecentFiles;
+        foreach (var file in _sessionHeads.Keys.ToList())
+        {
+            var info = new FileInfo(file);
+            if (!info.Exists || info.LastWriteTime < since)
+                _sessionHeads.Remove(file);
+        }
+        _detectCache.Clear();
+        _index = null;
+    }
+
     // ───────────── 掃描 session ─────────────
 
     public void Scan()
@@ -357,13 +373,19 @@ public sealed partial class ClaudeMonitor
         return (cwd, entrypoint);
     }
 
-    /// <summary>讀檔案開頭，取第一筆 cwd 與 entrypoint。</summary>
+    /// <summary>讀檔案開頭，取第一筆 cwd 與 entrypoint；cwd 通常在前幾行，先讀 32KB，找不到才讀 256KB。</summary>
     static (string? Cwd, string? Entrypoint) ReadHead(string path)
+    {
+        var quick = ReadHead(path, QuickHeadBytes);
+        return quick.Cwd is not null ? quick : ReadHead(path, HeadBytes);
+    }
+
+    static (string? Cwd, string? Entrypoint) ReadHead(string path, int bytes)
     {
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            var buffer = new byte[Math.Min(HeadBytes, fs.Length)];
+            var buffer = new byte[Math.Min(bytes, fs.Length)];
             var read = fs.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
             var text = Encoding.UTF8.GetString(buffer, 0, read);
             string? cwd = null;
@@ -464,7 +486,7 @@ public sealed partial class ClaudeMonitor
         {
             using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var length = fs.Length - activity.FileOffset;
-            if (length > 4 * 1024 * 1024)
+            if (length > MaxReadBytes) // 落後太多（例如剛開工具）：只看最後一段
             {
                 activity.FileOffset = fs.Length - InitialTailBytes;
                 length = InitialTailBytes;

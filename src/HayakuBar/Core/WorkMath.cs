@@ -114,8 +114,9 @@ public static class WorkMath
     public static double TaskMinutes(IEnumerable<TimeEntry> entries, string task, DateTime day, DateTime now) =>
         UnionMinutes(entries.Where(e => string.Equals(e.Task, task, StringComparison.OrdinalIgnoreCase)), day, now);
 
-    /// <summary>3.47 小時 → "3.5h"；8 小時 → "8h"。</summary>
-    public static string HoursText(double minutes) => HoursNumber(minutes / 60) + "h";
+    /// <summary>工時（跟 Hayaku 網頁一樣到小數點後兩位）：364.8 分 → "6.08h"；8 小時 → "8h"。</summary>
+    public static string HoursText(double minutes) =>
+        Math.Round(minutes / 60, 2, MidpointRounding.AwayFromZero).ToString("0.##", CultureInfo.InvariantCulture) + "h";
 
     /// <summary>小時數只顯示到小數點後一位（計算時保留原本的精確度）：2.13 → "2.1"、4 → "4"。</summary>
     public static string HoursNumber(double hours) => Math.Round(hours, 1, MidpointRounding.AwayFromZero).ToString("0.#", CultureInfo.InvariantCulture);

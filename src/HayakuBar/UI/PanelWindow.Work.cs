@@ -126,6 +126,9 @@ public partial class PanelWindow
         };
     }
 
+    /// <summary>定期清暫存：任務搜尋的快取。</summary>
+    public void TrimCaches() => _searchCache.Clear();
+
     void RequestWorkspace(string page, object? arg = null)
     {
         HidePanel();

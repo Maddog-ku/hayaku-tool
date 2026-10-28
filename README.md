@@ -110,6 +110,10 @@ git push origin v1.0.1
 | `%APPDATA%\HayakuBar\auth.bin` | 登入資料（DPAPI 加密） |
 | `%APPDATA%\HayakuBar\log.txt` | 紀錄 |
 
+**清暫存**：啟動 3 分鐘後、之後每 30 分鐘、以及鎖定電腦時，自動刪除 3 天前的截圖（`shots\`）與 14 天前的舊紀錄（`log.txt.1`），
+清掉 Claude session、專案狀態、搜尋的快取，並把用不到的記憶體還給 Windows（面板、工作台、設定開著時不整理記憶體）；
+結果寫在 `log.txt`（「清暫存」）。
+
 本機連接埠：`47824` 接收 OAuth 登入回呼（登入時才開）、`47823` 接收 Claude Code hooks。
 
 ## 程式結構
