@@ -39,6 +39,11 @@ public sealed partial class TimerEngine
 
     public int OverdueCount => TaskList("overdue").Count;
 
+    /// <summary>任務目前的狀態（從我的任務清單找；不在清單裡回 null）。</summary>
+    public string? StatusOf(string key) =>
+        TaskLists.Values.SelectMany(l => l).FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))?.Status
+        ?? MyTasks.FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))?.Status;
+
     /// <summary>今天到期（預計結束是今天、還沒完成）。</summary>
     public int DueTodayCount
     {

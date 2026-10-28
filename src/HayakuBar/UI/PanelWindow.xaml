@@ -60,6 +60,21 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
+        <!-- 任務列上的狀態：點一下直接改狀態 -->
+        <Style x:Key="StatusPill" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource ButtonBrush}" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="7,1,7,2" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="ToolTip" Value="點一下改狀態" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <DataTemplate x:Key="TaskRowTemplate">
             <Border x:Name="Row" Style="{StaticResource ClickRow}" MouseLeftButtonUp="TaskRow_Click" MouseRightButtonUp="TaskRow_RightClick"
                     Tag="{Binding}" ToolTip="點一下看詳細；右鍵有更多動作">
@@ -69,8 +84,9 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="26" />
                         <ColumnDefinition Width="28" />
-                        <ColumnDefinition Width="22" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding Icon}" Foreground="{Binding IconBrush}" ToolTip="{Binding IconTip}"
                                VerticalAlignment="Center" FontSize="11" />
@@ -78,13 +94,18 @@
                                VerticalAlignment="Center" />
                     <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="3" Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}"
+                    <Border x:Name="StatusPill" Grid.Column="3" Style="{StaticResource StatusPill}" Margin="6,0,0,0" Tag="{Binding}"
+                            Visibility="{Binding StatusVisibility}" MouseLeftButtonUp="StatusPill_Click">
+                        <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource MutedBrush}" />
+                    </Border>
+                    <TextBlock Grid.Column="4" Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}"
                                Margin="6,0,2,0" VerticalAlignment="Center" />
-                    <Button Grid.Column="4" Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}"
+                    <Button Grid.Column="5" Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}"
                             IsEnabled="{Binding NotBusy}" Tag="{Binding}" Click="TaskAction_Click"
                             Style="{StaticResource IconButton}" FontSize="10" />
-                    <Button x:Name="More" Grid.Column="5" Content="⋯" ToolTip="更多：停止並完成、改狀態、提醒…" Tag="{Binding}"
-                            Click="TaskMore_Click" Style="{StaticResource IconButton}" Opacity="0" />
+                    <Button x:Name="More" Grid.Column="6" Content="⋯" ToolTip="更多：停止並完成、改狀態、提醒…" Tag="{Binding}"
+                            Click="TaskMore_Click" Style="{StaticResource IconButton}" FontSize="14" Padding="2,0,2,2"
+                            Opacity="0.45" />
                 </Grid>
             </Border>
             <DataTemplate.Triggers>
@@ -102,23 +123,26 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="28" />
-                        <ColumnDefinition Width="22" />
+                        <ColumnDefinition Width="28" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock TextTrimming="CharacterEllipsis">
                             <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
                             <Run Text="{Binding Title, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
                         </TextBlock>
-                        <TextBlock FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,1,0,0">
-                            <Run Text="{Binding Status, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
-                            <Run Text="{Binding DueText, Mode=OneWay}" Foreground="{Binding DueBrush, Mode=OneWay}" />
-                        </TextBlock>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                            <Border x:Name="StatusPill" Style="{StaticResource StatusPill}" Tag="{Binding}" MouseLeftButtonUp="StatusPill_Click">
+                                <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource MutedBrush}" />
+                            </Border>
+                            <TextBlock Text="{Binding DueText}" Foreground="{Binding DueBrush}" FontSize="11" Margin="5,0,0,0"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
                     </StackPanel>
                     <Button Grid.Column="1" Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}" Foreground="{Binding ActionBrush}"
                             IsEnabled="{Binding NotBusy}" Tag="{Binding}" Click="MyTaskAction_Click"
                             Style="{StaticResource IconButton}" FontSize="10" VerticalAlignment="Center" />
-                    <Button x:Name="More" Grid.Column="2" Content="⋯" ToolTip="更多" Tag="{Binding}" Click="TaskMore_Click"
-                            Style="{StaticResource IconButton}" Opacity="0" VerticalAlignment="Center" />
+                    <Button x:Name="More" Grid.Column="2" Content="⋯" ToolTip="更多：停止並完成、改狀態、提醒…" Tag="{Binding}" Click="TaskMore_Click"
+                            Style="{StaticResource IconButton}" FontSize="14" Padding="2,0,2,2" Opacity="0.45" VerticalAlignment="Center" />
                 </Grid>
             </Border>
             <DataTemplate.Triggers>

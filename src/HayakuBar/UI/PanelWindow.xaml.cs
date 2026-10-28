@@ -277,10 +277,10 @@ public partial class PanelWindow : Window
 
         _running.Clear();
         foreach (var t in tasks.Where(t => t.Running).OrderBy(t => t.Key, StringComparer.OrdinalIgnoreCase))
-            _running.Add(new TaskRowVm { Key = t.Key, Title = t.Title, Running = true, IsClaude = _engine.IsClaudeOwned(t.Key) });
+            _running.Add(new TaskRowVm { Key = t.Key, Title = t.Title, Running = true, IsClaude = _engine.IsClaudeOwned(t.Key), Status = _engine.StatusOf(t.Key) });
         _paused.Clear();
         foreach (var t in tasks.Where(t => !t.Running).OrderByDescending(t => t.LastEnd))
-            _paused.Add(new TaskRowVm { Key = t.Key, Title = t.Title });
+            _paused.Add(new TaskRowVm { Key = t.Key, Title = t.Title, Status = _engine.StatusOf(t.Key) });
         RunningEmpty.Visibility = _running.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         PausedSection.Visibility = _paused.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 

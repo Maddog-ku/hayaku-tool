@@ -193,7 +193,7 @@ public partial class PanelWindow
         if (sender is FrameworkElement element && KeyOf(element.Tag) is { } key)
         {
             e.Handled = true;
-            ShowTaskMenu(key, element);
+            ShowTaskMenu(key, MenuAnchor(element));
         }
     }
 
@@ -202,7 +202,16 @@ public partial class PanelWindow
         if (sender is Button button && KeyOf(button.Tag) is { } key)
         {
             e.Handled = true;
-            ShowTaskMenu(key, button);
+            ShowTaskMenu(key, MenuAnchor(button));
+        }
+    }
+
+    void StatusPill_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && KeyOf(element.Tag) is { } key)
+        {
+            e.Handled = true; // 不要再當成點整列（開詳細）
+            _ = ShowStatusMenuAsync(key, MenuAnchor(element));
         }
     }
 
@@ -213,10 +222,66 @@ public partial class PanelWindow
         _ => null,
     };
 
-    void ShowTaskMenu(string key, FrameworkElement target)
+    /// <summary>按鈕在面板裡的位置（開選單當下記下來；之後清單重畫、按鈕換掉了也不影響）。</summary>
+    Rect MenuAnchor(FrameworkElement element) =>
+        element.IsDescendantOf(Root)
+            ? element.TransformToAncestor(Root).TransformBounds(new Rect(element.RenderSize))
+            : new Rect(Mouse.GetPosition(Root), new Size(1, 1));
+
+    /// <summary>
+    /// 選單擺在按鈕右側（螢幕右邊放不下改放左側），不會蓋住其他列的 ⋯ 與狀態；
+    /// 位置以面板為基準，資料同步重畫清單時選單不會跳走。選單開著時直接點別列的 ⋯ 或狀態，會換成那一列的選單。
+    /// </summary>
+    void OpenMenu(ContextMenu menu, Rect anchor, string id)
+    {
+        menu.PlacementTarget = Root;
+        menu.Placement = PlacementMode.Custom;
+        menu.CustomPopupPlacementCallback = (popup, target, _) =>
+        {
+            var scale = Root.ActualWidth > 0 ? target.Width / Root.ActualWidth : 1; // 回呼給的大小是實體像素
+            var top = anchor.Top * scale;
+            return
+            [
+                new CustomPopupPlacement(new Point(anchor.Right * scale + 4 * scale, top), PopupPrimaryAxis.Horizontal),
+                new CustomPopupPlacement(new Point(anchor.Left * scale - popup.Width - 4 * scale, top), PopupPrimaryAxis.Horizontal),
+            ];
+        };
+        menu.Closed += (_, _) =>
+        {
+            // 點選單外面時，那一下會被選單吃掉（只用來關選單）：點的是別列的 ⋯ 或狀態就直接幫他打開
+            if (Mouse.LeftButton != MouseButtonState.Pressed || !IsVisible)
+                return;
+            var point = Mouse.GetPosition(Root);
+            Dispatcher.BeginInvoke(() => ReopenAt(point, id), DispatcherPriority.Input);
+        };
+        menu.IsOpen = true;
+    }
+
+    /// <summary>previousId：剛關掉的選單（"menu:F2P-5"、"status:F2P-5"）；再點同一個是想關掉，不重開。</summary>
+    void ReopenAt(Point point, string previousId)
+    {
+        if (Root.InputHitTest(point) is not DependencyObject hit)
+            return;
+        for (var d = hit; d is not null && d != Root; d = VisualTreeHelper.GetParent(d))
+        {
+            if (d is not FrameworkElement { Name: "More" or "StatusPill" } element || KeyOf(element.Tag) is not { } key)
+                continue;
+            var status = element.Name == "StatusPill";
+            if ((status ? "status:" : "menu:") + key == previousId)
+                return;
+            if (status)
+                _ = ShowStatusMenuAsync(key, MenuAnchor(element));
+            else
+                ShowTaskMenu(key, MenuAnchor(element));
+            return;
+        }
+    }
+
+    void ShowTaskMenu(string key, Rect anchor)
     {
         var running = _engine.RunningKeys().Contains(key);
-        var menu = new ContextMenu { PlacementTarget = target, Placement = PlacementMode.Bottom };
+        var status = _engine.StatusOf(key);
+        var menu = new ContextMenu();
         void Add(string header, Action action, bool enabled = true)
         {
             var item = new MenuItem { Header = header, IsEnabled = enabled };
@@ -226,16 +291,16 @@ public partial class PanelWindow
 
         Add(running ? "❚❚  暫停計時" : "▶  開始計時", () => _ = running ? _engine.PauseTaskAsync(key) : _engine.StartTaskAsync(key));
         Add("✓  停止並完成", () => _ = _engine.CompleteTaskAsync(key));
-        Add("⇄  改狀態…", () => _ = ShowStatusMenuAsync(key, target));
+        Add(status is null ? "⇄  改狀態…" : $"⇄  改狀態…（{status}）", () => _ = ShowStatusMenuAsync(key, anchor));
         menu.Items.Add(new Separator { Margin = new Thickness(4), Background = Brushes2.Get("LineBrush") });
         Add("⏰  新增提醒…", () => RequestWorkspace("reminders", key));
         Add("💬  任務聊天", () => RequestWorkspace("chat", key));
         Add("☰  查看詳細", () => RequestWorkspace("tasks", key));
         Add("↗  在網頁開啟", () => Web.Open(_engine.TaskUrl(key)));
-        menu.IsOpen = true;
+        OpenMenu(menu, anchor, "menu:" + key);
     }
 
-    async Task ShowStatusMenuAsync(string key, FrameworkElement target)
+    async Task ShowStatusMenuAsync(string key, Rect anchor)
     {
         ProjectDetail project;
         try
@@ -247,8 +312,8 @@ public partial class PanelWindow
             Log.Error("讀取狀態清單失敗", ex);
             return;
         }
-        var current = _engine.TaskLists.Values.SelectMany(l => l).FirstOrDefault(t => t.Key == key)?.Status;
-        var menu = new ContextMenu { PlacementTarget = target, Placement = PlacementMode.Bottom };
+        var current = _engine.StatusOf(key);
+        var menu = new ContextMenu();
         menu.Items.Add(new MenuItem { Header = $"{key} 改成…", IsEnabled = false });
         foreach (var status in project.Statuses)
         {
@@ -256,7 +321,7 @@ public partial class PanelWindow
             item.Click += (_, _) => _ = _engine.SetTaskStatusAsync(key, status.Name);
             menu.Items.Add(item);
         }
-        menu.IsOpen = true;
+        OpenMenu(menu, anchor, "status:" + key);
     }
 
     // ───────────── 今天分頁的摘要 ─────────────

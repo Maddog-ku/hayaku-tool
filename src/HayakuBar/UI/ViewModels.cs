@@ -18,6 +18,10 @@ public sealed class TaskRowVm : INotifyPropertyChanged
     public bool Running { get; init; }
     public bool IsClaude { get; init; }
 
+    /// <summary>任務目前的狀態；不在我的任務清單裡（查不到）時不顯示。</summary>
+    public string? Status { get; init; }
+    public Visibility StatusVisibility => string.IsNullOrEmpty(Status) ? Visibility.Collapsed : Visibility.Visible;
+
     public string Icon => IsClaude ? "✦" : Running ? "●" : "○";
     public Brush IconBrush => Brushes2.Get(IsClaude ? "ClaudeBrush" : Running ? "RunBrush" : "MutedBrush");
     public string IconTip => IsClaude ? "Claude 自動計時" : Running ? "計時中" : "已暫停";
