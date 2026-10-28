@@ -94,6 +94,7 @@ public partial class App : Application
         engine.Notify += message => _toasts.Show(new ToastRequest("HayakuBar", message));
         engine.Toast += _toasts.Show;
         _toasts.Anchor = WidgetAnchor;
+        _toasts.DefaultDuration = () => config.NotificationPopupSeconds > 0 ? TimeSpan.FromSeconds(config.NotificationPopupSeconds) : null;
 
         var widget = _widget = new TaskbarWidget(ParseAnchor(config.TaskbarAnchor), config.TaskbarOffset, ParseLayout(config.TaskbarLayout));
         widget.Clicked += TogglePanel;
@@ -337,6 +338,7 @@ public partial class App : Application
                 _toasts.Show(new ToastRequest("申請已審核", "丁鈺昕：F2P-101 面板新增全部列印及選擇列印按鈕",
                     [new ToastAction("標為已讀", () => Task.CompletedTask, Primary: true), new ToastAction("查看", () => Task.CompletedTask)],
                     Duration: TimeSpan.FromSeconds(30), FromBottom: true));
+                _toasts.Show(new ToastRequest("HayakuBar", "休息時間，已暫停 7 個計時，13:00 會自動恢復"));
                 await Task.Delay(1500);
                 target = Windows.OfType<ToastWindow>().LastOrDefault();
                 if (target is not null)

@@ -1,4 +1,4 @@
-﻿<Window x:Class="HayakuBar.UI.SettingsWindow"
+<Window x:Class="HayakuBar.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HayakuBar 設定" Width="800" Height="600" MinWidth="680" MinHeight="480"
@@ -452,7 +452,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Style="{StaticResource SettingText}">
                                 <TextBlock Text="會議開始前提醒" Style="{StaticResource CardTitle}" />
-                                <TextBlock Style="{StaticResource CardDesc}" Text="右下角跳出提示，可一鍵「加入並計時」。" />
+                                <TextBlock Style="{StaticResource CardDesc}" Text="從工作列的工時上方跳出提示，可一鍵「加入並計時」。" />
                             </StackPanel>
                             <ComboBox x:Name="MeetingLeadBox" Grid.Column="1" Width="110" Margin="0,0,14,0" SelectedValuePath="Tag"
                                       VerticalAlignment="Center" SelectionChanged="MeetingLead_Changed">
@@ -488,10 +488,10 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Style="{StaticResource SettingText}">
                                 <TextBlock Text="有新通知時跳出提示" Style="{StaticResource CardTitle}" />
-                                <TextBlock Style="{StaticResource CardDesc}" Text="從工作列上方滑出來，停留一下就自動收回（滑鼠移上去會停住），可直接標為已讀。" />
+                                <TextBlock Style="{StaticResource CardDesc}" Text="所有提示都從工作列的工時上方滑出來，停留的秒數套用到全部提示（滑鼠移上去會停住）；會議、提醒這類要你處理的會停到你關掉。新通知可直接標為已讀。" />
                             </StackPanel>
                             <ComboBox x:Name="PopupSecondsBox" Grid.Column="1" Width="130" Margin="0,0,14,0" SelectedValuePath="Tag"
-                                      VerticalAlignment="Center" SelectionChanged="PopupSeconds_Changed" ToolTip="停留多久後自動收回">
+                                      VerticalAlignment="Center" SelectionChanged="PopupSeconds_Changed" ToolTip="提示停留多久後自動收回">
                                 <ComboBoxItem Content="停留 3 秒" Tag="3" />
                                 <ComboBoxItem Content="停留 5 秒" Tag="5" />
                                 <ComboBoxItem Content="停留 8 秒" Tag="8" />

@@ -155,8 +155,19 @@ public sealed class ToastManager
     /// <summary>工作列上工時的位置（DIP）與面板是否靠左展開；新通知從這裡冒出來。</summary>
     public Func<(Rect Anchor, bool AlignLeft)>? Anchor { get; set; }
 
+    /// <summary>一般提示停留多久（設定的秒數）；null 表示不自動收回。</summary>
+    public Func<TimeSpan?>? DefaultDuration { get; set; }
+
     public void Show(ToastRequest request)
     {
+        // 所有提示都一樣：從工作列工時的位置滑上來，停留設定的秒數後滑回去；
+        // 要你處理的（會議快開始、提醒到了…）會停到你按按鈕或關掉
+        if (!request.Sticky && request.Duration is null)
+        {
+            var duration = DefaultDuration?.Invoke();
+            request = duration is null ? request with { Sticky = true } : request with { Duration = duration };
+        }
+        request = request with { FromBottom = true };
         var toast = new ToastWindow(request);
         toast.Dismissed += t =>
         {
