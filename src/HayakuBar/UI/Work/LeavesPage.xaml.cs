@@ -10,9 +10,12 @@ public sealed class LeaveRowVm
 {
     public required LeaveItem Item { get; init; }
     public required bool Mine { get; init; }
+
+    /// <summary>由 EIP 請假同步建立的。</summary>
+    public bool FromEip { get; init; }
     public string Name => Item.User.DisplayName + (Mine ? "（我）" : "");
     public string Initial => Item.User.DisplayName.Length > 0 ? Item.User.DisplayName[..1] : "?";
-    public string Period => Item.Period;
+    public string Period => Item.Period + (FromEip ? "　· 從 EIP 同步" : "");
     public string Lost => Item.LostText;
     public Visibility CancelVisibility => Mine && Item.EndAt > DateTimeOffset.Now ? Visibility.Visible : Visibility.Collapsed;
 }
@@ -61,7 +64,7 @@ public partial class LeavesPage : UserControl, IWorkPage
                 return;
             var me = _engine.User?.Username;
             var rows = items
-                .Select(l => new LeaveRowVm { Item = l, Mine = l.User.Username == me })
+                .Select(l => new LeaveRowVm { Item = l, Mine = l.User.Username == me, FromEip = _engine.EipSync.IsSynced(l.Id) })
                 .Where(r => MineOnly.IsChecked != true || r.Mine)
                 .ToList();
             LeaveList.ItemsSource = rows;

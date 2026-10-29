@@ -11,6 +11,7 @@ using System.Windows.Media;
 using HayakuBar.Claude;
 using HayakuBar.Config;
 using HayakuBar.Core;
+using HayakuBar.Eip;
 using HayakuBar.Infra;
 using Microsoft.Win32;
 
@@ -204,6 +205,7 @@ public partial class SettingsWindow : Window
         PromptUnfilledBox.IsChecked = c.PromptUnfilled;
         QuietWhenBusyBox.IsChecked = c.QuietWhenBusy;
         LoadTaskbar();
+        LoadEip();
         foreach (var r in c.Repos)
             AddRepoItem(r);
 
@@ -234,7 +236,7 @@ public partial class SettingsWindow : Window
 
     // ───────────── 導覽 ─────────────
 
-    /// <summary>切到指定分頁：account、taskbar、schedule、repos、claude、general。</summary>
+    /// <summary>切到指定分頁：account、taskbar、schedule、repos、claude、eip、general。</summary>
     public void ShowPage(string page)
     {
         var target = "Page" + page;
@@ -247,7 +249,7 @@ public partial class SettingsWindow : Window
     {
         if (sender is not RadioButton { Tag: string page })
             return;
-        foreach (var p in new FrameworkElement[] { PageAccount, PageTaskbar, PageSchedule, PageRepos, PageClaude, PageGeneral })
+        foreach (var p in new FrameworkElement[] { PageAccount, PageTaskbar, PageSchedule, PageRepos, PageClaude, PageEip, PageGeneral })
             p.Visibility = p.Name == page ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -294,6 +296,7 @@ public partial class SettingsWindow : Window
                 DescribeProject(project, Unit(project.Path), now);
         }
         RepoEmpty.Visibility = _repos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshEipSync();
     }
 
     RepoActivity? Unit(string path) =>
@@ -363,6 +366,126 @@ public partial class SettingsWindow : Window
     }
 
     void OpenWeb_Click(object sender, RoutedEventArgs e) => Open(_engine.Config.BaseUrl);
+
+    // ───────────── EIP 請假 ─────────────
+
+    void LoadEip()
+    {
+        var cred = EipCredentialStore.Load();
+        ShowEipAccount(cred.IsEmpty ? null : cred.Account);
+        EipSyncBox.IsChecked = _engine.Config.EipLeaveSync;
+    }
+
+    /// <summary>已登入（存了帳密）只顯示帳號、已登入與登出；沒有帳密才顯示輸入欄位。</summary>
+    void ShowEipAccount(string? account)
+    {
+        var loggedIn = account is not null;
+        EipLoggedInPanel.Visibility = loggedIn ? Visibility.Visible : Visibility.Collapsed;
+        EipLoginPanel.Visibility = loggedIn ? Visibility.Collapsed : Visibility.Visible;
+        EipAccountText.Text = loggedIn ? $"{account} · 帳密用 Windows 加密存在這台電腦" : "";
+        EipSyncBox.IsEnabled = EipSyncButton.IsEnabled = loggedIn;
+        if (!loggedIn)
+            EipPasswordBox.Password = "";
+    }
+
+    /// <summary>上次同步的時間與結果。</summary>
+    void RefreshEipSync()
+    {
+        var s = _engine.EipSync;
+        EipSyncButton.IsEnabled = !_engine.EipSyncing && EipLoggedInPanel.Visibility == Visibility.Visible;
+        EipSyncStatus.Text = _engine.EipSyncing ? "同步中…"
+            : s.LastSyncAt is { } at ? $"上次同步 {at.ToString("M/d（ddd）HH:mm", UI.Work.Inputs.Zh)}：{s.LastResult}"
+            : s.LastResult.Length > 0 ? s.LastResult
+            : "還沒同步過";
+        EipSyncStatus.Foreground = Brushes2.Get(s.LastResult.StartsWith("失敗") ? "ErrorBrush" : "MutedBrush");
+    }
+
+    void EipSync_Click(object sender, RoutedEventArgs e)
+    {
+        _engine.Config.EipLeaveSync = EipSyncBox.IsChecked == true;
+        Apply();
+    }
+
+    async void EipSyncNow_Click(object sender, RoutedEventArgs e)
+    {
+        EipSyncButton.IsEnabled = false;
+        EipSyncStatus.Text = "同步中…";
+        var result = await _engine.SyncEipLeavesAsync(manual: true);
+        RefreshEipSync();
+        EipSyncStatus.Text = $"剛剛同步：{result}";
+    }
+
+    void ShowEipStatus(string? text, string brush = "MutedBrush")
+    {
+        EipStatus.Text = text ?? "";
+        EipStatus.Foreground = Brushes2.Get(brush);
+        EipStatus.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    void EipBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+            return;
+        e.Handled = true;
+        EipTest_Click(sender, e);
+    }
+
+    async void EipTest_Click(object sender, RoutedEventArgs e)
+    {
+        var cred = new EipCredentials { Account = EipAccountBox.Text.Trim(), Password = EipPasswordBox.Password };
+        if (cred.IsEmpty)
+        {
+            ShowEipStatus("請輸入帳號和密碼", "ErrorBrush");
+            return;
+        }
+        EipTestButton.IsEnabled = false;
+        ShowEipStatus("登入中…");
+        try
+        {
+            using var client = new EipClient();
+            var result = await client.LoginAsync(cred, CancellationToken.None);
+            if (!result.Ok)
+            {
+                ShowEipStatus($"登入失敗：{result.Message}", "ErrorBrush");
+                return;
+            }
+            EipCredentialStore.Save(cred);
+            _engine.ResetEip();
+            ShowEipAccount(cred.Account);
+            ShowEipStatus("讀取假單中…");
+
+            var year = DateTime.Today.Year;
+            var leaves = (await client.ListLeavesAsync(year, EipClient.StatePending, cred, CancellationToken.None))
+                .Concat(await client.ListLeavesAsync(year, EipClient.StateApproved, cred, CancellationToken.None))
+                .OrderByDescending(l => l.Start)
+                .ToList();
+            var recent = leaves.Take(3).Select(l =>
+                $"{l.Start.ToString("M/d（ddd）", UI.Work.Inputs.Zh)} {l.Start:HH:mm}–{(l.End.Date == l.Start.Date ? l.End.ToString("HH:mm") : l.End.ToString("M/d HH:mm"))} {l.Type}（{l.Status}）");
+            ShowEipStatus($"今年讀到 {leaves.Count} 筆假單" + (leaves.Count > 0 ? "：" + string.Join("、", recent) : ""));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("EIP 登入失敗", ex);
+            ShowEipStatus($"連不上 EIP：{ex.Message}", "ErrorBrush");
+        }
+        finally
+        {
+            EipTestButton.IsEnabled = true;
+        }
+    }
+
+    void EipLogout_Click(object sender, RoutedEventArgs e)
+    {
+        var ok = MessageBox.Show(this, "登出 EIP？會刪掉存在這台電腦的帳密，之後不再同步請假。", "EIP 請假",
+            MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (ok != MessageBoxResult.OK)
+            return;
+        EipCredentialStore.Clear();
+        _engine.ResetEip();
+        EipAccountBox.Text = "";
+        ShowEipAccount(null);
+        ShowEipStatus(null);
+    }
 
     // ───────────── 工作列 ─────────────
 

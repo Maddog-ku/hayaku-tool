@@ -29,7 +29,7 @@ public partial class WorkspaceWindow : Window
         RefreshChrome();
     }
 
-    /// <summary>頁面：tasks、hours、entries、worklog、reminders、meetings、chat、team、leaves、stats。</summary>
+    /// <summary>頁面：tasks、hours、entries、worklog、reminders、meetings、chat、team、leaves、eipleaves、stats。</summary>
     public void ShowPage(string page, object? arg = null)
     {
         _pendingArg = arg;
@@ -61,6 +61,7 @@ public partial class WorkspaceWindow : Window
                 "chat" => new ChatPage(_engine),
                 "team" => new TeamPage(_engine, this),
                 "leaves" => new LeavesPage(_engine),
+                "eipleaves" => new EipLeavesPage(_engine),
                 "stats" => new StatsPage(_engine),
                 _ => new TasksPage(_engine, this),
             };

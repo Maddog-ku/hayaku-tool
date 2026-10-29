@@ -127,6 +127,8 @@
                              Content="專案" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="Nav" Tag="PageClaude" Checked="Nav_Checked"
                              Content="Claude Code" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="Nav" Tag="PageEip" Checked="Nav_Checked"
+                             Content="EIP 請假" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="Nav" Tag="PageGeneral" Checked="Nav_Checked"
                              Content="一般" />
             </StackPanel>
@@ -345,6 +347,93 @@
                                        Text="在「專案」頁勾了「自動建立任務」的專案：Claude 開始改程式、卻對應不到任務時，會跳提示問要不要建立任務（只是問問題、規劃不會跳，同一個 session 只問一次）。建立時專案會自動選好，你選專案樹上的位置、狀態與預計起訖，建好後就為這個 session 計時。" />
                             <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
                                        Text="CLI 和桌面版的 session 都存在 %USERPROFILE%\.claude\projects，兩邊都會偵測到。要監看哪些資料夾、停用哪些專案，在「專案」頁設定。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- EIP 請假 -->
+                <StackPanel x:Name="PageEip" Visibility="Collapsed">
+                    <TextBlock Text="EIP 請假" Style="{StaticResource PageTitle}" />
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <!-- 已登入：只顯示帳號、已登入、登出 -->
+                            <Grid x:Name="EipLoggedInPanel">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Style="{StaticResource SettingText}">
+                                    <TextBlock Text="EIP 帳號" Style="{StaticResource CardTitle}" />
+                                    <TextBlock x:Name="EipAccountText" Style="{StaticResource CardDesc}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Border Style="{StaticResource Pill}" Padding="10,4">
+                                        <TextBlock Text="✓ 已登入" FontSize="12" Foreground="{DynamicResource RunBrush}" />
+                                    </Border>
+                                    <Button Content="登出" Style="{StaticResource FlatButton}" Margin="8,0,0,0" Click="EipLogout_Click"
+                                            ToolTip="刪掉存在這台電腦的 EIP 帳密，之後不再同步請假" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 還沒登入：輸入帳密 -->
+                            <StackPanel x:Name="EipLoginPanel">
+                                <TextBlock Text="EIP 帳號" Style="{StaticResource CardTitle}" />
+                                <TextBlock Style="{StaticResource CardDesc}"
+                                           Text="用來讀取你在公司 EIP 的請假紀錄。帳密用 Windows 加密存在這台電腦，只有你的 Windows 帳號解得開。" />
+                                <Grid Margin="0,12,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="12" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="帳號" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="EipAccountBox" Height="30" KeyDown="EipBox_KeyDown" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="密碼" Style="{StaticResource FieldLabel}" />
+                                        <PasswordBox x:Name="EipPasswordBox" Height="30" KeyDown="EipBox_KeyDown" />
+                                    </StackPanel>
+                                </Grid>
+                                <Button x:Name="EipTestButton" Content="登入" Style="{StaticResource PrimaryButton}"
+                                        HorizontalAlignment="Right" Padding="16,5" Margin="0,12,0,0" Click="EipTest_Click"
+                                        ToolTip="實際登入 EIP 一次，成功才會儲存" />
+                            </StackPanel>
+
+                            <TextBlock x:Name="EipStatus" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" Visibility="Collapsed" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Style="{StaticResource SettingText}">
+                                    <TextBlock Text="下班時同步請假到 Hayaku" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Style="{StaticResource CardDesc}"
+                                               Text="每天下班時讀一次 EIP 的假單（待審和核准），下一個上班日有請假就登記到 Hayaku；請好幾天的會整段登記。" />
+                                </StackPanel>
+                                <CheckBox x:Name="EipSyncBox" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="EipSync_Click" />
+                            </Grid>
+                            <Grid Margin="0,12,0,0">
+                                <TextBlock x:Name="EipSyncStatus" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                                           VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,110,0" />
+                                <Button x:Name="EipSyncButton" Content="立即同步" Style="{StaticResource FlatButton}"
+                                        HorizontalAlignment="Right" VerticalAlignment="Center" Click="EipSyncNow_Click"
+                                        ToolTip="現在就讀 EIP，登記今天到下一個上班日的請假（下班後才在 EIP 補請的假用這個）" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource InfoCard}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0"
+                                       Text="按「登入」會實際登入 EIP 一次，成功才會儲存；帳密錯誤不會存。按「登出」會刪掉存在這台電腦的帳密。" />
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
+                                       Text="同步的時間：有上班的日子，依班表下班時間到或按了下班時；那天電腦沒開到下班的話，下一個上班日補做。請假、放假、週末不會同步，也不會自動跟 Hayaku 要任何資料（按 ⟳ 才會）。Hayaku 那段時間已經有請假（例如你手動登記過）就不重複登記。" />
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
+                                       Text="EIP 那邊駁回、抽單或銷假時，只取消當初由同步建立的請假，你手動登記的不會動。同步建立的請假，備註會寫 EIP 單號與假別。" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

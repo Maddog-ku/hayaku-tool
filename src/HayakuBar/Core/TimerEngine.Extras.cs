@@ -66,8 +66,8 @@ public sealed partial class TimerEngine
     /// </summary>
     public Task RefreshAllAsync(bool userAction)
     {
-        if (!LoggedIn || (!userAction && DateTime.Now - _openRefreshed < OpenThrottle))
-            return Task.CompletedTask;
+        if (!LoggedIn || (!userAction && (DateTime.Now - _openRefreshed < OpenThrottle || OffToday(DateTime.Now))))
+            return Task.CompletedTask; // 不用上班的日子打開面板也不同步，按重新整理才會
         _openRefreshed = DateTime.Now;
         InvalidateExtras(); // 就算這次被略過，下一次同步也會一起更新
         return RefreshAsync(userAction);

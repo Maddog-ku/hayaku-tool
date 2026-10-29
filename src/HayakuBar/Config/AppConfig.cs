@@ -92,6 +92,9 @@ public sealed class AppConfig
     public bool PromptUnfilled { get; set; } = true;
     public int HookPort { get; set; } = 47823;
 
+    /// <summary>每天下班時讀 EIP 的假單，把下一個上班日的請假登記到 Hayaku（要先在設定存 EIP 帳密）。</summary>
+    public bool EipLeaveSync { get; set; } = true;
+
     public List<RepoConfig> Repos { get; set; } = [];
 
     /// <summary>在工作列上的基準位置：Left（最左邊）、BeforeStart（圖示左側）、AfterIcons（圖示右側）、BeforeTray（通知區域左側）。</summary>

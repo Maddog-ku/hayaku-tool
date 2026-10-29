@@ -35,6 +35,19 @@ public sealed class AppState
 
     Dictionary<string, FolderHint> _folderHints = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// 接下來不用上班的日子（yyyy-MM-dd → 「請假」、假日名稱，週末等是空字串），每天下班時更新。
+    /// 這些日子不自動跟 Hayaku、EIP 要任何資料（按重新整理才會）。
+    /// </summary>
+    public Dictionary<string, string> OffDays { get; set; } = [];
+
+    /// <summary>OffDays 是哪天下班時更新的（yyyy-MM-dd）。</summary>
+    public string OffDaysUpdated { get; set; } = "";
+
+    /// <summary>上次登入的帳號與顯示名稱：不上班的日子不問 Hayaku，用這個顯示。</summary>
+    public string? UserName { get; set; }
+    public string? UserDisplayName { get; set; }
+
     /// <summary>換日時重設當天欄位；有換日回傳 true。</summary>
     public bool RollDay(string today)
     {

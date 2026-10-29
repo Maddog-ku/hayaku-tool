@@ -378,9 +378,15 @@ public sealed partial class HayakuApi
 
     // ───────────── 請假與團隊 ─────────────
 
-    public async Task<List<LeaveItem>> ListLeavesAsync(DateOnly from, DateOnly to, CancellationToken ct)
+    /// <summary>user：帳號、顯示名稱或 "me"；null 列出看得到的所有人。</summary>
+    public async Task<List<LeaveItem>> ListLeavesAsync(DateOnly from, DateOnly to, CancellationToken ct, string? user = null)
     {
-        var r = await Mcp.CallToolAsync("list_leaves", new { from = Iso(from), to = Iso(to) }, ct);
+        object args = user is null ? new { from = Iso(from), to = Iso(to) } : new { from = Iso(from), to = Iso(to), user };
+        return ParseLeaves(await Mcp.CallToolAsync("list_leaves", args, ct));
+    }
+
+    internal static List<LeaveItem> ParseLeaves(JsonElement r)
+    {
         var list = new List<LeaveItem>();
         foreach (var l in Items(r, "leaves"))
         {
@@ -393,8 +399,19 @@ public sealed partial class HayakuApi
         return list.OrderBy(l => l.StartAt).ToList();
     }
 
-    public Task AddLeaveAsync(IDictionary<string, object?> args, CancellationToken ct) =>
-        Mcp.CallToolAsync("add_leave", args, ct);
+    /// <summary>登記請假；回傳新請假的 id（回應裡沒有就是 null）。</summary>
+    public async Task<string?> AddLeaveAsync(IDictionary<string, object?> args, CancellationToken ct) =>
+        CreatedId(await Mcp.CallToolAsync("add_leave", args, ct));
+
+    /// <summary>新增類工具回傳的 id：{ id } 或 { leave: { id } }。</summary>
+    internal static string? CreatedId(JsonElement r)
+    {
+        if (r.ValueKind != JsonValueKind.Object)
+            return null;
+        if (Str(r, "id") is { Length: > 0 } id)
+            return id;
+        return r.TryGetProperty("leave", out var leave) && leave.ValueKind == JsonValueKind.Object ? Str(leave, "id") : null;
+    }
 
     public Task CancelLeaveAsync(string id, CancellationToken ct) =>
         Mcp.CallToolAsync("cancel_leave", new { id }, ct);
