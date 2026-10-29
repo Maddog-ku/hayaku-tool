@@ -16,12 +16,14 @@
 - [快速開始](#快速開始)
 - [功能](#功能)
 - [工時怎麼算](#工時怎麼算)
+- [同步](#同步)
 - [設定](#設定)
 - [登入與安全](#登入與安全)
 - [常見問題](#常見問題)
 - [開發](#開發)
 - [檔案位置](#檔案位置)
 - [程式結構](#程式結構)
+- [版本紀錄](#版本紀錄)
 
 ## 系統需求
 
@@ -141,6 +143,25 @@
 - 計時中的任務在面板上以碼表（`0:41:42`）顯示，含秒數。
 - 進行中的計時算到現在；跨日的計時只算當天的部分。
 
+## 同步
+
+所有資料都向 Hayaku 的 MCP 端點要，為了不一直打請求，各類資料依需要分開同步：
+
+| 資料 | 什麼時候抓 |
+| --- | --- |
+| 正在計時的任務 | 每次輪詢（預設 30 秒，可在設定改） |
+| 今天的計時列表 | 正在計時的有變化（開始、停止）時；不然每 5 分鐘；自己在工具裡開始／暫停／改計時後馬上 |
+| 通知 | 每 2 分鐘 |
+| 會議、提醒 | 每 10 分鐘（到點提示用已抓到的時間在本機判斷，不會晚） |
+| 班表、專案清單、我的任務 | 每 30 分鐘 |
+| 待辦、我的任務分頁、團隊狀況 | 不在背景抓，打開面板或工作台時才抓 |
+
+- 打開面板或工作台時會完整同步一次；20 秒內重複開關不會重抓。按 ⟳ 一定馬上同步。
+- **不同步的時候**：電腦睡眠中；開了「只在上班時間自動同步」時的下班、休息、放假（有計時在跑的加班除外）。
+  上班時間內鎖定畫面照常同步，解鎖、喚醒時會馬上同步一次。
+- **失敗退避**：連續同步失敗（伺服器掛掉、網路斷）時，間隔拉長成 1 → 2 → 5 分鐘，成功一次就恢復。
+- 每小時在紀錄（`logs\`）記一行 MCP 請求統計（「MCP 請求（過去 60 分鐘）：共 N 次 · …」），可以確認實際打了多少。
+
 ## 設定
 
 在工作列的工時上按右鍵 ›「設定」開啟：
@@ -169,7 +190,7 @@
 放不下時會自動移位；在系統匣找 HayakuBar 圖示按右鍵換位置。explorer 重啟後會自動重新嵌入，等幾秒即可。
 
 **跟 Hayaku 網頁的工時不一樣？**
-兩邊都是「聯集、捨去秒數、到小數點後兩位」。網頁不會自動更新，重新整理後再比；工具預設每 30 秒同步一次，按面板底部的 ⟳ 可馬上同步。
+兩邊都是「聯集、捨去秒數、到小數點後兩位」。網頁不會自動更新，重新整理後再比；工具預設每 30 秒確認一次正在計時的任務（見[同步](#同步)），按面板底部的 ⟳ 可馬上同步。
 
 **Claude 在工作卻沒有計時？**
 確認：資料夾有加進「專案」頁、該專案沒被停用；對話或分支名稱裡有任務編號（或在面板 Claude 區按「選擇」指定）；
@@ -179,7 +200,7 @@
 按過「下班」當天就不再自動上班；Claude 自動計時預設也只在上班時間。如果有手動計時在跑，會視為加班照常計時。
 
 **出問題要看哪裡？**
-`%APPDATA%\HayakuBar\log.txt`，設定 › 一般 ›「紀錄與設定檔」按「開啟資料夾」。
+`%APPDATA%\HayakuBar\logs\`，一天一個檔、檔名是日期時間（保留 2 個月）；設定 › 一般 ›「紀錄與設定檔」按「開啟資料夾」。
 
 ## 開發
 
@@ -193,7 +214,12 @@ dotnet run --project src\HayakuBar
 .\publish.ps1 -SelfContained   # 不需要安裝 .NET（約 70MB）
 ```
 
-HayakuBar 正在執行時會鎖住 `bin\Debug` 裡的 exe，建置前先結束它。
+HayakuBar 正在執行時會鎖住 `bin\Debug` 裡的 exe，建置前先結束它（或用 `dotnet test --artifacts-path <暫存資料夾>` 把建置輸出放到別處）。
+
+### 參與開發
+
+`main` 有分支保護：不能直接推，要開分支、發 PR，經 repo 擁有者審核後才會合併；`v*` 版本 tag 也只有擁有者能建立。
+歡迎 fork 後發 PR。
 
 ### 發佈新版本
 
@@ -228,12 +254,16 @@ git push origin v1.0.4
 | `%APPDATA%\HayakuBar\config.json` | 設定（repo 清單、自動化開關、工作列位置） |
 | `%APPDATA%\HayakuBar\state.json` | 執行狀態（要恢復的任務、今天已處理的班表時間點、Claude 開的計時） |
 | `%APPDATA%\HayakuBar\auth.bin` | 登入資料（DPAPI 加密） |
-| `%APPDATA%\HayakuBar\log.txt` | 紀錄 |
+| `%APPDATA%\HayakuBar\logs\` | 紀錄，一天一個檔，保留 2 個月 |
 | `%APPDATA%\HayakuBar\shots\` | `--shot` 存的截圖 |
 
-**清暫存**：啟動 3 分鐘後、之後每 30 分鐘、以及鎖定電腦時，自動刪除 3 天前的截圖（`shots\`）與 14 天前的舊紀錄（`log.txt.1`），
-清掉 Claude session、專案狀態、搜尋的快取，並把用不到的記憶體還給 Windows（面板、工作台、設定開著時不整理記憶體）；
-結果寫在 `log.txt`（「清暫存」）。
+**紀錄**：一天一個檔，檔名是那個檔第一筆的時間（`20261029093301.log` = 2026-10-29 09:33:01 開始），
+依檔名排序就是時間順序，要查哪天直接找那天開頭的檔。同一天超過 5MB 會再開一個新檔；
+超過 2 個月的自動刪除，合計超過 50MB 時也從最舊的開始刪。舊版的 `log.txt`、`log.txt.1` 會依第一筆的時間改名搬進 `logs\`。
+
+**清暫存**：啟動 3 分鐘後、之後每 30 分鐘、以及鎖定電腦時，自動刪除 3 天前的截圖（`shots\`）、2 個月前的紀錄、
+寫設定時中斷留下的 `.tmp`；清掉 Claude session、專案狀態、搜尋的快取，
+並把用不到的記憶體還給 Windows（面板、工作台、設定開著時不整理記憶體）；結果寫在紀錄裡（「清暫存」）。
 
 ## 程式結構
 
@@ -241,16 +271,38 @@ git push origin v1.0.4
 src/HayakuBar
 ├─ Auth/      OAuthClient（動態註冊、PKCE、refresh）、TokenStore（DPAPI）
 ├─ Config/    AppConfig（config.json）、AppState（state.json）
-├─ Mcp/       McpClient（JSON-RPC over POST /mcp）、HayakuApi（計時、班表、任務、會議、提醒、待辦、通知、
+├─ Mcp/       McpClient（JSON-RPC over POST /mcp）、McpStats（請求統計）、HayakuApi（計時、班表、任務、會議、提醒、待辦、通知、
 │             聊天、請假、團隊、工作日誌、統計等 Hayaku MCP 工具的強型別包裝）
 ├─ Core/      TimerEngine（同步、上下班自動化、Claude 計時、提示）、WorkMath（工時聯集、顯示格式、班表空檔）、
-│             KeyFinder（找任務編號）、TaskTree／MyTaskTree／TaskOrder（任務樹與排序）、ProjectGuess（資料夾對應專案）
+│             KeyFinder（找任務編號）、TaskTree／MyTaskTree／TaskOrder（任務樹與排序）、ProjectGuess（資料夾對應專案）、SyncPolicy（同步時機）
 ├─ Claude/    ClaudeMonitor（讀 session jsonl、hook 事件）、SessionDigest（對話與 commit 整理成日誌）、HookInstaller
 ├─ UI/        TaskbarWidget（嵌進 Shell_TrayWnd 的 layered 子視窗）、TaskbarIconScanner（UIA 讀圖示範圍）、
 │             PanelWindow（彈出面板）、DayTimeline（時間軸）、HoverCard、ToastWindow、TaskPickerWindow、
 │             QuickCreateWindow（自動建立任務）、DateRangePicker、SettingsWindow、TrayIcon、ThemeManager
 │  └─ Work/   WorkspaceWindow（工作台）與各頁
 ├─ Themes/    Light／Dark 色彩
-└─ Infra/     MiniHttpServer、GlobalHotkey、Housekeeping（清暫存）、Log、JsonFile、StartupRegistration
+└─ Infra/     MiniHttpServer、GlobalHotkey、Housekeeping（清暫存）、Log（一天一個紀錄檔）、JsonFile、StartupRegistration
 tests/HayakuBar.Tests   xUnit 單元測試
 ```
+
+## 版本紀錄
+
+### v1.0.4
+- 工時先捨去不滿一分鐘的秒數再換算小時，跟 Hayaku 網頁顯示完全一致。
+- 大幅減少同步的 MCP 請求：每次輪詢只問正在計時的任務，其他資料依變化快慢分開抓，面板才看得到的資料打開時才抓；
+  打開面板 20 秒內不重抓；連續失敗時退避（1 → 2 → 5 分鐘）。每小時在紀錄寫一行請求統計。
+- 紀錄改成一天一個檔（`logs\20261029093301.log`），保留 2 個月，合計超過 50MB 從最舊的刪。
+- README 補完整專案介紹。
+
+### v1.0.3
+- 日期改用日曆選擇；建立任務後確實指定給 Claude session 並馬上計時。
+
+### v1.0.2
+- 面板任務選單好點、不亂跳，任務列顯示可點的狀態。
+
+### v1.0.1
+- 降低記憶體與 CPU、定期清暫存；工時顯示到小數點後兩位。
+
+### v1.0.0
+- 第一版：嵌在工作列的工時、彈出面板、工作台、依班表自動上下班、Claude Code 自動計時、自動建立任務、提示。
+- 推版本 tag 自動打包單一 exe 並發佈到 GitHub Releases。
