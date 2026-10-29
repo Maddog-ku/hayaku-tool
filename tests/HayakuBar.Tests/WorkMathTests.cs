@@ -62,7 +62,8 @@ public class WorkMathTests
     [Theory]
     [InlineData(480, "8h")]
     [InlineData(208, "3.47h")]
-    [InlineData(364.8, "6.08h")]
+    [InlineData(364.8, "6.07h")]   // 不滿一分鐘的秒數先捨去（跟 Hayaku 網頁一樣）
+    [InlineData(41.6, "0.68h")]
     [InlineData(366, "6.1h")]
     [InlineData(0, "0h")]
     public void HoursText_格式(double minutes, string expected) => Assert.Equal(expected, WorkMath.HoursText(minutes));
