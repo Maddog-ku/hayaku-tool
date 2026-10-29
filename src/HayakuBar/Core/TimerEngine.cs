@@ -17,6 +17,10 @@ public sealed partial class TimerEngine
 {
     static readonly TimeSpan EndActionWindow = TimeSpan.FromMinutes(30);
 
+    // 背景同步的頻率：每次輪詢只問「哪些在計時」，其他資料各有自己的間隔（計時列表見 SyncPolicy）
+    static readonly TimeSpan ScheduleInterval = TimeSpan.FromMinutes(30);
+    static readonly TimeSpan TasksInterval = TimeSpan.FromMinutes(30);
+
     readonly AppConfig _config;
     readonly AppState _state;
     readonly OAuthClient _auth;
@@ -35,6 +39,10 @@ public sealed partial class TimerEngine
     HashSet<string> _claudeDesired = new(StringComparer.OrdinalIgnoreCase);
     DateTime _scheduleFetched = DateTime.MinValue;
     DateTime _tasksFetched = DateTime.MinValue;
+    DateTime _entriesFetched = DateTime.MinValue;
+    DateOnly _entriesDay;
+    int _failures;
+    DateTime _retryAt = DateTime.MinValue;
 
     public TimerEngine(AppConfig config, AppState state, OAuthClient auth, HayakuApi api, ClaudeMonitor claude)
     {
@@ -171,27 +179,51 @@ public sealed partial class TimerEngine
 
     // ───────────── 對外動作 ─────────────
 
-    public Task RefreshAsync(bool userAction = true) => Guarded(async ct =>
+    public Task RefreshAsync(bool userAction = true) => RoundAsync(background: false, wait: userAction);
+
+    /// <summary>同步一輪：同步 → 依班表自動上下班 → Claude 自動計時。background：背景輪詢，只抓有變化或到期的資料。</summary>
+    Task RoundAsync(bool background, bool wait) => Guarded(async ct =>
     {
-        await RefreshCoreAsync(ct);
+        await RefreshCoreAsync(ct, background);
         await AutomationAsync(ct);
         await ClaudeCoreAsync(ct);
-    }, wait: userAction);
+    }, wait);
 
-    /// <summary>定時、喚醒、解鎖時的自動同步；設定「只在上班時間自動同步」時，下班、休息、放假就不打 Hayaku。</summary>
+    /// <summary>
+    /// 定時、喚醒、解鎖時的自動同步（鎖定畫面時照常同步）。不打 Hayaku 的情況：
+    /// 設定「只在上班時間自動同步」時的下班、休息、放假；連續失敗時退避等待中。
+    /// </summary>
     public async Task AutoRefreshAsync()
     {
         if (!_auth.HasSession || LoggingIn)
             return;
-        var paused = !ShouldAutoSync(DateTime.Now);
+        var now = DateTime.Now;
+        var paused = !ShouldAutoSync(now);
         if (paused != AutoSyncPaused)
         {
             AutoSyncPaused = paused;
             Log.Info(paused ? "不在上班時間，暫停自動同步" : "恢復自動同步");
             Raise();
         }
-        if (!paused)
-            await RefreshAsync(userAction: false);
+        if (paused || now < _retryAt)
+            return;
+
+        var before = LastSynced;
+        await RoundAsync(background: true, wait: false);
+        if (LastSynced != before)
+        {
+            if (_failures > 0)
+                Log.Info("同步恢復正常");
+            _failures = 0;
+            _retryAt = DateTime.MinValue;
+        }
+        else if (_syncFailed)
+        {
+            _failures++;
+            var wait = SyncPolicy.BackoffDelay(_failures);
+            _retryAt = DateTime.Now + wait;
+            Log.Info($"同步失敗 {_failures} 次，{wait.TotalMinutes:0} 分鐘後再自動同步");
+        }
     }
 
     /// <summary>目前不在上班時間，自動同步暫停中（打開面板、按重新整理仍會同步）。</summary>
@@ -203,11 +235,15 @@ public sealed partial class TimerEngine
             return true; // 沒開這個設定，或還不知道今天的班表（跨日後要先讀一次）
         if (Entries.Any(e => e.Running))
             return true; // 有計時在跑：加班中，照常同步
-        if (_config.AutoSchedule && !_state.ClockedOut
-            && Boundaries(Schedule.Working, now.Date).Any(b => b.At <= now && !_state.HandledBoundaries.Contains(b.Id)))
-            return true; // 上班、休息、下班的自動動作還沒做
+        if (BoundaryDue(now))
+            return true;
         return !_state.ClockedOut && WorkMath.Phase(Schedule, now, false).Kind == DayPhaseKind.Working;
     }
+
+    /// <summary>上班、休息、下班的自動動作到時間了、還沒做。</summary>
+    bool BoundaryDue(DateTime now) =>
+        _config.AutoSchedule && !_state.ClockedOut && Schedule is not null && Schedule.Date == DateOnly.FromDateTime(now)
+        && Boundaries(Schedule.Working, now.Date).Any(b => b.At <= now && !_state.HandledBoundaries.Contains(b.Id));
 
     public Task StartTaskAsync(string key) => Guarded(async ct =>
     {
@@ -313,14 +349,23 @@ public sealed partial class TimerEngine
         }
     }
 
-    async Task RefreshCoreAsync(CancellationToken ct)
+    bool _syncFailed;
+
+    /// <summary>background：背景輪詢（今天的計時列表只在計時有變化或每 5 分鐘才重抓）；否則是動作後或使用者要求的同步，一定重抓。</summary>
+    async Task RefreshCoreAsync(CancellationToken ct, bool background = false)
     {
         Syncing = true;
         Raise();
         try
         {
-            await SyncAsync(ct);
+            await SyncAsync(ct, background);
             LastSynced = DateTime.Now;
+            _syncFailed = false;
+        }
+        catch
+        {
+            _syncFailed = true;
+            throw;
         }
         finally
         {
@@ -328,7 +373,7 @@ public sealed partial class TimerEngine
         }
     }
 
-    async Task SyncAsync(CancellationToken ct)
+    async Task SyncAsync(CancellationToken ct, bool background)
     {
         var now = DateTime.Now;
         var today = DateOnly.FromDateTime(now);
@@ -339,25 +384,33 @@ public sealed partial class TimerEngine
         }
 
         User ??= await _api.WhoAmIAsync(ct);
-        if (Schedule is null || Schedule.Date != today || now - _scheduleFetched > TimeSpan.FromMinutes(30))
+        if (Schedule is null || Schedule.Date != today || now - _scheduleFetched > ScheduleInterval)
         {
             Schedule = await _api.GetScheduleAsync(today, ct);
             _scheduleFetched = now;
         }
-        if (now - _tasksFetched > TimeSpan.FromMinutes(10))
+        if (now - _tasksFetched > TasksInterval)
             await RefreshTasksAsync(ct);
 
-        var entries = (await _api.ListTimeEntriesAsync(today, today, ct)).ToDictionary(e => e.Id);
-        foreach (var running in await _api.RunningTimersAsync(ct))
-            entries[running.Id] = running; // 跨日還在跑的計時不一定出現在今天的列表
-        Entries = entries.Values.OrderBy(e => e.StartedAt ?? DateTimeOffset.MinValue).ToList();
+        // 跨日還在跑的計時不一定出現在今天的列表，所以每次都問；正在計時的跟上次一樣就不用重抓整天的列表
+        var running = await _api.RunningTimersAsync(ct);
+        if (SyncPolicy.NeedEntries(background, running.Select(e => e.Id), Entries.Where(e => e.Running).Select(e => e.Id),
+                today, _entriesDay, now, _entriesFetched))
+        {
+            var entries = (await _api.ListTimeEntriesAsync(today, today, ct)).ToDictionary(e => e.Id);
+            foreach (var e in running)
+                entries[e.Id] = e;
+            Entries = entries.Values.OrderBy(e => e.StartedAt ?? DateTimeOffset.MinValue).ToList();
+            _entriesFetched = now;
+            _entriesDay = today;
+        }
         foreach (var e in Entries)
             _knownProjects.Add(KeyFinder.ProjectOf(e.Task));
 
         LoggedIn = true;
         Error = null;
         TrackExternalStops();
-        await RefreshExtrasCoreAsync(ct);
+        await RefreshExtrasCoreAsync(ct, background);
     }
 
     async Task RefreshTasksAsync(CancellationToken ct)

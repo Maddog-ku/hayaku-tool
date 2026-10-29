@@ -24,6 +24,8 @@ public partial class WorkspaceWindow : Window
         _engine.Changed += RefreshChrome;
         Closed += (_, _) => _engine.Changed -= RefreshChrome;
         PreviewKeyDown += OnPreviewKeyDown;
+        // 背景同步不抓任務分頁、團隊、待辦，切到工作台時才更新（20 秒內重複切換不會重抓）
+        Activated += (_, _) => _ = _engine.RefreshAllAsync(userAction: false);
         RefreshChrome();
     }
 

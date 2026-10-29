@@ -210,6 +210,7 @@ public partial class App : Application
         _hookServer?.Dispose();
         _tray?.Dispose();
         _mutex?.Dispose();
+        McpStats.Flush();
         base.OnExit(e);
     }
 

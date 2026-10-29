@@ -91,7 +91,7 @@ public sealed partial class TimerEngine
         }
         var message = await _api.UpdateTaskAsync(key, new Dictionary<string, object?> { ["status"] = done.Name }, ct);
         Notify?.Invoke(message is { Length: > 0 } ? message : $"{key} 已停止並改成「{done.Name}」");
-        _extrasFetched = DateTime.MinValue;
+        InvalidateExtras();
         await RefreshCoreAsync(ct);
     });
 
@@ -99,7 +99,7 @@ public sealed partial class TimerEngine
     {
         var message = await _api.UpdateTaskAsync(key, new Dictionary<string, object?> { ["status"] = status }, ct);
         Notify?.Invoke(message is { Length: > 0 } ? message : $"{key} 改成「{status}」");
-        _extrasFetched = DateTime.MinValue;
+        InvalidateExtras();
         await RefreshExtrasCoreAsync(ct);
     });
 
@@ -119,9 +119,9 @@ public sealed partial class TimerEngine
     /// <summary>工作台做了修改後呼叫：下次同步時一併更新會議、待辦、提醒、通知、任務。</summary>
     public Task AfterExternalChangeAsync()
     {
-        _extrasFetched = DateTime.MinValue;
+        InvalidateExtras();
         _tasksFetched = DateTime.MinValue;
-        return RefreshAllAsync(userAction: false);
+        return LoggedIn ? RefreshAsync(userAction: false) : Task.CompletedTask; // 改過資料，不受打開時的節流限制
     }
 
     // ───────────── Claude 整理的工作日誌 ─────────────

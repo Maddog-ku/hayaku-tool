@@ -17,9 +17,20 @@ public sealed record ToastRequest(string Title, string Message, IReadOnlyList<To
 /// <summary>會議、待辦、提醒、通知、工時修改，以及到點跳出的提示。</summary>
 public sealed partial class TimerEngine
 {
-    static readonly TimeSpan ExtrasInterval = TimeSpan.FromMinutes(2);
+    // 通知要即時提示，2 分鐘；會議、提醒的到點提示用已抓的時間在本機判斷，10 分鐘就夠
+    static readonly TimeSpan NotificationsInterval = TimeSpan.FromMinutes(2);
+    static readonly TimeSpan MeetingsInterval = TimeSpan.FromMinutes(10);
 
-    DateTime _extrasFetched = DateTime.MinValue;
+    /// <summary>只在面板、工作台看得到的資料（待辦、我的任務分頁、團隊）：不在背景抓，打開時才抓，太久沒抓才重抓。</summary>
+    static readonly TimeSpan PanelDataInterval = TimeSpan.FromMinutes(2);
+
+    /// <summary>打開面板、工作台時，距離上次完整同步不到這麼久就不重抓。</summary>
+    static readonly TimeSpan OpenThrottle = TimeSpan.FromSeconds(20);
+
+    DateTime _notificationsFetched = DateTime.MinValue;
+    DateTime _meetingsFetched = DateTime.MinValue;
+    DateTime _panelDataFetched = DateTime.MinValue;
+    DateTime _openRefreshed = DateTime.MinValue;
     readonly HashSet<string> _alerted = [];
     readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
 
@@ -49,24 +60,49 @@ public sealed partial class TimerEngine
 
     // ───────────── 同步 ─────────────
 
-    /// <summary>面板打開或按重新整理時呼叫：同步計時，並馬上更新會議、待辦、提醒、通知。</summary>
+    /// <summary>
+    /// 按重新整理（userAction）或打開面板、工作台時呼叫：同步計時，並馬上更新會議、待辦、提醒、通知、任務。
+    /// 打開時距離上次不到 20 秒就略過，連續開關不會一直打 Hayaku。
+    /// </summary>
     public Task RefreshAllAsync(bool userAction)
     {
-        _extrasFetched = DateTime.MinValue; // 就算這次被略過，下一次同步也會一起更新
-        return LoggedIn ? RefreshAsync(userAction) : Task.CompletedTask;
+        if (!LoggedIn || (!userAction && DateTime.Now - _openRefreshed < OpenThrottle))
+            return Task.CompletedTask;
+        _openRefreshed = DateTime.Now;
+        InvalidateExtras(); // 就算這次被略過，下一次同步也會一起更新
+        return RefreshAsync(userAction);
     }
 
-    async Task RefreshExtrasCoreAsync(CancellationToken ct)
+    /// <summary>下次同步時重抓會議、提醒、通知、待辦、任務分頁、團隊。</summary>
+    void InvalidateExtras()
     {
-        if (DateTime.Now - _extrasFetched < ExtrasInterval)
-            return;
-        _extrasFetched = DateTime.Now;
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        Meetings = await Try(() => _api.ListMeetingsAsync(today, today, ct, mine: !_config.MeetingAlertsAllProjects), Meetings, "會議");
-        Todos = await Try(() => _api.ListTodosAsync(ct), Todos, "待辦");
-        Reminders = await Try(() => _api.ListRemindersAsync(ct), Reminders, "提醒");
-        Notifications = await Try(() => _api.ListNotificationsAsync(ct), Notifications, "通知");
-        await RefreshWorkCoreAsync(ct);
+        _notificationsFetched = DateTime.MinValue;
+        _meetingsFetched = DateTime.MinValue;
+        _panelDataFetched = DateTime.MinValue;
+    }
+
+    /// <summary>background：背景輪詢時不抓只有面板、工作台才看得到的資料。</summary>
+    async Task RefreshExtrasCoreAsync(CancellationToken ct, bool background = false)
+    {
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+        if (now - _meetingsFetched >= MeetingsInterval)
+        {
+            _meetingsFetched = now;
+            Meetings = await Try(() => _api.ListMeetingsAsync(today, today, ct, mine: !_config.MeetingAlertsAllProjects), Meetings, "會議");
+            Reminders = await Try(() => _api.ListRemindersAsync(ct), Reminders, "提醒");
+        }
+        if (now - _notificationsFetched >= NotificationsInterval)
+        {
+            _notificationsFetched = now;
+            Notifications = await Try(() => _api.ListNotificationsAsync(ct), Notifications, "通知");
+        }
+        if (!background && now - _panelDataFetched >= PanelDataInterval)
+        {
+            _panelDataFetched = now;
+            Todos = await Try(() => _api.ListTodosAsync(ct), Todos, "待辦");
+            await RefreshWorkCoreAsync(ct);
+        }
         CheckAlerts();
     }
 
@@ -89,7 +125,7 @@ public sealed partial class TimerEngine
     {
         await _api.JoinMeetingAsync(meeting.Key, ct);
         Notify?.Invoke($"已加入會議並開始計時：{meeting.Title}");
-        _extrasFetched = DateTime.MinValue;
+        InvalidateExtras();
         await RefreshCoreAsync(ct);
     });
 
@@ -102,7 +138,7 @@ public sealed partial class TimerEngine
     public Task SnoozeReminderAsync(ReminderItem reminder, int minutes) => Guarded(async ct =>
     {
         await _api.SnoozeReminderAsync(reminder.Id, minutes, ct);
-        _extrasFetched = DateTime.MinValue;
+        InvalidateExtras();
         await RefreshExtrasCoreAsync(ct);
     });
 
@@ -112,7 +148,7 @@ public sealed partial class TimerEngine
         Notify?.Invoke(todo ? "已存成待辦" : "已存到隨手記");
         if (todo)
         {
-            _extrasFetched = DateTime.MinValue;
+            InvalidateExtras();
             await RefreshExtrasCoreAsync(ct);
         }
     });

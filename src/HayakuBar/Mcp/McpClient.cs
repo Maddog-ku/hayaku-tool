@@ -51,7 +51,7 @@ public sealed class McpClient
             _initialized = true;
         }
 
-        var result = await RpcAsync("tools/call", new { name, arguments = arguments ?? new { } }, ct);
+        var result = await RpcAsync("tools/call", new { name, arguments = arguments ?? new { } }, ct, statName: name);
         var text = ExtractText(result);
         if (result.TryGetProperty("isError", out var isError) && isError.ValueKind == JsonValueKind.True)
             throw new McpException(text ?? $"{name} 失敗");
@@ -73,11 +73,13 @@ public sealed class McpClient
     /// <summary>列出伺服器提供的所有工具（診斷用）。</summary>
     public Task<JsonElement> ListToolsAsync(CancellationToken ct) => RpcAsync("tools/list", new { }, ct);
 
-    async Task<JsonElement> RpcAsync(string method, object parameters, CancellationToken ct)
+    /// <summary>statName：統計請求數用的名稱（tools/call 傳工具名稱），預設用 method。</summary>
+    async Task<JsonElement> RpcAsync(string method, object parameters, CancellationToken ct, string? statName = null)
     {
         for (var attempt = 0; ; attempt++)
         {
             var token = attempt == 0 ? await _auth.GetAccessTokenAsync(ct) : await _auth.ForceRefreshAsync(ct);
+            McpStats.Record(statName ?? method);
             using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint);
             request.Headers.Authorization = new("Bearer", token);
             request.Headers.Accept.ParseAdd("application/json");
