@@ -8,12 +8,19 @@ namespace HayakuBar.Infra;
 public static class Housekeeping
 {
     static readonly TimeSpan ShotsKeep = TimeSpan.FromDays(3);
-    static readonly TimeSpan OldLogKeep = TimeSpan.FromDays(14);
+    static readonly TimeSpan LogKeep = TimeSpan.FromDays(60);
+    static readonly TimeSpan TempKeep = TimeSpan.FromDays(1);
+
+    /// <summary>舊紀錄合計的上限；萬一某段時間紀錄特別多，超過就從最舊的刪。</summary>
+    const long LogsMaxBytes = 50_000_000;
 
     [DllImport("psapi.dll")]
     static extern bool EmptyWorkingSet(IntPtr process);
 
-    /// <summary>刪掉 3 天前的截圖（--shot 產生的）與 14 天前輪替下來的舊紀錄；回傳刪了幾個檔。</summary>
+    /// <summary>
+    /// 刪掉 3 天前的截圖（--shot 產生的）、2 個月前的紀錄（logs\，合計超過 50MB 也從最舊的刪）、
+    /// 寫設定時中斷留下的 .tmp；舊版的 log.txt、log.txt.1 依第一筆的時間改名搬進 logs\。回傳刪了幾個檔。
+    /// </summary>
     public static int CleanFiles(string dir, DateTime now)
     {
         var deleted = 0;
@@ -33,9 +40,38 @@ public static class Housekeeping
         if (shots.Exists)
             foreach (var f in shots.EnumerateFiles().Where(f => now - f.LastWriteTime > ShotsKeep).ToList())
                 Delete(f);
-        var oldLog = new FileInfo(Path.Combine(dir, "log.txt.1"));
-        if (oldLog.Exists && now - oldLog.LastWriteTime > OldLogKeep)
-            Delete(oldLog);
+        foreach (var f in new DirectoryInfo(dir).EnumerateFiles("*.tmp").Where(f => now - f.LastWriteTime > TempKeep).ToList())
+            Delete(f);
+
+        var logsDir = Path.Combine(dir, "logs");
+        Log.Exclusive(() =>
+        {
+            foreach (var name in new[] { "log.txt.1", "log.txt" })
+            {
+                var legacy = Path.Combine(dir, name);
+                if (!File.Exists(legacy))
+                    continue;
+                try
+                {
+                    Directory.CreateDirectory(logsDir);
+                    File.Move(legacy, Log.FreePath(logsDir, Log.FirstTime(legacy) ?? File.GetLastWriteTime(legacy)));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // 下次再搬
+                }
+            }
+            var logs = new DirectoryInfo(logsDir);
+            if (!logs.Exists)
+                return;
+            long total = 0;
+            foreach (var f in logs.EnumerateFiles("*.log").OrderByDescending(f => f.Name, StringComparer.Ordinal).ToList())
+            {
+                total += f.Length;
+                if (now - f.LastWriteTime > LogKeep || total > LogsMaxBytes)
+                    Delete(f);
+            }
+        });
         return deleted;
     }
 
