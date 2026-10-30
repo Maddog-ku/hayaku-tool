@@ -27,10 +27,26 @@ public sealed class AttendeeVm : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public sealed class MeetingListVm
+public sealed class MeetingListVm : INotifyPropertyChanged
 {
+    bool _selected;
     public required MeetingItem Item { get; init; }
     public required bool Past { get; init; }
+
+    /// <summary>右邊正在看這場的詳細：卡片底色標出來。</summary>
+    public bool Selected
+    {
+        get => _selected;
+        set
+        {
+            _selected = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CardBrush)));
+        }
+    }
+
+    public Brush CardBrush => Brushes2.Get(_selected ? "SelectedBrush" : "BgBrush");
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public string Title => Item.Title;
     public string Day => Inputs.ShortDate(DateOnly.FromDateTime(Item.StartAt.LocalDateTime));
@@ -51,7 +67,7 @@ public sealed class MeetingListVm
     public Visibility CancelVisibility => !Past && DateTimeOffset.Now < Item.StartAt ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// <summary>會議：接下來／參加過的、加入並計時、離開、取消、新增會議。</summary>
+/// <summary>會議：接下來／參加過的、加入並計時、離開、取消、新增會議；點一場看詳細、修改（見 MeetingsPage.Detail.cs）。</summary>
 public partial class MeetingsPage : UserControl, IWorkPage
 {
     readonly TimerEngine _engine;
@@ -64,11 +80,14 @@ public partial class MeetingsPage : UserControl, IWorkPage
         InitializeComponent();
     }
 
+    /// <summary>arg："new" 開新增表單；會議編號或 id（例如從會議通知點過來）直接打開那場的詳細。</summary>
     public async Task ActivateAsync(object? arg)
     {
         if (arg is "new")
             await ShowFormAsync();
         await LoadAsync();
+        if (arg is string meeting and not "new")
+            await OpenDetailAsync(meeting);
     }
 
     async Task LoadAsync()
@@ -84,7 +103,7 @@ public partial class MeetingsPage : UserControl, IWorkPage
                 : await _engine.Api.UpcomingMeetingsAsync(CancellationToken.None);
             if (version != _version)
                 return;
-            var rows = items.Select(m => new MeetingListVm { Item = m, Past = _past }).ToList();
+            var rows = items.Select(m => new MeetingListVm { Item = m, Past = _past, Selected = m.Key == _detailKey }).ToList();
             MeetingList.ItemsSource = rows;
             EmptyText.Text = _past ? "還沒有參加過的會議" : "接下來沒有會議";
             EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;

@@ -1,6 +1,7 @@
 <UserControl x:Class="HayakuBar.UI.Work.StatsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:HayakuBar.UI">
     <UserControl.Resources>
         <Style x:Key="Stat" TargetType="Border" BasedOn="{StaticResource Card}">
             <Setter Property="Margin" Value="0,0,8,8" />
@@ -15,20 +16,35 @@
     <DockPanel Margin="24,18,24,16">
         <Grid DockPanel.Dock="Top" Margin="0,0,0,14">
             <TextBlock Text="統計" Style="{StaticResource PageTitle}" Margin="0" VerticalAlignment="Center" />
-            <Button Content="在網頁看完整統計 ↗" Style="{StaticResource FlatButton}" Padding="12,5" HorizontalAlignment="Right"
-                    VerticalAlignment="Center" Click="Web_Click" />
-        </Grid>
-        <Border DockPanel.Dock="Top" Style="{StaticResource SegmentTrack}" Margin="0,0,0,12">
-            <StackPanel x:Name="PresetPanel" Orientation="Horizontal">
-                <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="thisWeek" Content="本週" Checked="Preset_Checked" />
-                <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="lastWeek" Content="上週" Checked="Preset_Checked" />
-                <RadioButton x:Name="DefaultPreset" Style="{StaticResource Segment}" GroupName="Preset" Tag="thisMonth" Content="本月"
-                             Checked="Preset_Checked" />
-                <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="lastMonth" Content="上月" Checked="Preset_Checked" />
-                <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="last30Days" Content="最近 30 天" Checked="Preset_Checked" />
-                <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="thisYear" Content="今年" Checked="Preset_Checked" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="ExportButton" Content="匯出 CSV" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,0"
+                        Click="Export_Click" IsEnabled="False" ToolTip="把明細表與每段期間的工時存成 CSV（Excel 打得開）" />
+                <Button Content="在網頁看完整統計 ↗" Style="{StaticResource FlatButton}" Padding="12,5" Click="Web_Click" />
             </StackPanel>
-        </Border>
+        </Grid>
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Border Style="{StaticResource SegmentTrack}" Margin="0,0,12,6">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="ByProjectRadio" Style="{StaticResource Segment}" GroupName="Perspective" Tag="project" Content="依專案"
+                                 Checked="Perspective_Checked" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Perspective" Tag="assignee" Content="依人" Checked="Perspective_Checked" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource SegmentTrack}" Margin="0,0,12,6">
+                <StackPanel x:Name="PresetPanel" Orientation="Horizontal">
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="thisWeek" Content="本週" Checked="Preset_Checked" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="lastWeek" Content="上週" Checked="Preset_Checked" />
+                    <RadioButton x:Name="DefaultPreset" Style="{StaticResource Segment}" GroupName="Preset" Tag="thisMonth" Content="本月"
+                                 Checked="Preset_Checked" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="lastMonth" Content="上月" Checked="Preset_Checked" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="last30Days" Content="最近 30 天" Checked="Preset_Checked" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="thisYear" Content="今年" Checked="Preset_Checked" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="Preset" Tag="custom" Content="自訂" Checked="Preset_Checked" />
+                </StackPanel>
+            </Border>
+            <ui:DateRangePicker x:Name="CustomRange" Width="260" Margin="0,0,0,6" Visibility="Collapsed" Applied="CustomRange_Applied" />
+        </WrapPanel>
+        <TextBlock x:Name="RangeText" DockPanel.Dock="Top" Style="{StaticResource CardDesc}" Margin="0,0,0,8" />
         <TextBlock x:Name="StatusText" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed" />
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -38,36 +54,36 @@
                         <StackPanel>
                             <TextBlock Text="實際工時" Style="{StaticResource FieldLabel}" />
                             <TextBlock x:Name="ActualText" Style="{StaticResource StatValue}" />
-                            <TextBlock Text="同時計時只算一次" Style="{StaticResource CardDesc}" />
+                            <TextBlock x:Name="ActualDesc" Style="{StaticResource CardDesc}" />
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource Stat}">
                         <StackPanel>
-                            <TextBlock Text="應出勤" Style="{StaticResource FieldLabel}" />
-                            <TextBlock x:Name="ExpectedText" Style="{StaticResource StatValue}" />
-                            <TextBlock x:Name="WorkdaysText" Style="{StaticResource CardDesc}" />
+                            <TextBlock x:Name="SecondLabel" Text="應出勤" Style="{StaticResource FieldLabel}" />
+                            <TextBlock x:Name="SecondText" Style="{StaticResource StatValue}" />
+                            <TextBlock x:Name="SecondDesc" Style="{StaticResource CardDesc}" />
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource Stat}">
                         <StackPanel>
                             <TextBlock Text="完成任務" Style="{StaticResource FieldLabel}" />
                             <TextBlock x:Name="DoneText" Style="{StaticResource StatValue}" />
-                            <TextBlock x:Name="AssignedText" Style="{StaticResource CardDesc}" />
+                            <TextBlock x:Name="DoneDesc" Style="{StaticResource CardDesc}" />
                         </StackPanel>
                     </Border>
                     <Border Style="{StaticResource Stat}">
                         <StackPanel>
                             <TextBlock Text="逾期" Style="{StaticResource FieldLabel}" />
                             <TextBlock x:Name="OverdueText" Style="{StaticResource StatValue}" />
-                            <TextBlock Text="指派給我、還沒完成" Style="{StaticResource CardDesc}" />
+                            <TextBlock x:Name="OverdueDesc" Style="{StaticResource CardDesc}" />
                         </StackPanel>
                     </Border>
                 </UniformGrid>
 
                 <Border Style="{StaticResource Card}" Margin="0,4,0,0">
                     <StackPanel>
-                        <TextBlock Text="各專案工時" FontWeight="SemiBold" Margin="0,0,0,10" />
-                        <ItemsControl x:Name="ProjectList">
+                        <TextBlock x:Name="BarsTitle" Text="各專案工時" FontWeight="SemiBold" Margin="0,0,0,10" />
+                        <ItemsControl x:Name="BarList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Margin="0,0,0,10">
@@ -75,8 +91,9 @@
                                             <ColumnDefinition Width="200" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="52" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Name}" />
                                         <Grid Grid.Column="1" Height="8" Margin="10,0" VerticalAlignment="Center">
                                             <Border Background="{DynamicResource LineBrush}" CornerRadius="4" />
                                             <Border Background="{DynamicResource AccentBrush}" CornerRadius="4" RenderTransformOrigin="0,0.5">
@@ -87,13 +104,22 @@
                                         </Grid>
                                         <TextBlock Grid.Column="2" Text="{Binding Hours}" FontFamily="{StaticResource MonoFont}" TextAlignment="Right"
                                                    VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="3" Text="{Binding Share}" FontFamily="{StaticResource MonoFont}" TextAlignment="Right"
+                                                   Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock x:Name="ProjectEmpty" Text="這段期間沒有工時" Foreground="{DynamicResource MutedBrush}" Visibility="Collapsed" />
-                        <TextBlock Text="各專案照實計算，加起來可能比實際工時多（同時計時）。只算已核准的任務。" Style="{StaticResource CardDesc}"
-                                   Margin="0,6,0,0" />
+                        <TextBlock x:Name="BarEmpty" Text="這段期間沒有工時" Foreground="{DynamicResource MutedBrush}" Visibility="Collapsed" />
+                        <TextBlock x:Name="BarNote" Style="{StaticResource CardDesc}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,8,0,0">
+                    <StackPanel>
+                        <TextBlock Text="明細" FontWeight="SemiBold" Margin="0,0,0,10" />
+                        <Grid x:Name="DetailTable" />
+                        <TextBlock x:Name="DetailEmpty" Text="沒有資料" Foreground="{DynamicResource MutedBrush}" Visibility="Collapsed" />
                     </StackPanel>
                 </Border>
             </StackPanel>

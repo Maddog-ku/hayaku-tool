@@ -97,8 +97,6 @@ public sealed record WorkLog(DateOnly Date, int TotalMinutes, IReadOnlyList<Work
 
 public sealed record ChatMessage(string Id, PersonRef Author, string Body, DateTimeOffset CreatedAt, bool Deleted, string? PollQuestion);
 
-public sealed record StatsSummary(int ActualMinutes, int ExpectedMinutes, int ActiveDays, int Workdays, int Assigned, int Done, int Overdue,
-    IReadOnlyList<(string Project, int Minutes)> ByProject);
 
 /// <summary>任務、提醒、請假、團隊、工作日誌、聊天、統計。</summary>
 public sealed partial class HayakuApi
@@ -572,27 +570,6 @@ public sealed partial class HayakuApi
 
     public Task CancelMeetingAsync(string meeting, CancellationToken ct) =>
         Mcp.CallToolAsync("cancel_meeting", new { meeting }, ct);
-
-    // ───────────── 統計 ─────────────
-
-    public async Task<StatsSummary> MyStatsAsync(string preset, CancellationToken ct)
-    {
-        var r = await Mcp.CallToolAsync("get_stats", new { perspective = "assignee", preset, users = new[] { "me" } }, ct);
-        var row = Items(r, "rows").FirstOrDefault();
-        int Minutes(JsonElement e, string name) =>
-            e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Object
-            && v.TryGetProperty("minutes", out var m) && m.TryGetInt32(out var mins) ? mins : 0;
-        int Int(JsonElement e, string name) =>
-            e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.TryGetInt32(out var i) ? i : 0;
-        var names = Items(r, "projects").Where(p => Str(p, "key") is not null).ToDictionary(p => Str(p, "key")!, p => Str(p, "name") ?? "");
-        var byProject = Items(r, "cells")
-            .GroupBy(c => Str(c, "project") ?? "")
-            .Select(g => (names.GetValueOrDefault(g.Key, g.Key), g.Sum(c => Minutes(c, "duration"))))
-            .OrderByDescending(x => x.Item2)
-            .ToList();
-        return new StatsSummary(Minutes(row, "actual"), Minutes(row, "expected"), Int(row, "activeDays"), Int(row, "workdays"),
-            Int(row, "assignedCount"), Int(row, "doneCount"), Int(row, "overdueCount"), byProject);
-    }
 
     // ───────────── 共用 ─────────────
 

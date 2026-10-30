@@ -87,12 +87,18 @@
         </Border>
         <TextBlock x:Name="ListStatus" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed" />
 
+        <!-- 左邊清單；點一場會議，右邊開詳細（參加者、修改、會議紀錄、檔案、白板） -->
         <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="DetailColumn" Width="0" />
+            </Grid.ColumnDefinitions>
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="MeetingList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Style="{StaticResource Card}" Padding="16,10">
+                            <Border Style="{StaticResource Card}" Padding="16,10" Background="{Binding CardBrush}" Cursor="Hand"
+                                    Tag="{Binding}" MouseLeftButtonUp="Card_Click" ToolTip="點一下看詳細">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="130" />
@@ -127,6 +133,11 @@
             </ScrollViewer>
             <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"
                        Visibility="Collapsed" />
+            <Border x:Name="DetailCard" Grid.Column="1" Style="{StaticResource Card}" Margin="14,0,0,0" Padding="0" Visibility="Collapsed">
+                <ScrollViewer x:Name="DetailScroll" VerticalScrollBarVisibility="Auto" Padding="18,14,18,16">
+                    <StackPanel x:Name="DetailHost" />
+                </ScrollViewer>
+            </Border>
         </Grid>
     </DockPanel>
 </UserControl>
