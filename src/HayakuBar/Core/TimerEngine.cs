@@ -195,6 +195,7 @@ public sealed partial class TimerEngine
     Task RoundAsync(bool background, bool wait) => Guarded(async ct =>
     {
         await RefreshCoreAsync(ct, background);
+        await CheckMeetingLeftAsync(ct);
         await AutomationAsync(ct);
         await ClaudeCoreAsync(ct);
     }, wait);
@@ -276,6 +277,7 @@ public sealed partial class TimerEngine
             _suppressed.Add(key); // Claude 還在動也不要馬上又開始，等它停下來一陣子再說
         RemoveClaudeOwned(key);
         await RefreshCoreAsync(ct);
+        await CheckMeetingLeftAsync(ct); // 在面板上停掉會議的計時：恢復加入會議時暫停的
     });
 
     /// <summary>可恢復的任務：上次記下的那組；沒有的話用今天被午休自動暫停（BREAK）的。</summary>
@@ -550,6 +552,14 @@ public sealed partial class TimerEngine
 
     async Task PauseAllCoreAsync(CancellationToken ct)
     {
+        if (_state.MeetingPause is { } pause)
+        {
+            // 會議中到了休息、下班：之後恢復的是會議前在做的，不是會議
+            _state.ResumeSet = pause.Tasks.Union(RunningKeys().Except(pause.MeetingTasks, StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase).OrderBy(k => k).ToList();
+            _state.MeetingPause = null;
+            _state.Save();
+        }
         _selfPaused.UnionWith(RunningKeys());
         await _api.PauseTimerAsync(null, ct);
         await RefreshCoreAsync(ct);
@@ -576,8 +586,8 @@ public sealed partial class TimerEngine
         var changed = false;
         foreach (var key in desired)
         {
-            if (running.Contains(key) || _suppressed.Contains(key))
-                continue;
+            if (running.Contains(key) || _suppressed.Contains(key) || _state.MeetingPause is not null)
+                continue; // 會議中先不自動開始，離開會議再說
             try
             {
                 await _api.StartTimerAsync(key, ct);

@@ -570,6 +570,20 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Style="{StaticResource SettingText}">
+                                <TextBlock Text="加入會議時暫停其他計時" Style="{StaticResource CardTitle}" />
+                                <TextBlock Style="{StaticResource CardDesc}"
+                                           Text="按「加入並計時」時先暫停正在跑的其他計時；按「離開會議」（或在網頁上離開、停掉會議計時）後自動恢復。" />
+                            </StackPanel>
+                            <CheckBox x:Name="MeetingPausesOthersBox" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="Toggle_Click" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Style="{StaticResource SettingText}">
                                 <TextBlock Text="提醒到點時跳出提示" Style="{StaticResource CardTitle}" />
                                 <TextBlock Style="{StaticResource CardDesc}" Text="Hayaku 的提醒到了就跳出，可選「10 分鐘後再提醒」。" />
                             </StackPanel>

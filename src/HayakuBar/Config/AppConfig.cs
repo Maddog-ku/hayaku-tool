@@ -76,6 +76,9 @@ public sealed class AppConfig
     /// <summary>也提醒我專案裡、我不是參加者的會議（加入時 Hayaku 會自動把我加為參加者）。</summary>
     public bool MeetingAlertsAllProjects { get; set; } = true;
 
+    /// <summary>按「加入並計時」時先暫停其他正在跑的計時，離開會議（或會議計時停了）後自動恢復。</summary>
+    public bool MeetingPausesOthers { get; set; }
+
     /// <summary>提醒到點時跳出提示（可稍後再提醒）。</summary>
     public bool ReminderAlerts { get; set; } = true;
 

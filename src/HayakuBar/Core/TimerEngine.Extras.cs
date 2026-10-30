@@ -123,11 +123,111 @@ public sealed partial class TimerEngine
 
     public Task JoinMeetingAsync(MeetingItem meeting) => Guarded(async ct =>
     {
+        var before = RunningKeys();
         await _api.JoinMeetingAsync(meeting.Key, ct);
-        Notify?.Invoke($"已加入會議並開始計時：{meeting.Title}");
         InvalidateExtras();
         await RefreshCoreAsync(ct);
+        var paused = _config.MeetingPausesOthers ? await PauseForMeetingAsync(meeting.Key, before, ct) : [];
+        Notify?.Invoke($"已加入會議並開始計時：{meeting.Title}" + (paused.Count > 0 ? $"，暫停 {string.Join("、", paused)}" : ""));
     });
+
+    public Task LeaveMeetingAsync(MeetingItem meeting) => Guarded(async ct =>
+    {
+        await _api.LeaveMeetingAsync(meeting.Key, ct);
+        InvalidateExtras();
+        await RefreshCoreAsync(ct);
+        if (_state.MeetingPause?.Meeting == meeting.Key)
+            await ResumeAfterMeetingAsync("已離開會議", ct);
+        else
+            Notify?.Invoke("已離開會議，停止計時");
+    });
+
+    /// <summary>加入會議前就在跑的計時，會議以外的都暫停，記下來等離開會議後恢復。</summary>
+    async Task<List<string>> PauseForMeetingAsync(string meeting, HashSet<string> before, CancellationToken ct)
+    {
+        var (meetingTasks, others) = SplitForMeeting(meeting, before, RunningKeys());
+        var paused = new List<string>();
+        foreach (var key in others)
+        {
+            _selfPaused.Add(key); // 自己暫停的：保留 Claude 標記，恢復後照舊
+            try
+            {
+                await _api.PauseTimerAsync(key, ct);
+                paused.Add(key);
+            }
+            catch (McpException ex)
+            {
+                Log.Error($"加入會議時暫停 {key} 失敗", ex);
+            }
+        }
+        if (paused.Count == 0)
+            return paused;
+        var pause = _state.MeetingPause ?? new Config.MeetingPause(); // 會議中又加入另一場：之前暫停的一起留著
+        pause.Meeting = meeting;
+        pause.MeetingTasks = meetingTasks;
+        pause.Tasks = pause.Tasks.Union(paused, StringComparer.OrdinalIgnoreCase).ToList();
+        _state.MeetingPause = pause;
+        _state.Save();
+        Log.Info($"加入會議 {meeting}，暫停 {string.Join("、", paused)}");
+        await RefreshCoreAsync(ct);
+        return paused;
+    }
+
+    /// <summary>
+    /// 加入會議後在跑的計時分成「會議的」與「要暫停的」：會議本身是任務（例 REVIVAL-9），
+    /// 找不到的話把加入後才出現的當成會議的；加入前就在跑的其他計時要暫停。
+    /// </summary>
+    internal static (List<string> MeetingTasks, List<string> Others) SplitForMeeting(
+        string meeting, IReadOnlySet<string> before, IReadOnlySet<string> after)
+    {
+        var meetingTasks = after.Contains(meeting)
+            ? [after.First(k => string.Equals(k, meeting, StringComparison.OrdinalIgnoreCase))]
+            : after.Where(k => !before.Contains(k)).OrderBy(k => k).ToList();
+        var others = after.Where(k => before.Contains(k) && !meetingTasks.Contains(k, StringComparer.OrdinalIgnoreCase))
+            .OrderBy(k => k).ToList();
+        return (meetingTasks, others);
+    }
+
+    /// <summary>不是按「離開會議」結束的（網頁上離開、手動停掉會議計時）：同步時發現會議的計時都停了，一樣恢復。</summary>
+    async Task CheckMeetingLeftAsync(CancellationToken ct)
+    {
+        if (_state.MeetingPause is not { MeetingTasks.Count: > 0 } pause)
+            return;
+        var running = RunningKeys();
+        if (pause.MeetingTasks.Any(running.Contains))
+            return;
+        await ResumeAfterMeetingAsync("會議的計時停了", ct);
+    }
+
+    async Task ResumeAfterMeetingAsync(string reason, CancellationToken ct)
+    {
+        if (_state.MeetingPause is not { } pause)
+            return;
+        _state.MeetingPause = null;
+        _state.Save();
+        var running = RunningKeys();
+        var started = new List<string>();
+        foreach (var key in pause.Tasks.Where(k => !running.Contains(k)))
+        {
+            try
+            {
+                await _api.StartTimerAsync(key, ct);
+                started.Add(key);
+            }
+            catch (McpException ex)
+            {
+                Log.Error($"離開會議後恢復 {key} 失敗", ex);
+            }
+        }
+        if (started.Count == 0)
+        {
+            if (reason == "已離開會議")
+                Notify?.Invoke("已離開會議，停止計時");
+            return;
+        }
+        Notify?.Invoke($"{reason}，恢復計時：{string.Join("、", started)}");
+        await RefreshCoreAsync(ct);
+    }
 
     public Task CompleteTodoAsync(TodoItem todo) => Guarded(async ct =>
     {

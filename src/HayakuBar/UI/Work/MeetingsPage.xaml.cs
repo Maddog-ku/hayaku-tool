@@ -122,12 +122,10 @@ public partial class MeetingsPage : UserControl, IWorkPage
     {
         if ((sender as Button)?.Tag is not MeetingListVm vm)
             return;
-        if (await Inputs.Run((Button)sender, ListStatus, () => _engine.Api.LeaveMeetingAsync(vm.Item.Key, CancellationToken.None),
-                "已離開會議，停止計時"))
-        {
-            await _engine.AfterExternalChangeAsync();
-            await LoadAsync();
-        }
+        ((Button)sender).IsEnabled = false;
+        await _engine.LeaveMeetingAsync(vm.Item); // 加入時暫停了其他計時的話，這裡會恢復
+        Inputs.Show(ListStatus, _engine.Error);
+        await LoadAsync();
     }
 
     void Open_Click(object sender, RoutedEventArgs e)

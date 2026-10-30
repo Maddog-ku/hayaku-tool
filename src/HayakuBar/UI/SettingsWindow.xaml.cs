@@ -195,6 +195,7 @@ public partial class SettingsWindow : Window
         HotkeyBox.Text = string.IsNullOrWhiteSpace(c.Hotkey) ? "（不使用）" : c.Hotkey.Replace("+", " + ");
         MeetingAlertsBox.IsChecked = c.MeetingAlerts;
         MeetingAllProjectsBox.IsChecked = c.MeetingAlertsAllProjects;
+        MeetingPausesOthersBox.IsChecked = c.MeetingPausesOthers;
         MeetingLeadBox.SelectedValue = new[] { 0, 1, 3, 5, 10, 15 }.MinBy(v => Math.Abs(v - c.MeetingLeadMinutes)).ToString();
         ReminderAlertsBox.IsChecked = c.ReminderAlerts;
         NotificationAlertsBox.IsChecked = c.NotificationAlerts;
@@ -568,6 +569,7 @@ public partial class SettingsWindow : Window
         c.ClaudeOnlyDuringWork = ClaudeOnlyWorkBox.IsChecked == true;
         c.MeetingAlerts = MeetingAlertsBox.IsChecked == true;
         c.MeetingAlertsAllProjects = MeetingAllProjectsBox.IsChecked == true;
+        c.MeetingPausesOthers = MeetingPausesOthersBox.IsChecked == true;
         c.ReminderAlerts = ReminderAlertsBox.IsChecked == true;
         c.NotificationAlerts = NotificationAlertsBox.IsChecked == true;
         c.PromptUnfilled = PromptUnfilledBox.IsChecked == true;

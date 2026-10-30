@@ -20,6 +20,9 @@ public sealed class AppState
     /// <summary>由 Claude 偵測自動開始的計時（面板上標 ✦）。</summary>
     public List<string> ClaudeOwned { get; set; } = [];
 
+    /// <summary>加入會議時暫停的計時，離開會議後恢復；null＝沒有。</summary>
+    public MeetingPause? MeetingPause { get; set; }
+
     /// <summary>Claude session → 使用者手動指定的任務。</summary>
     public Dictionary<string, string> SessionTasks { get; set; } = [];
 
@@ -57,6 +60,7 @@ public sealed class AppState
         HandledBoundaries.Clear();
         ClockedOut = false;
         ClaudeOwned.Clear();
+        MeetingPause = null;
         if (SessionTasks.Count > 200)
             SessionTasks.Clear();
         if (AskedSessions.Count > 200)
@@ -67,6 +71,14 @@ public sealed class AppState
     public static AppState Load() => JsonFile.Load<AppState>(AppPaths.State);
 
     public void Save() => JsonFile.Save(AppPaths.State, this);
+}
+
+/// <summary>加入會議時暫停的計時：Meeting＝會議的 key，MeetingTasks＝會議在計時的任務（停了就恢復 Tasks）。</summary>
+public sealed class MeetingPause
+{
+    public string Meeting { get; set; } = "";
+    public List<string> MeetingTasks { get; set; } = [];
+    public List<string> Tasks { get; set; } = [];
 }
 
 /// <summary>某個資料夾對應的 Hayaku 專案；Parent 是上次在這裡建立新任務時選的上層（null＝最上層）。</summary>
