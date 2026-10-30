@@ -200,11 +200,18 @@ public sealed partial class TimerEngine
         await ClaudeCoreAsync(ct);
     }, wait);
 
+    /// <summary>面板或工作台開著（App 設定）：開著時照設定的頻率同步，沒開又沒 Claude 在動時放慢。</summary>
+    public Func<bool> UiVisible { get; set; } = () => true;
+
+    DateTime _lastPolled = DateTime.MinValue;
+
     /// <summary>
     /// 定時、喚醒、解鎖時的自動同步（鎖定畫面時照常同步）。不打 Hayaku 的情況：
-    /// 設定「只在上班時間自動同步」時的下班、休息、放假；連續失敗時退避等待中。
+    /// 設定「只在上班時間自動同步」時的下班、休息、放假；連續失敗時退避等待中；
+    /// 面板、工作台都沒開、Claude 也沒在動時，兩次定時才同步一次。
     /// </summary>
-    public async Task AutoRefreshAsync()
+    /// <param name="force">喚醒、解鎖：不管放慢，照常同步</param>
+    public async Task AutoRefreshAsync(bool force = false)
     {
         if (!_auth.HasSession || LoggingIn)
             return;
@@ -216,8 +223,10 @@ public sealed partial class TimerEngine
             Log.Info(paused ? "不在上班時間，暫停自動同步" : "恢復自動同步");
             Raise();
         }
-        if (paused || now < _retryAt)
+        if (paused || now < _retryAt
+            || !force && !SyncPolicy.ShouldPoll(UiVisible(), _claude.Repos.Any(r => r.Active), now, _lastPolled, _poll.Interval))
             return;
+        _lastPolled = now;
 
         var before = LastSynced;
         await RoundAsync(background: true, wait: false);
@@ -443,13 +452,7 @@ public sealed partial class TimerEngine
             Projects = await _api.ListProjectsAsync(ct, includeArchived: true);
             foreach (var p in Projects)
                 _knownProjects.Add(p.Key);
-            var tasks = new List<TaskItem>();
-            tasks.AddRange(await _api.MyTasksAsync("in_progress", ct));
-            tasks.AddRange(await _api.MyTasksAsync("not_started", ct));
-            MyTasks = tasks.DistinctBy(t => t.Key).ToList();
-            foreach (var t in MyTasks)
-                _knownProjects.Add(KeyFinder.ProjectOf(t.Key));
-            _tasksFetched = DateTime.Now;
+            await RefreshMyTasksAsync(ct);
         }
         catch (McpException ex)
         {

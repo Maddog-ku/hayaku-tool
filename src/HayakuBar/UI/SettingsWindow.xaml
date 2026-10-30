@@ -675,7 +675,9 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Style="{StaticResource SettingText}">
                                 <TextBlock Text="同步頻率" Style="{StaticResource CardTitle}" />
-                                <TextBlock Style="{StaticResource CardDesc}" Text="多久跟 Hayaku 同步一次計時資料。" />
+                                <TextBlock Style="{StaticResource CardDesc}"
+                                           Text="多久跟 Hayaku 同步一次計時資料；面板、工作台沒開、Claude 也沒在動時會放慢成兩倍。" />
+                                <TextBlock x:Name="McpStatsText" Style="{StaticResource CardDesc}" Margin="0,4,0,0" TextWrapping="Wrap" />
                             </StackPanel>
                             <ComboBox x:Name="PollBox" Grid.Column="1" Width="130" SelectedValuePath="Tag"
                                       VerticalAlignment="Center" SelectionChanged="Poll_Changed">

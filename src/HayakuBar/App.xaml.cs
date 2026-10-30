@@ -72,6 +72,7 @@ public partial class App : Application
         var engine = _engine = new TimerEngine(config, state, auth, api, new ClaudeMonitor());
 
         _panel = new PanelWindow(engine);
+        engine.UiVisible = () => _panel?.IsOpen == true || _workspace?.IsVisible == true;
         _panel.SettingsRequested += OpenSettings;
         _panel.TimeEntriesRequested += () => OpenTimeEntries(DateOnly.FromDateTime(DateTime.Today));
         _panel.WorkspaceRequested += OpenWorkspace;
@@ -604,7 +605,7 @@ public partial class App : Application
     void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {
         if (e.Mode == PowerModes.Resume)
-            Dispatcher.InvokeAsync(() => _engine?.AutoRefreshAsync());
+            Dispatcher.InvokeAsync(() => _engine?.AutoRefreshAsync(force: true));
     }
 
     /// <summary>
@@ -639,7 +640,7 @@ public partial class App : Application
         if (e.Reason == SessionSwitchReason.SessionLock)
             Dispatcher.InvokeAsync(() => Housekeep("鎖定電腦"), DispatcherPriority.ApplicationIdle);
         if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)
-            Dispatcher.InvokeAsync(() => _engine?.AutoRefreshAsync());
+            Dispatcher.InvokeAsync(() => _engine?.AutoRefreshAsync(force: true));
     }
 
     static void OpenUrl(string target)

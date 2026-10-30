@@ -252,6 +252,8 @@ public partial class SettingsWindow : Window
             return;
         foreach (var p in new FrameworkElement[] { PageAccount, PageTaskbar, PageSchedule, PageRepos, PageClaude, PageEip, PageGeneral })
             p.Visibility = p.Name == page ? Visibility.Visible : Visibility.Collapsed;
+        if (page == nameof(PageGeneral))
+            McpStatsText.Text = Mcp.McpStats.Current();
     }
 
     // ───────────── 會隨時間變的內容 ─────────────

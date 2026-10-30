@@ -20,6 +20,13 @@ public static class SyncPolicy
         || fetchedDay != today
         || now - fetchedAt >= EntriesInterval;
 
+    /// <summary>
+    /// 背景輪詢這一輪要不要真的同步：面板、工作台都沒開、Claude 也沒在動時，間隔放寬成兩倍
+    /// （畫面上的計時時間是本機在跑，不受影響；只是網頁上的變動晚一點反映）。
+    /// </summary>
+    public static bool ShouldPoll(bool uiVisible, bool claudeActive, DateTime now, DateTime lastPolled, TimeSpan interval) =>
+        uiVisible || claudeActive || now - lastPolled >= interval * 2 - TimeSpan.FromSeconds(1);
+
     /// <summary>第 failures 次失敗（從 1 開始）後要等多久。</summary>
     public static TimeSpan BackoffDelay(int failures) => Backoff[Math.Clamp(failures - 1, 0, Backoff.Length - 1)];
 }

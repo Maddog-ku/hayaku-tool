@@ -102,10 +102,23 @@ public sealed partial class HayakuApi
 {
     // ───────────── 任務 ─────────────
 
-    public async Task<List<TaskSummary>> MyTaskListAsync(string tab, CancellationToken ct)
+    /// <summary>
+    /// 指派給我、還沒完成的全部任務（不給分頁，順序跟網頁一樣）；一頁放不下時自動翻頁，最多 maxPages 頁。
+    /// 四個分頁用 MyTaskTabs 從這份算，不用一個分頁打一次。
+    /// </summary>
+    public async Task<List<TaskSummary>> MyOpenTasksAsync(CancellationToken ct, int maxPages = 10)
     {
-        var r = await Mcp.CallToolAsync("my_tasks", new { tab }, ct);
-        return ParseTaskSummaries(r);
+        var list = new List<TaskSummary>();
+        string? cursor = null;
+        for (var page = 0; page < maxPages; page++)
+        {
+            var r = await Mcp.CallToolAsync("my_tasks", cursor is null ? null : new { cursor }, ct);
+            list.AddRange(ParseTaskSummaries(r));
+            cursor = Str(r, "cursor") ?? Str(r, "nextCursor");
+            if (string.IsNullOrEmpty(cursor))
+                break;
+        }
+        return list.DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>指派給我、某個狀態類別的任務（例 DONE）；最多讀 maxPages 頁。</summary>

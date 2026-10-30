@@ -24,8 +24,11 @@ public sealed partial class TimerEngine
     /// <summary>只在面板、工作台看得到的資料（待辦、我的任務分頁、團隊）：不在背景抓，打開時才抓，太久沒抓才重抓。</summary>
     static readonly TimeSpan PanelDataInterval = TimeSpan.FromMinutes(2);
 
-    /// <summary>打開面板、工作台時，距離上次完整同步不到這麼久就不重抓。</summary>
-    static readonly TimeSpan OpenThrottle = TimeSpan.FromSeconds(20);
+    /// <summary>
+    /// 打開面板、工作台時，距離上次完整同步不到這麼久就不重抓（常常開開關關時，一次完整同步約 8～10 個請求）。
+    /// 要最新的按重新整理。
+    /// </summary>
+    static readonly TimeSpan OpenThrottle = TimeSpan.FromSeconds(60);
 
     DateTime _notificationsFetched = DateTime.MinValue;
     DateTime _meetingsFetched = DateTime.MinValue;

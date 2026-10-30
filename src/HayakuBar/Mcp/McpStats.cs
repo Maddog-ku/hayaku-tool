@@ -26,6 +26,13 @@ public static class McpStats
             Log.Info(line);
     }
 
+    /// <summary>目前累計（這一小時內）的請求數，給設定頁看；還沒有請求時說明一下。</summary>
+    public static string Current()
+    {
+        lock (Sync)
+            return Counts.Count > 0 ? Format(Counts, DateTime.Now - _since) : "這一小時還沒有送出請求";
+    }
+
     /// <summary>把目前累計的寫進紀錄（例如結束程式時）；沒有請求就不寫。</summary>
     public static void Flush()
     {

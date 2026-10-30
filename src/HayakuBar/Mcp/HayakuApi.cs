@@ -70,17 +70,6 @@ public sealed partial class HayakuApi(McpClient mcp)
     public Task PauseTimerAsync(string? task, CancellationToken ct) =>
         task is null ? mcp.CallToolAsync("pause_timer", null, ct) : mcp.CallToolAsync("pause_timer", new { task }, ct);
 
-    public async Task<List<TaskItem>> MyTasksAsync(string tab, CancellationToken ct)
-    {
-        var r = await mcp.CallToolAsync("my_tasks", new { tab }, ct);
-        var list = new List<TaskItem>();
-        if (r.TryGetProperty("tasks", out var tasks) && tasks.ValueKind == JsonValueKind.Array)
-            foreach (var t in tasks.EnumerateArray())
-                if (Str(t, "task") is { } key)
-                    list.Add(new TaskItem(key, Str(t, "title") ?? "", Str(t, "project") ?? "", Str(t, "status") ?? ""));
-        return list;
-    }
-
     public async Task<List<string>> ProjectKeysAsync(CancellationToken ct)
     {
         var r = await mcp.CallToolAsync("list_projects", new { includeArchived = true }, ct);

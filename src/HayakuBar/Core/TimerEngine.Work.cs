@@ -1,4 +1,5 @@
 using HayakuBar.Claude;
+using HayakuBar.Infra;
 using HayakuBar.Mcp;
 
 namespace HayakuBar.Core;
@@ -58,12 +59,32 @@ public sealed partial class TimerEngine
 
     async Task RefreshWorkCoreAsync(CancellationToken ct)
     {
-        var lists = new Dictionary<string, IReadOnlyList<TaskSummary>>();
-        foreach (var (tab, _) in TaskTabs)
-            lists[tab] = await Try(() => _api.MyTaskListAsync(tab, ct), TaskList(tab), "我的任務");
-        TaskLists = lists;
+        await RefreshMyTasksAsync(ct);
         Team = await Try(() => _api.TeamScheduleAsync(ct), Team, "團隊狀況");
         Pins = await Try(() => _api.ListPinsAsync(ct), Pins, "釘選托盤");
+    }
+
+    /// <summary>
+    /// 我的任務：一個請求讀全部未完成的，四個分頁在本機分（原本一個分頁打一次）；
+    /// 開始任務的清單、Claude 的任務選單也用同一份。讀不到時保留上次的。
+    /// </summary>
+    async Task RefreshMyTasksAsync(CancellationToken ct)
+    {
+        List<TaskSummary> open;
+        try
+        {
+            open = await _api.MyOpenTasksAsync(ct);
+        }
+        catch (Exception ex) when (ex is McpException or HttpRequestException or TaskCanceledException)
+        {
+            Log.Error("讀取我的任務失敗", ex);
+            return;
+        }
+        TaskLists = MyTaskTabs.Split(open, DateOnly.FromDateTime(DateTime.Today));
+        MyTasks = open.Select(t => new TaskItem(t.Key, t.Title, t.Project, t.Status)).ToList();
+        foreach (var t in open)
+            _knownProjects.Add(KeyFinder.ProjectOf(t.Key));
+        _tasksFetched = DateTime.Now;
     }
 
     /// <summary>專案的狀態清單、成員（快取）。</summary>
