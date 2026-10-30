@@ -345,6 +345,7 @@ public sealed partial class TimerEngine
         if (!LoggedIn)
             return;
         var now = DateTimeOffset.Now;
+        CheckReviewAlerts();
 
         if (_config.MeetingAlerts)
         {
@@ -374,7 +375,8 @@ public sealed partial class TimerEngine
         if (_config.NotificationAlerts)
         {
             var fresh = Notifications
-                .Where(n => n.Unread && n.CreatedAt > _startedAt && _alerted.Add($"n:{n.Id}"))
+                // 「有新的變更申請」由審核提示（可以直接核准、駁回）取代
+                .Where(n => n.Unread && n.CreatedAt > _startedAt && !(n.Type == "CHANGE_REQUESTED" && CanReview) && _alerted.Add($"n:{n.Id}"))
                 .ToList();
             // 從下面滑上來，停留幾秒（設定可調；滑鼠移上去會停住）後自動滑回去
             var seconds = _config.NotificationPopupSeconds;

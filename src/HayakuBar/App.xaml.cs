@@ -80,6 +80,7 @@ public partial class App : Application
         engine.CreateTaskRequested += OpenQuickCreate;
         engine.NewWorkReady += PrewarmQuickCreate;
         engine.PickTaskRequested += PickTaskForSession;
+        engine.RejectRequested += OpenRejectReview;
 
         var tray = _tray = new TrayIcon(new TrayActions(
             TogglePanel: TogglePanel,
@@ -400,6 +401,21 @@ public partial class App : Application
         expire.Start();
     }
 
+    /// <summary>審核提示按了「駁回」：開填說明的小視窗（同一筆申請只開一個）。</summary>
+    void OpenRejectReview(ChangeRequest request)
+    {
+        if (_engine is not { } engine)
+            return;
+        if (Windows.OfType<RejectReviewWindow>().FirstOrDefault(w => w.Tag as string == request.Id) is { } open)
+        {
+            open.Activate();
+            return;
+        }
+        var window = new RejectReviewWindow(engine, request) { Tag = request.Id };
+        window.Show();
+        window.Activate();
+    }
+
     /// <summary>使用者按了「選既有任務」：選一個任務指定給那個 Claude session。</summary>
     async void PickTaskForSession(NewWorkSuggestion suggestion)
     {
@@ -420,7 +436,19 @@ public partial class App : Application
         foreach (var page in pages.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             Window? target;
-            if (page == "toast")
+            if (page == "review")
+            {
+                // 範例：有新的申請等我審核（可以直接核准、駁回），以及按「駁回」開的小視窗；按鈕都不會真的送出
+                var demo = new ChangeRequest("demo", "F2P", "CREATE", "PENDING", "F2P-128", "面板新增全部列印及選擇列印按鈕",
+                    new PersonRef("demo", "丁鈺昕"), null, DateTimeOffset.Now, ["預計結束：2026-11-05", "預計工時：4 小時"],
+                    "客戶要求下週上線", null, 95, 0);
+                _toasts.Show(_engine.ReviewToast(demo, demo: true));
+                var reject = new RejectReviewWindow(_engine, demo, demo: true);
+                reject.Show();
+                await Task.Delay(1500);
+                target = reject;
+            }
+            else if (page == "toast")
             {
                 // 範例：新通知的彈窗（從下面滑上來）
                 _toasts.Show(new ToastRequest("申請已審核", "丁鈺昕：F2P-101 面板新增全部列印及選擇列印按鈕",

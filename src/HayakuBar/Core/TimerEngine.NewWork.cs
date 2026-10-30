@@ -173,13 +173,13 @@ public sealed partial class TimerEngine
     /// 提示上的按鈕：等提示收起來（淡出約 160ms）再開視窗。
     /// 開視窗要建整個畫面，跟淡出擠在同一個時間會讓動畫頓一下。
     /// </summary>
-    static Task Raise(Action<NewWorkSuggestion>? handler, NewWorkSuggestion suggestion)
+    static Task Raise<T>(Action<T>? handler, T arg)
     {
         if (handler is not null)
             System.Windows.Application.Current.Dispatcher.InvokeAsync(async () =>
             {
                 await Task.Delay(180);
-                handler(suggestion);
+                handler(arg);
             });
         return Task.CompletedTask;
     }

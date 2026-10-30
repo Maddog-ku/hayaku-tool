@@ -23,7 +23,16 @@ public sealed record ChangeRequest(
     string? Reason,
     string? ReviewNote,
     int LoggedMinutes,
-    int DescendantCount);
+    int DescendantCount)
+{
+    public string TypeText => Type switch
+    {
+        "CREATE" => "新增任務",
+        "UPDATE" => "修改任務",
+        "DELETE" => "刪除任務",
+        _ => Type,
+    };
+}
 
 /// <summary>專案動態的一則（list_project_activity）；At 是伺服器排好的顯示文字（例「10/30 13:41」）。</summary>
 public sealed record ActivityItem(string At, string Project, string Text);

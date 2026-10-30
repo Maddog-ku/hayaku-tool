@@ -108,19 +108,11 @@ public sealed class ReviewsPage : UserControl, IWorkPage
         }
     }
 
-    static string TypeText(string type) => type switch
-    {
-        "CREATE" => "新增任務",
-        "UPDATE" => "修改任務",
-        "DELETE" => "刪除任務",
-        _ => type,
-    };
-
     FrameworkElement Card(ChangeRequest c, bool mine)
     {
         var body = new StackPanel();
         var first = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis };
-        first.Inlines.Add(new Run(TypeText(c.Type)) { Foreground = Brushes2.Get(c.Type == "DELETE" ? "ErrorBrush" : "AccentBrush"), FontWeight = FontWeights.SemiBold });
+        first.Inlines.Add(new Run(c.TypeText) { Foreground = Brushes2.Get(c.Type == "DELETE" ? "ErrorBrush" : "AccentBrush"), FontWeight = FontWeights.SemiBold });
         first.Inlines.Add(new Run("　"));
         if (c.TaskKey is { } key)
         {
