@@ -7,7 +7,7 @@ using HayakuBar.Infra;
 namespace HayakuBar.UI.Work;
 
 /// <summary>
-/// 工作台：把網頁上常用的操作搬到桌面（任務、工時月曆、工作日誌、提醒、會議、聊天、團隊、請假、統計）。
+/// 工作台：把網頁上常用的操作搬到桌面（任務、專案、工時月曆、工作日誌、提醒、會議、聊天、筆記、團隊空間、論壇、團隊、請假、統計）。
 /// 左側導覽、右側一頁一個 UserControl，第一次切到才建立。
 /// </summary>
 public partial class WorkspaceWindow : Window
@@ -29,7 +29,7 @@ public partial class WorkspaceWindow : Window
         RefreshChrome();
     }
 
-    /// <summary>頁面：tasks、projects、reviews、hours、entries、worklog、reminders、meetings、chat、team、activity、workload、leaves、eipleaves、stats。</summary>
+    /// <summary>頁面：tasks、projects、reviews、hours、entries、worklog、reminders、meetings、chat、notes、spaces、forum、team、activity、workload、leaves、eipleaves、stats。</summary>
     public void ShowPage(string page, object? arg = null)
     {
         _pendingArg = arg;
@@ -59,6 +59,9 @@ public partial class WorkspaceWindow : Window
                 "reminders" => new RemindersPage(_engine),
                 "meetings" => new MeetingsPage(_engine),
                 "chat" => new ChatPage(_engine),
+                "notes" => new NotesPage(_engine),
+                "spaces" => new SpacesPage(_engine),
+                "forum" => new ForumPage(_engine),
                 "team" => new TeamPage(_engine, this),
                 "leaves" => new LeavesPage(_engine),
                 "eipleaves" => new EipLeavesPage(_engine),
