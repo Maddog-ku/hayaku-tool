@@ -69,8 +69,11 @@ public sealed partial class ClaudeMonitor
     static readonly TimeSpan IndexCacheTime = TimeSpan.FromSeconds(60);
     static readonly HashSet<string> SkipFolders = new(StringComparer.OrdinalIgnoreCase) { "node_modules", "bin", "obj", "dist", "build" };
 
-    /// <summary>會改檔的工具；Bash 不算（多半是跑指令、看東西）。</summary>
+    /// <summary>會改檔的工具。</summary>
     static readonly HashSet<string> EditTools = new(StringComparer.Ordinal) { "Edit", "Write", "MultiEdit", "NotebookEdit" };
+
+    /// <summary>跑指令的工具：多半是看東西，指令真的會在專案裡寫檔（sed -i、python 改檔…）才算改檔，見 ShellEdits。</summary>
+    static readonly HashSet<string> ShellTools = new(StringComparer.Ordinal) { "Bash", "PowerShell" };
 
     readonly Dictionary<string, RepoActivity> _repos = new(StringComparer.OrdinalIgnoreCase);
 
@@ -585,19 +588,26 @@ public sealed partial class ClaudeMonitor
         foreach (var part in content.EnumerateArray())
         {
             if (part.ValueKind != JsonValueKind.Object || Str(part, "type") != "tool_use"
-                || Str(part, "name") is not { } name || !EditTools.Contains(name)
-                || !part.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object
-                || (Str(input, "file_path") ?? Str(input, "notebook_path")) is not { Length: > 0 } file)
+                || Str(part, "name") is not { } name
+                || !part.TryGetProperty("input", out var input) || input.ValueKind != JsonValueKind.Object)
                 continue;
-            try
+            if (ShellTools.Contains(name))
             {
-                if (!IsUnder(Normalize(file), root))
+                if (Str(input, "command") is not { Length: > 0 } command || !ShellEdits.Writes(command, Str(r, "cwd"), root))
                     continue;
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
+            else if (!EditTools.Contains(name) || (Str(input, "file_path") ?? Str(input, "notebook_path")) is not { Length: > 0 } file)
                 continue;
-            }
+            else
+                try
+                {
+                    if (!IsUnder(Normalize(file), root))
+                        continue;
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    continue;
+                }
             return Str(r, "timestamp") is { } ts
                    && DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
                 ? at.LocalDateTime

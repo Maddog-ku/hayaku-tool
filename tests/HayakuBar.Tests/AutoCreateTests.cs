@@ -68,6 +68,18 @@ public class AutoCreateTests
     });
 
     [Fact]
+    public void 用Bash改檔_也記下改檔時間() => WithClaudeDir((claude, repo) =>
+    {
+        static string Bash(string cwd, string command, string at) =>
+            $$$"""{"type":"assistant","cwd":{{{JsonSerializer.Serialize(cwd)}}},"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":{{{JsonSerializer.Serialize(command)}}}}}]},"timestamp":"{{{at}}}"}""";
+        var a = ScanSession(repo, claude,
+            User(repo, "匯入時順便更新使用者資訊"),
+            Bash(repo, "sed -n 1,60p a.java", "2026-10-28T02:03:00Z"),
+            Bash(repo, "sed -i 's/a/b/' a.java", "2026-10-28T02:04:00Z"));
+        Assert.Equal(DateTimeOffset.Parse("2026-10-28T02:04:00Z").LocalDateTime, a.EditedAt);
+    });
+
+    [Fact]
     public void 改的是專案外的檔案_例如計畫檔_不算() => WithClaudeDir((claude, repo) =>
     {
         var plan = Path.Combine(claude, "plans", "plan.md");
