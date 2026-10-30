@@ -78,6 +78,7 @@ public partial class App : Application
         engine.TimeEntriesRequested += OpenTimeEntries;
         engine.WorkspaceRequested += OpenWorkspace;
         engine.CreateTaskRequested += OpenQuickCreate;
+        engine.NewWorkReady += PrewarmQuickCreate;
         engine.PickTaskRequested += PickTaskForSession;
 
         var tray = _tray = new TrayIcon(new TrayActions(
@@ -340,14 +341,24 @@ public partial class App : Application
     {
         if (_engine is not { } engine)
             return;
-        if (Windows.OfType<QuickCreateWindow>().FirstOrDefault(w => w.Tag as string == suggestion.SessionId) is { } open)
+        var window = FindQuickCreate(suggestion.SessionId);
+        if (window is { Presented: true })
         {
-            open.Activate();
+            window.Activate();
             return;
         }
-        var window = new QuickCreateWindow(engine, suggestion) { Tag = suggestion.SessionId };
+        // 提示跳出時多半已經預先建好（PrewarmQuickCreate），直接顯示
+        window ??= NewQuickCreate(engine, suggestion);
         var (anchor, alignLeft) = WidgetAnchor();
-        window.PlaceNear(anchor, alignLeft);
+        window.Present(anchor, alignLeft);
+    }
+
+    QuickCreateWindow? FindQuickCreate(string sessionId) =>
+        Windows.OfType<QuickCreateWindow>().FirstOrDefault(w => w.Tag as string == sessionId);
+
+    QuickCreateWindow NewQuickCreate(TimerEngine engine, NewWorkSuggestion suggestion)
+    {
+        var window = new QuickCreateWindow(engine, suggestion) { Tag = suggestion.SessionId };
         window.Closed += (_, _) =>
         {
             if (window.CreatedKey is { } key)
@@ -355,8 +366,38 @@ public partial class App : Application
                     ? $"{window.CreatedTitle}\n已指定給 {suggestion.UnitName} 的 Claude session，會自動計時"
                     : window.CreatedTitle));
         };
-        window.Show();
-        window.Activate();
+        return window;
+    }
+
+    /// <summary>
+    /// 「有新工作」的提示跳出、資料也讀好了：先在螢幕外把建立任務視窗建好、畫好，按「建立任務」時移到定位馬上出現。
+    /// 提示最多留 10 分鐘，沒按的視窗 12 分鐘後收掉。
+    /// </summary>
+    async void PrewarmQuickCreate(NewWorkSuggestion suggestion)
+    {
+        await Task.Delay(800); // 等提示滑出來的動畫跑完：建畫面會占住畫面執行緒，跟動畫擠在一起會頓
+        if (_engine is not { } engine || FindQuickCreate(suggestion.SessionId) is not null)
+            return;
+        var window = NewQuickCreate(engine, suggestion);
+        try
+        {
+            window.Prewarm();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("預先建立任務視窗失敗", ex);
+            window.Close();
+            return;
+        }
+        var expire = new DispatcherTimer { Interval = TimeSpan.FromMinutes(12) };
+        expire.Tick += (_, _) =>
+        {
+            expire.Stop();
+            if (!window.Presented)
+                window.Close();
+        };
+        window.Closed += (_, _) => expire.Stop();
+        expire.Start();
     }
 
     /// <summary>使用者按了「選既有任務」：選一個任務指定給那個 Claude session。</summary>
@@ -395,8 +436,11 @@ public partial class App : Application
             {
                 // 範例：偵測到新工作後的「建立任務」小視窗（用第一個監看資料夾）
                 var unit = _engine.Claude.Repos.OrderByDescending(r => r.LastActivity).FirstOrDefault();
-                OpenQuickCreate(new NewWorkSuggestion(unit?.Path ?? AppPaths.Dir, unit?.Name ?? "HayakuBar", "shot-" + Guid.NewGuid().ToString("N"),
-                    unit?.FirstPrompt ?? "列印頁面加上全部列印按鈕", null, null));
+                var suggestion = new NewWorkSuggestion(unit?.Path ?? AppPaths.Dir, unit?.Name ?? "HayakuBar", "shot-" + Guid.NewGuid().ToString("N"),
+                    unit?.FirstPrompt ?? "列印頁面加上全部列印按鈕", null, null);
+                await _engine.PrefetchNewWorkAsync(suggestion); // 跟實際一樣：提示跳出時就先讀好、預先建好視窗
+                await Task.Delay(1500);
+                OpenQuickCreate(suggestion);
                 target = Windows.OfType<QuickCreateWindow>().LastOrDefault();
             }
             else if (page.StartsWith("settings-", StringComparison.OrdinalIgnoreCase))
@@ -547,8 +591,9 @@ public partial class App : Application
             var deleted = Housekeeping.CleanFiles(AppPaths.Dir, DateTime.Now);
             _engine?.TrimCaches();
             _panel?.TrimCaches();
-            // 提示、滑鼠停留的摘要不算；面板、工作台、設定、建立任務…開著就算在用
-            var open = Windows.OfType<Window>().Where(w => w.IsVisible && w is not ToastWindow and not HoverCard)
+            // 提示、滑鼠停留的摘要、預先建好還沒顯示的建立任務視窗不算；面板、工作台、設定、建立任務…開著就算在用
+            var open = Windows.OfType<Window>()
+                .Where(w => w.IsVisible && w is not ToastWindow and not HoverCard and not QuickCreateWindow { Presented: false })
                 .Select(w => w.GetType().Name).ToList();
             if (open.Count == 0)
                 Housekeeping.TrimMemory();

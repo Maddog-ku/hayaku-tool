@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using HayakuBar.Claude;
 using HayakuBar.Core;
 using HayakuBar.Infra;
@@ -28,6 +30,11 @@ public partial class QuickCreateWindow : Window
     CancellationTokenSource? _estimateCts;
     bool _estimateEdited; // 使用者自己改過預計工時：自動估回來的不覆蓋
     bool _settingEstimate;
+    readonly Task _loading;
+    readonly Stopwatch _opening = Stopwatch.StartNew();
+    bool _prewarmed;
+    bool _presented;
+    long _treeRenderMs;
 
     public QuickCreateWindow(TimerEngine engine, NewWorkSuggestion suggestion)
     {
@@ -43,14 +50,60 @@ public partial class QuickCreateWindow : Window
         PlanDates.SetRange(today, today);
         UpdateParentText();
         SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
-        Loaded += async (_, _) =>
-        {
-            NewTitle.Focus();
-            NewTitle.SelectAll();
-            await LoadProjectsAsync();
-            await EstimateAsync(manual: false);
-        };
         Closed += (_, _) => _estimateCts?.Cancel();
+        // 提示跳出時已經先讀好專案與任務樹的話，這裡會同步填好，視窗第一次畫出來就是完整的
+        _loading = LoadProjectsAsync();
+    }
+
+    /// <summary>
+    /// 先在螢幕外把視窗顯示、畫好（建視窗、排版、第一次繪製要幾百毫秒，會占住畫面執行緒）：
+    /// 使用者按「建立任務」時 Present 只是把它移到定位，馬上出現。在提示跳出、資料讀好之後趁空檔做。
+    /// </summary>
+    public void Prewarm()
+    {
+        var watch = Stopwatch.StartNew();
+        _prewarmed = true;
+        ShowActivated = false;
+        Left = OffScreen;
+        Top = OffScreen;
+        Show();
+        UpdateLayout();
+        Log.Info($"建立任務視窗預先建好（{watch.ElapsedMilliseconds} ms）");
+    }
+
+    const double OffScreen = -32000;
+
+    /// <summary>給使用者看到了沒（預先建好、放在螢幕外的不算）。</summary>
+    public bool Presented => _presented;
+
+    /// <summary>顯示在工作列工時的正上方；第一次顯示時才請 Claude 估預計工時（預先建好、但沒按的不會去問）。</summary>
+    public void Present(Rect anchor, bool alignLeft)
+    {
+        _opening.Restart();
+        PlaceNear(anchor, alignLeft);
+        ShowActivated = true;
+        Show();
+        Activate();
+        NewTitle.Focus();
+        NewTitle.SelectAll();
+        if (_presented)
+            return;
+        _presented = true;
+        // 排在繪製之後：量到的是按下去到畫面出來的時間
+        Dispatcher.InvokeAsync(() => Log.Info($"建立任務視窗 {_opening.ElapsedMilliseconds} ms 顯示（"
+            + (_prewarmed ? "已預先建好" : "現建") + "，"
+            + (ProjectTree.ItemsSource is not null ? $"專案樹 {_tasks.Count} 筆已讀好、建樹 {_treeRenderMs} ms）" : "專案樹讀取中）")),
+            DispatcherPriority.Input);
+        // 預先建好後過了一陣子才按：專案樹在背景重讀，有變才重畫
+        if (ProjectBox.SelectedItem is ProjectInfo project && _engine.CachedProjectTree(project.Key) is { Stale: true })
+            _ = RefreshTreeAsync(project.Key, _version);
+        _ = EstimateWhenLoadedAsync();
+    }
+
+    async Task EstimateWhenLoadedAsync()
+    {
+        await _loading; // 專案名稱也給 Claude 參考
+        await EstimateAsync(manual: false);
     }
 
     /// <summary>建好的任務編號；沒建立就關掉是 null。</summary>
@@ -62,7 +115,7 @@ public partial class QuickCreateWindow : Window
     public bool Assigned { get; private set; }
 
     /// <summary>擺在工作列工時的正上方（跟提示一樣的位置），不超出螢幕。</summary>
-    public void PlaceNear(Rect anchor, bool alignLeft)
+    void PlaceNear(Rect anchor, bool alignLeft)
     {
         var work = SystemParameters.WorkArea;
         var left = alignLeft ? anchor.Left : anchor.Right - Width;
@@ -74,12 +127,9 @@ public partial class QuickCreateWindow : Window
     {
         try
         {
-            var projects = await _engine.Api.ListProjectsAsync(CancellationToken.None);
+            var projects = await _engine.CreatableProjectsAsync();
             ProjectBox.ItemsSource = projects;
-            var key = ProjectGuess.Guess(projects.Select(p => (p.Key, p.Name)).ToList(), _suggestion.Project, _suggestion.UnitName,
-                _engine.RunningKeys().Select(KeyFinder.ProjectOf));
-            var target = projects.FirstOrDefault(p => p.Key == key) ?? projects.FirstOrDefault();
-            if (target is null)
+            if (_engine.GuessProject(projects, _suggestion) is not { } target)
             {
                 TreeMessage.Text = "沒有可以建立任務的專案";
                 return;
@@ -110,13 +160,20 @@ public partial class QuickCreateWindow : Window
     async Task LoadTreeAsync(string projectKey)
     {
         var version = ++_version;
-        TreeMessage.Text = "讀取中…";
-        TreeMessage.Visibility = Visibility.Visible;
-        ProjectTree.ItemsSource = null;
+        // 預先讀好的直接用（不閃「讀取中…」）；讀好、狀態清單也有快取時，下面的 await 都會同步完成
+        var cached = _engine.CachedProjectTree(projectKey);
+        if (cached is null)
+        {
+            TreeMessage.Text = "讀取中…";
+            TreeMessage.Visibility = Visibility.Visible;
+            ProjectTree.ItemsSource = null;
+        }
         try
         {
-            var tasks = await _engine.Api.ListProjectTasksAsync(projectKey, CancellationToken.None);
-            var project = await _engine.GetProjectAsync(projectKey);
+            var load = _engine.ProjectTreeAsync(projectKey);
+            var detail = _engine.GetProjectAsync(projectKey);
+            var tasks = cached?.Tasks ?? await load;
+            var project = await detail;
             if (version != _version)
                 return;
             _tasks = tasks;
@@ -127,7 +184,13 @@ public partial class QuickCreateWindow : Window
                                       ?? project.Statuses.FirstOrDefault())?.Name;
             if (_parent is not null && !tasks.Any(t => string.Equals(t.Key, _parent, StringComparison.OrdinalIgnoreCase)))
                 _parent = null;
+            var render = Stopwatch.StartNew();
             RenderTree(scrollToPicked: true);
+            _treeRenderMs = render.ElapsedMilliseconds;
+            if (cached is null)
+                Log.Info($"建立任務視窗：專案樹 {tasks.Count} 筆，開啟後 {_opening.ElapsedMilliseconds} ms 顯示（建樹 {_treeRenderMs} ms）");
+            if (cached is { Stale: true })
+                await RefreshTreeAsync(projectKey, version);
         }
         catch (Exception ex)
         {
@@ -137,6 +200,29 @@ public partial class QuickCreateWindow : Window
             _tasks = [];
             TreeMessage.Text = $"讀不到專案的任務：{ex.Message}";
         }
+        UpdateParentText();
+    }
+
+    /// <summary>先顯示的是有點舊的專案樹：在背景重讀，有變才重畫（沒變就不動，畫面不會跳）。</summary>
+    async Task RefreshTreeAsync(string projectKey, int version)
+    {
+        List<ProjectTask> fresh;
+        try
+        {
+            fresh = await _engine.ProjectTreeAsync(projectKey, fresh: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"重讀 {projectKey} 的任務樹失敗（先用剛才讀到的）", ex);
+            return;
+        }
+        static (string, string, string, string?) Row(ProjectTask t) => (t.Key, t.Title, t.Status, t.Parent);
+        if (version != _version || fresh.Select(Row).SequenceEqual(_tasks.Select(Row)))
+            return;
+        _tasks = fresh;
+        if (_parent is not null && !fresh.Any(t => string.Equals(t.Key, _parent, StringComparison.OrdinalIgnoreCase)))
+            _parent = null;
+        RenderTree();
         UpdateParentText();
     }
 
@@ -155,7 +241,7 @@ public partial class QuickCreateWindow : Window
             : roots.Count == 0 ? "沒有符合的任務" : "";
         TreeMessage.Visibility = TreeMessage.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (scrollToPicked && _parent is { } key)
-            Dispatcher.InvokeAsync(() => BringIntoView(ProjectTree, key), System.Windows.Threading.DispatcherPriority.Loaded);
+            Dispatcher.InvokeAsync(() => BringIntoView(ProjectTree, key), DispatcherPriority.Loaded);
     }
 
     /// <summary>某任務的所有上層（含自己），展開用。</summary>
@@ -357,6 +443,7 @@ public partial class QuickCreateWindow : Window
         if (!await Inputs.Run(CreateButton, StatusText, async () => key = await _engine.Api.CreateTaskAsync(fields, CancellationToken.None)))
             return;
         _engine.RememberFolder(_suggestion.UnitPath, project.Key, _parent);
+        _engine.ForgetProjectTree(project.Key);
         if (key.Length == 0)
             key = await FindCreatedAsync(project.Key, title) ?? "";
         CreatedKey = key.Length > 0 ? key : null;

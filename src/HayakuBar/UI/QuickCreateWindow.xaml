@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:HayakuBar.UI"
         Title="建立任務" Width="780" Height="600" MinWidth="620" MinHeight="440" Icon="/Assets/app.ico"
-        WindowStartupLocation="Manual" Topmost="True"
+        WindowStartupLocation="Manual" Topmost="True" ShowInTaskbar="False"
         FontFamily="{StaticResource UiFont}" FontSize="13" Background="{DynamicResource BgBrush}"
         Foreground="{DynamicResource TextBrush}" UseLayoutRounding="True">
     <Grid Margin="18,14,18,16">
