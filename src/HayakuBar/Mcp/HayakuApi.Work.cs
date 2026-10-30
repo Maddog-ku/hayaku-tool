@@ -34,7 +34,9 @@ public sealed record ProjectTask(
     string? Parent,
     DateOnly? PlannedStart,
     DateOnly? PlannedEnd,
-    bool IsCategory = false);
+    bool IsCategory = false,
+    IReadOnlyList<string>? Assignees = null,
+    string? Priority = null);
 
 /// <summary>任務完整資料（get_task）。</summary>
 public sealed record TaskDetail(
@@ -161,14 +163,16 @@ public sealed partial class HayakuApi
         return list;
     }
 
-    /// <summary>專案的全部任務（含各層子任務），依 Hayaku 的順序；一頁 200 筆，自動翻頁。</summary>
-    public async Task<List<ProjectTask>> ListProjectTasksAsync(string project, CancellationToken ct)
+    /// <summary>專案的全部任務（含各層子任務），依 Hayaku 的順序；一頁 200 筆，自動翻頁。view：套用專案的視圖篩選。</summary>
+    public async Task<List<ProjectTask>> ListProjectTasksAsync(string project, CancellationToken ct, string? view = null)
     {
         var list = new List<ProjectTask>();
         string? cursor = null;
         for (var page = 0; page < 25; page++)
         {
             var args = new Dictionary<string, object?> { ["project"] = project, ["limit"] = 200 };
+            if (view is not null)
+                args["view"] = view;
             if (cursor is not null)
                 args["cursor"] = cursor;
             var r = await Mcp.CallToolAsync("list_tasks", args, ct);
@@ -191,7 +195,12 @@ public sealed partial class HayakuApi
                 Items(t, "path").Select(p => Str(p, "task")).LastOrDefault(k => k is not null),
                 Day(t, "plannedStart"),
                 Day(t, "plannedEnd"),
-                t.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True))
+                t.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True,
+                t.TryGetProperty("assignees", out var a) && a.ValueKind == JsonValueKind.Array
+                    ? a.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : Str(x, "username"))
+                        .OfType<string>().ToList()
+                    : null,
+                Str(t, "priority")))
             .ToList();
 
     public async Task<TaskDetail> GetTaskAsync(string task, CancellationToken ct)

@@ -35,6 +35,7 @@
                                    Foreground="{DynamicResource ErrorBrush}" />
                     </Grid>
                 </RadioButton>
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="projects" Checked="Nav_Checked" Content="專案" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="reviews" Checked="Nav_Checked">
                     <Grid>
                         <TextBlock Text="待我審核" />
