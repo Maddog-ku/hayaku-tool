@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using HayakuBar.Claude;
 using HayakuBar.Core;
 using HayakuBar.Infra;
 using HayakuBar.Mcp;
@@ -10,7 +12,8 @@ using HayakuBar.UI.Work;
 namespace HayakuBar.UI;
 
 /// <summary>
-/// 偵測到沒有任務的新工作時，從提示按「建立任務」開的小視窗：專案自動選好，使用者選專案樹上的位置、狀態、預計起訖。
+/// 偵測到沒有任務的新工作時，從提示按「建立任務」開的小視窗：專案自動選好，使用者選專案樹上的位置、狀態、預計起訖、
+/// 預計工時（必填，開視窗時先請 Claude 估）。
 /// 建好後（預設）指定給那個 Claude session，之後就自動為它計時。
 /// </summary>
 public partial class QuickCreateWindow : Window
@@ -22,6 +25,9 @@ public partial class QuickCreateWindow : Window
     string? _parent;
     bool _keepParent;
     int _version;
+    CancellationTokenSource? _estimateCts;
+    bool _estimateEdited; // 使用者自己改過預計工時：自動估回來的不覆蓋
+    bool _settingEstimate;
 
     public QuickCreateWindow(TimerEngine engine, NewWorkSuggestion suggestion)
     {
@@ -41,7 +47,9 @@ public partial class QuickCreateWindow : Window
             NewTitle.Focus();
             NewTitle.SelectAll();
             await LoadProjectsAsync();
+            await EstimateAsync(manual: false);
         };
+        Closed += (_, _) => _estimateCts?.Cancel();
     }
 
     /// <summary>建好的任務編號；沒建立就關掉是 null。</summary>
@@ -249,6 +257,63 @@ public partial class QuickCreateWindow : Window
 
     async void Create_Click(object sender, RoutedEventArgs e) => await CreateAsync();
 
+    async void Estimate_Click(object sender, RoutedEventArgs e) => await EstimateAsync(manual: true);
+
+    void EstimateBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_settingEstimate)
+            _estimateEdited = true;
+    }
+
+    /// <summary>
+    /// 請 Claude 依任務名稱與 session 開頭的指令估預計工時。開視窗時自動問一次（使用者已經自己填了就不覆蓋），
+    /// 按「✦ 問 Claude」重問會直接帶入。
+    /// </summary>
+    async Task EstimateAsync(bool manual)
+    {
+        var title = NewTitle.Text.Trim();
+        if (title.Length == 0)
+        {
+            EstimateHint.Text = manual ? "先填名稱，Claude 才能估" : "";
+            return;
+        }
+        _estimateCts?.Cancel();
+        var cts = _estimateCts = new CancellationTokenSource();
+        EstimateButton.IsEnabled = false;
+        EstimateHint.Text = "Claude 估算中…";
+        var project = ProjectBox.SelectedItem is ProjectInfo p ? $"{p.Name}（資料夾 {_suggestion.UnitName}）" : _suggestion.UnitName;
+        var file = _suggestion.SessionFile;
+        var hours = await Task.Run(() => ClaudeEstimator.EstimateAsync(title, project,
+            file is null ? null : ClaudeMonitor.ReadOpeningPrompts(file), cts.Token));
+        if (cts != _estimateCts)
+            return; // 又重問了，或視窗關了
+        _estimateCts = null;
+        EstimateButton.IsEnabled = true;
+        if (hours is not { } h)
+        {
+            EstimateHint.Text = "問不到 Claude，請自己填";
+            return;
+        }
+        var text = h.ToString("0.##", CultureInfo.InvariantCulture);
+        if (_estimateEdited && !manual && EstimateBox.Text.Trim().Length > 0)
+        {
+            EstimateHint.Text = $"Claude 估 {text} 小時（保留你填的）";
+            return;
+        }
+        _settingEstimate = true;
+        EstimateBox.Text = text;
+        _settingEstimate = false;
+        _estimateEdited = false;
+        EstimateHint.Text = "Claude 估的，可以改";
+    }
+
+    /// <summary>預計工時的小時數（可加「小時」「h」）；空白或不是正數回 null。</summary>
+    static double? ParseEstimate(string text)
+    {
+        text = text.Trim().TrimEnd('h', 'H').Replace("小時", "").Trim();
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var hours) && hours > 0 ? hours : null;
+    }
+
     async Task CreateAsync()
     {
         if (ProjectBox.SelectedItem is not ProjectInfo project)
@@ -263,7 +328,16 @@ public partial class QuickCreateWindow : Window
             NewTitle.Focus();
             return;
         }
-        var fields = new Dictionary<string, object?> { ["project"] = project.Key, ["title"] = title, ["assignees"] = new[] { "me" } };
+        if (ParseEstimate(EstimateBox.Text) is not { } estimate)
+        {
+            Inputs.Show(StatusText, EstimateBox.Text.Trim().Length == 0 ? "請填預計工時（可以按「✦ 問 Claude」）" : "預計工時請填小時數");
+            EstimateBox.Focus();
+            return;
+        }
+        var fields = new Dictionary<string, object?>
+        {
+            ["project"] = project.Key, ["title"] = title, ["assignees"] = new[] { "me" }, ["estimatedHours"] = estimate,
+        };
         if (_parent is not null)
             fields["parent"] = _parent;
         if (StatusBox.SelectedItem is string status)

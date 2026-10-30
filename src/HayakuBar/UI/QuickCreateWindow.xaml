@@ -96,6 +96,19 @@
                     <ComboBox x:Name="StatusBox" Margin="0,0,0,12" />
                     <TextBlock Text="預計開始 ～ 結束" Style="{StaticResource FieldLabel}" />
                     <ui:DateRangePicker x:Name="PlanDates" Margin="0,0,0,12" />
+                    <TextBlock Text="預計工時（小時，必填）" Style="{StaticResource FieldLabel}" />
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="EstimateBox" Style="{StaticResource HintBox}" Tag="例 4、1.5"
+                                 TextChanged="EstimateBox_TextChanged" KeyDown="NewTitle_KeyDown" />
+                        <Button x:Name="EstimateButton" Grid.Column="1" Content="✦ 問 Claude" Style="{StaticResource FlatButton}"
+                                Padding="10,4" Margin="8,0,0,0" Click="Estimate_Click"
+                                ToolTip="請 Claude 依任務名稱與這個 session 的指令估預計工時" />
+                    </Grid>
+                    <TextBlock x:Name="EstimateHint" Style="{StaticResource CardDesc}" TextWrapping="Wrap" Margin="0,0,0,12" />
                     <CheckBox x:Name="AssignBox" Content="指定給這個 Claude session 並自動計時" IsChecked="True" Margin="0,0,0,14" />
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="CreateButton" Content="建立" Style="{StaticResource PrimaryButton}" Padding="18,6"

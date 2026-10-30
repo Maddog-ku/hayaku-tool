@@ -146,6 +146,9 @@ public static partial class SessionDigest
         return first.Length > SummaryLength ? first[..SummaryLength] + "…" : first;
     }
 
+    /// <summary>拿掉貼上的圖片標記（[Image #3]）。</summary>
+    public static string StripImageTags(string text) => ImageTag().Replace(text, "");
+
     static string? PromptText(JsonElement content)
     {
         if (content.ValueKind == JsonValueKind.String)

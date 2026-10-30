@@ -435,6 +435,46 @@ public sealed partial class ClaudeMonitor
         return null;
     }
 
+    /// <summary>
+    /// 讀 session 開頭幾句有內容的指令原文（不截成摘要），給 Claude 估預計工時用；合計最多 maxChars 字。
+    /// 指令、系統訊息、「繼續」這類回覆跳過。
+    /// </summary>
+    public static string? ReadOpeningPrompts(string path, int maxPrompts = 3, int maxChars = 2000)
+    {
+        var prompts = new List<string>();
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var buffer = new byte[Math.Min(HeadBytes, fs.Length)];
+            var read = fs.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            foreach (var line in Encoding.UTF8.GetString(buffer, 0, read).Split('\n'))
+            {
+                if (line.Length < 2)
+                    continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (UserPrompt(doc.RootElement) is { } text && SessionDigest.Summarize(text) is not null)
+                        prompts.Add(SessionDigest.StripImageTags(text).Trim());
+                }
+                catch (JsonException)
+                {
+                    // 讀到上限時最後一行不完整
+                }
+                if (prompts.Count >= maxPrompts)
+                    break;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        if (prompts.Count == 0)
+            return null;
+        var all = string.Join("\n---\n", prompts);
+        return all.Length > maxChars ? all[..maxChars] + "…" : all;
+    }
+
     /// <summary>使用者自己送出的指令文字（排除系統插入的 meta 訊息與子代理）；不是的話回 null。</summary>
     static string? UserPrompt(JsonElement r)
     {

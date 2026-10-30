@@ -168,3 +168,56 @@ public class CreatedKeyTests
     [Fact]
     public void 找不到回null() => Assert.Null(Key("""{"ok":true}"""));
 }
+
+public class EstimateTests
+{
+    [Theory]
+    [InlineData("4", 4.0)]
+    [InlineData("1.5\n", 1.5)]
+    [InlineData("約 2.3 小時", 2.5)]
+    [InlineData("0.2", 0.5)]
+    [InlineData("3.75", 4.0)]
+    public void 回覆換成以半小時為單位(string reply, double expected) => Assert.Equal(expected, ClaudeEstimator.ParseHours(reply));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("不知道")]
+    [InlineData("0")]
+    [InlineData("5000")]
+    public void 看不懂或不合理回null(string reply) => Assert.Null(ClaudeEstimator.ParseHours(reply));
+
+    [Fact]
+    public void 提示包含名稱專案與指令()
+    {
+        var prompt = ClaudeEstimator.BuildPrompt("列印頁面加上全部列印按鈕", "Print-App", "幫我在列印頁加按鈕");
+        Assert.Contains("任務名稱：列印頁面加上全部列印按鈕", prompt);
+        Assert.Contains("專案：Print-App", prompt);
+        Assert.Contains("幫我在列印頁加按鈕", prompt);
+    }
+
+    [Fact]
+    public void 讀session開頭的指令原文_跳過繼續與圖片標記()
+    {
+        static string User(string text) =>
+            $$"""{"type":"user","message":{"role":"user","content":{{JsonSerializer.Serialize(text)}}},"cwd":"D:\repo","sessionId":"s1"}""";
+        var file = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(file, string.Join("\n",
+                User("[Image #1] 列印頁面加上全部列印按鈕\n按鈕放在右上角"),
+                User("繼續"),
+                User("順便加選擇列印"),
+                User("第三句"),
+                User("第四句不讀")) + "\n");
+            var text = ClaudeMonitor.ReadOpeningPrompts(file);
+            Assert.Equal("列印頁面加上全部列印按鈕\n按鈕放在右上角\n---\n順便加選擇列印\n---\n第三句", text);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public void 讀不到檔案回null() => Assert.Null(ClaudeMonitor.ReadOpeningPrompts(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".jsonl")));
+}

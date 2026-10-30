@@ -5,9 +5,11 @@ namespace HayakuBar.Core;
 
 /// <summary>
 /// Claude 在某個資料夾改程式、但對應不到任務：建議建立任務。
-/// Title 是 session 第一句指令的摘要；Project、Parent 是這個資料夾上次用的專案與上層（沒有就 null）。
+/// Title 是 session 第一句指令的摘要；Project、Parent 是這個資料夾上次用的專案與上層（沒有就 null）；
+/// SessionFile 是 session 紀錄檔，請 Claude 估預計工時時讀開頭幾句指令的原文。
 /// </summary>
-public sealed record NewWorkSuggestion(string UnitPath, string UnitName, string SessionId, string? Title, string? Project, string? Parent);
+public sealed record NewWorkSuggestion(string UnitPath, string UnitName, string SessionId, string? Title, string? Project, string? Parent,
+    string? SessionFile = null);
 
 /// <summary>自動建立任務：偵測到沒有任務的新工作時跳提示，建好後指定給那個 session。</summary>
 public sealed partial class TimerEngine
@@ -90,7 +92,7 @@ public sealed partial class TimerEngine
             _state.AskedSessions.Add(sid);
             _state.Save();
             var hint = _state.FolderHints.GetValueOrDefault(repo.Path);
-            var suggestion = new NewWorkSuggestion(repo.Path, repo.Name, sid, repo.FirstPrompt, hint?.Project, hint?.Parent);
+            var suggestion = new NewWorkSuggestion(repo.Path, repo.Name, sid, repo.FirstPrompt, hint?.Project, hint?.Parent, repo.SessionFile);
             Log.Info($"{repo.Name} 的 Claude session {sid} 在改程式但沒有任務，詢問要不要建立");
             Toast?.Invoke(new ToastRequest($"{repo.Name} 有新工作，要建立任務嗎？",
                 repo.FirstPrompt ?? "Claude 正在改程式，但對應不到任務",
