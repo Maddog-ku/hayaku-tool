@@ -56,7 +56,8 @@ public sealed record TaskDetail(
     IReadOnlyList<(string Key, string Title, string Status)> Children,
     int PendingChangeRequests,
     double? LoggedMinutes = null,
-    bool IsCategory = false);
+    bool IsCategory = false,
+    int ContentBlockCount = 0);
 
 public sealed record StatusOption(string Name, string Category, bool IsDefault);
 
@@ -234,7 +235,8 @@ public sealed partial class HayakuApi
             children,
             Items(r, "pendingChangeRequests").Count(),
             loggedMinutes,
-            r.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True);
+            r.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True,
+            Items(r, "contentBlocks").Count());
     }
 
     /// <summary>部分更新任務；fields 的值為 null 代表清空。回傳伺服器的說明文字（例如送出變更申請）。</summary>

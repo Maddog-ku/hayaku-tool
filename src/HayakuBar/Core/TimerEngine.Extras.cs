@@ -61,6 +61,33 @@ public sealed partial class TimerEngine
     public string NotificationUrl(NotificationItem n) =>
         n.MeetingId is { } meeting ? MeetingUrl(meeting) : n.TaskKey is { } task ? TaskUrl(task) : WebUrl("/notifications");
 
+    /// <summary>
+    /// 點通知：能在工作台處理的就在工作台打開（申請 → 待我審核、會議 → 會議、任務相關 → 任務詳細、
+    /// 論壇、空間、頻道、補工時 → 對應頁），其他的才開網頁；順便標為已讀。
+    /// </summary>
+    public async Task OpenNotificationAsync(NotificationItem n)
+    {
+        if (NotificationTarget(n) is ({ } page, var arg))
+            WorkspaceRequested?.Invoke(page, arg);
+        else
+            await Open(NotificationUrl(n));
+        if (n.Unread)
+            await MarkNotificationsReadAsync([n.Id]);
+    }
+
+    /// <summary>通知對應到工作台的哪一頁（與參數）；沒有對應的頁回 (null, null)，開網頁。</summary>
+    internal static (string? Page, object? Arg) NotificationTarget(NotificationItem n) => n.Type switch
+    {
+        "CHANGE_REQUESTED" => ("reviews", null),
+        "HOURS_UNFILLED" or "HOURS_UNFILLED_WEEKLY" => ("hours", null),
+        "FORUM_POST" => ("forum", n.ProjectKey),
+        "SPACE_PAGE_COMMENT" => ("spaces", null),
+        _ when n.MeetingId is { } meeting => ("meetings", meeting),
+        _ when n.TaskKey is { } key => ("tasks", key),
+        "CHANNEL_MESSAGE" or "THREAD_REPLY" or "CHAT_REACTION" => ("chat", null),
+        _ => (null, null),
+    };
+
     // ───────────── 同步 ─────────────
 
     /// <summary>
@@ -399,11 +426,7 @@ public sealed partial class TimerEngine
                     Toast?.Invoke(new ToastRequest(n.Label, (n.Actor is { } actor ? $"{actor}：" : "") + n.Text,
                     [
                         new ToastAction("標為已讀", () => MarkNotificationsReadAsync([n.Id]), Primary: true),
-                        new ToastAction("查看", async () =>
-                        {
-                            await Open(NotificationUrl(n));
-                            await MarkNotificationsReadAsync([n.Id]);
-                        }),
+                        new ToastAction("查看", () => OpenNotificationAsync(n)),
                     ], Sticky: seconds == 0, Duration: duration, FromBottom: true));
             }
         }

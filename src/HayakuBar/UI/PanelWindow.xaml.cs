@@ -536,9 +536,7 @@ public partial class PanelWindow : Window
     {
         if ((sender as FrameworkElement)?.Tag is not NotificationRowVm vm)
             return;
-        Web.Open(_engine.NotificationUrl(vm.Item));
-        if (vm.Item.Unread)
-            await _engine.MarkNotificationsReadAsync([vm.Item.Id]);
+        await _engine.OpenNotificationAsync(vm.Item);
     }
 
     async void MarkAll_Click(object sender, RoutedEventArgs e)

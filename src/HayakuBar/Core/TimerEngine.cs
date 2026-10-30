@@ -83,6 +83,9 @@ public sealed partial class TimerEngine
     public event Action? Changed;
     public event Action<string>? Notify;
 
+    /// <summary>從畫面上跳一則簡短提示（例如刪除任務後）。</summary>
+    public void ShowNotice(string text) => Notify?.Invoke(text);
+
     public HashSet<string> RunningKeys() =>
         Entries.Where(e => e.Running).Select(e => e.Task).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

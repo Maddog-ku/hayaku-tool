@@ -271,6 +271,8 @@
                                             Click="Pin_Click" />
                                     <Button Content="⇅ 移動…" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
                                             Click="Move_Click" ToolTip="在同一個專案裡搬到別的任務底下或最上層" />
+                                    <Button x:Name="DeleteButton" Content="🗑 刪除…" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
+                                            Click="Delete_Click" ToolTip="刪除這個任務（含子任務），可以從網頁的垃圾桶還原" />
                                     <Button Content="在網頁開啟 ↗" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
                                             Click="OpenWeb_Click" />
                                 </WrapPanel>
@@ -348,6 +350,32 @@
                                         <TextBox x:Name="NoteText" Style="{StaticResource PlainText}" MaxHeight="220" VerticalScrollBarVisibility="Auto" />
                                     </Border>
                                 </StackPanel>
+
+                                <!-- 相依、附件、文件、異動紀錄：平常收起，展開才讀（省請求） -->
+                                <Expander x:Name="DepsExpander" Margin="0,12,0,0" Expanded="Deps_Expanded" Foreground="{DynamicResource TextBrush}">
+                                    <Expander.Header>
+                                        <TextBlock Text="相依關係" FontWeight="SemiBold" />
+                                    </Expander.Header>
+                                    <StackPanel x:Name="DepsPanel" Margin="20,6,0,0" />
+                                </Expander>
+                                <Expander x:Name="AttachExpander" Margin="0,8,0,0" Expanded="Attach_Expanded" Foreground="{DynamicResource TextBrush}">
+                                    <Expander.Header>
+                                        <TextBlock Text="附件" FontWeight="SemiBold" />
+                                    </Expander.Header>
+                                    <StackPanel x:Name="AttachPanel" Margin="20,6,0,0" />
+                                </Expander>
+                                <Expander x:Name="DocsExpander" Margin="0,8,0,0" Expanded="Docs_Expanded" Foreground="{DynamicResource TextBrush}">
+                                    <Expander.Header>
+                                        <TextBlock x:Name="DocsHeader" Text="文件" FontWeight="SemiBold" />
+                                    </Expander.Header>
+                                    <StackPanel x:Name="DocsPanel" Margin="20,6,0,0" />
+                                </Expander>
+                                <Expander x:Name="HistoryExpander" Margin="0,8,0,0" Expanded="History_Expanded" Foreground="{DynamicResource TextBrush}">
+                                    <Expander.Header>
+                                        <TextBlock Text="異動紀錄" FontWeight="SemiBold" />
+                                    </Expander.Header>
+                                    <StackPanel x:Name="HistoryPanel" Margin="20,6,0,0" />
+                                </Expander>
 
                                 <TextBlock Text="聊天" Style="{StaticResource GroupLabel}" Margin="0,14,0,6" />
                                 <ItemsControl x:Name="ChatList" ItemTemplate="{StaticResource ChatRow}" />
