@@ -33,6 +33,14 @@ public sealed class ProjectConfig
     public bool IsDefault => Enabled && !AutoCreate;
 }
 
+/// <summary>我的任務清單的一欄：Key 見 TaskColumns.All；Width 是 DIP（名稱欄 0＝填滿剩下的寬度）。</summary>
+public sealed class TaskColumnConfig
+{
+    public string Key { get; set; } = "";
+    public bool Visible { get; set; } = true;
+    public double Width { get; set; }
+}
+
 /// <summary>使用者設定，存在 %APPDATA%\HayakuBar\config.json。</summary>
 public sealed class AppConfig
 {
@@ -60,6 +68,21 @@ public sealed class AppConfig
 
     /// <summary>工作台「我的任務」只看哪個專案（專案名稱）；空字串＝全部專案。</summary>
     public string TaskProject { get; set; } = "";
+
+    /// <summary>我的任務（工作台與面板）只顯示沒有子任務的，只看真正要做的事。</summary>
+    public bool TaskLeafOnly { get; set; }
+
+    /// <summary>看板不顯示完成及不處理（已取消類）的任務。</summary>
+    public bool TaskHideDone { get; set; } = true;
+
+    /// <summary>專案樹（新增任務、移動任務、自動建立任務）不顯示完成及不處理的任務。</summary>
+    public bool TreeHideDone { get; set; } = true;
+
+    /// <summary>工作台「我的任務」清單的欄位（順序就是顯示順序）；空的用預設。</summary>
+    public List<TaskColumnConfig> TaskColumns { get; set; } = [];
+
+    /// <summary>清單的專案欄只顯示代碼（例 F2P）。</summary>
+    public bool TaskProjectCodeOnly { get; set; }
 
     public int PollSeconds { get; set; } = 30;
 

@@ -35,6 +35,13 @@
                                    Foreground="{DynamicResource ErrorBrush}" />
                     </Grid>
                 </RadioButton>
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="reviews" Checked="Nav_Checked">
+                    <Grid>
+                        <TextBlock Text="待我審核" />
+                        <TextBlock x:Name="ReviewsBadge" HorizontalAlignment="Right" FontSize="11"
+                                   Foreground="{DynamicResource AccentBrush}" />
+                    </Grid>
+                </RadioButton>
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="hours" Checked="Nav_Checked" Content="我的工時" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="entries" Checked="Nav_Checked" Content="工時紀錄" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="worklog" Checked="Nav_Checked" Content="工作日誌" />
@@ -43,6 +50,8 @@
                 <TextBlock Text="團隊" Style="{StaticResource FieldLabel}" Margin="10,12,0,4" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="chat" Checked="Nav_Checked" Content="聊天" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="team" Checked="Nav_Checked" Content="團隊狀況" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="activity" Checked="Nav_Checked" Content="專案動態" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="workload" Checked="Nav_Checked" Content="工作負荷" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="leaves" Checked="Nav_Checked" Content="請假" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="eipleaves" Checked="Nav_Checked" Content="EIP 請假紀錄" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="stats" Checked="Nav_Checked" Content="統計" />

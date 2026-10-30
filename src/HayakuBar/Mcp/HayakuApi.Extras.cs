@@ -140,7 +140,7 @@ public sealed partial class HayakuApi
         ["TASK_REMINDER"] = "提醒", ["CHANGE_REQUESTED"] = "有新的變更申請", ["CHANGE_REVIEWED"] = "申請已審核",
         ["DEPENDENCY_UNBLOCKED"] = "可以開始了", ["DEPENDENCY_TRIGGER_BLOCKED"] = "自動變更被擋住", ["HOURS_UNFILLED"] = "補工時提醒",
         ["HOURS_UNFILLED_WEEKLY"] = "上週工時沒填滿彙總", ["MEETING_STARTING"] = "會議即將開始", ["MEETING_INVITED"] = "被邀請參加會議",
-        ["MEETING_CHANGED"] = "會議有變更", ["TASK_MOVED"] = "任務移到別的專案", ["WATCHED_ASSIGNEE_CHANGED"] = "關注的任務換了執行者",
+        ["MEETING_CHANGED"] = "會議有變更", ["TASK_MOVED"] = "任務被移動", ["FEEDBACK_NEW"] = "新的問題回報", ["FEEDBACK_CREATED"] = "新的問題回報", ["WATCHED_ASSIGNEE_CHANGED"] = "關注的任務換了執行者",
         ["WATCHED_DUE_CHANGED"] = "關注的任務改了預計結束", ["WATCHER_ADDED"] = "被加為關注者", ["WATCHED_TASK"] = "我關注的任務",
         ["AUTOMATION"] = "自動化通知", ["DAILY_DIGEST"] = "每日摘要", ["MILESTONE_DUE_SOON"] = "里程碑快到了",
         ["BUDGET_THRESHOLD"] = "工時預算快用完", ["THREAD_REPLY"] = "討論串回覆", ["CHANNEL_MESSAGE"] = "頻道訊息",
@@ -191,7 +191,7 @@ public sealed partial class HayakuApi
             list.Add(new NotificationItem(
                 id,
                 type,
-                NotificationLabels.GetValueOrDefault(type, type),
+                NotificationLabels.GetValueOrDefault(type, type.StartsWith("FEEDBACK", StringComparison.Ordinal) ? "問題回報" : type),
                 text ?? "",
                 actor,
                 taskKey,

@@ -27,6 +27,10 @@ public sealed class EntryRowVm : INotifyPropertyChanged
     public Visibility RunningVisibility => Running ? Visibility.Visible : Visibility.Collapsed;
     public string DurationText { get; init; } = "";
 
+    /// <summary>已結束的才能移到別的任務（移動＝在新任務補登同一段，再刪掉這段）。</summary>
+    public bool CanMove => !Running && Entry.StartedAt is not null && Entry.EndedAt is not null;
+    public string MoveTip => CanMove ? "移到別的任務（起訖、備註不變）" : "正在計時的那段不能移，先暫停再移";
+
     /// <summary>使用者改了起訖或備註（欄位名稱）。</summary>
     public event Action<EntryRowVm, string>? Edited;
 
@@ -273,6 +277,60 @@ public partial class DayEntriesPage : UserControl, IWorkPage
         {
             NewStart.Text = NewEnd.Text = NewNote.Text = "";
         }
+    }
+
+    (TimeEntry Moved, string NewId, string FromTask)? _undo;
+
+    /// <summary>⇆：選一個任務，把這段工時移過去；成功後可以復原。</summary>
+    async void Move_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not EntryRowVm { CanMove: true } row)
+            return;
+        var picker = new TaskPickerWindow(_engine.MyTasks.Where(t => !string.Equals(t.Key, row.Key, StringComparison.OrdinalIgnoreCase)),
+            $"把 {row.Key} {row.StartText}–{row.EndText} 這段移到哪個任務？（也可以直接輸入編號）", multiSelect: false)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        if (picker.ShowDialog() != true || picker.SelectedKeys.Count == 0)
+            return;
+        await MoveAsync(row.Entry, picker.SelectedKeys[0], undo: false);
+    }
+
+    async void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_undo is not { } undo)
+            return;
+        await MoveAsync(undo.Moved with { Id = undo.NewId }, undo.FromTask, undo: true);
+    }
+
+    async Task MoveAsync(TimeEntry entry, string toTask, bool undo)
+    {
+        UndoPanel.Visibility = Visibility.Collapsed;
+        _undo = null;
+        ShowError(null);
+        IsEnabled = false;
+        try
+        {
+            var newId = await _engine.MoveTimeEntryAsync(entry, toTask);
+            var target = toTask.ToUpperInvariant();
+            if (undo)
+                UndoText.Text = $"已復原，這段回到 {target}";
+            else
+                UndoText.Text = $"已把 {entry.StartedAt?.ToLocalTime():HH:mm}–{entry.EndedAt?.ToLocalTime():HH:mm} 從 {entry.Task} 移到 {target}";
+            if (!undo && newId is not null)
+                _undo = (entry with { Task = target }, newId, entry.Task);
+            UndoButton.Visibility = _undo is null ? Visibility.Collapsed : Visibility.Visible;
+            UndoPanel.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            ShowError($"移動失敗：{ex.Message}");
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+        await LoadAsync();
     }
 
     /// <summary>執行修改並重新讀取；失敗時顯示 Hayaku 回的錯誤。</summary>

@@ -142,12 +142,15 @@ public partial class PanelWindow
         if (MyTaskList is null)
             return;
         var running = _engine.RunningKeys();
+        var leafOnly = _engine.Config.TaskLeafOnly;
+        PanelLeafOnlyBox.IsChecked = leafOnly;
+        PanelLeafOnlyBox.Foreground = Brushes2.Get(leafOnly ? "AccentBrush" : "TextBrush");
         foreach (var (tab, label) in TimerEngine.TaskViewTabs)
         {
-            var count = _engine.TaskList(tab).Count;
+            var count = _engine.TaskList(tab).Count(t => !leafOnly || t.IsLeaf);
             _taskFilters[tab].Content = count > 0 ? $"{label} {count}" : label;
         }
-        var all = _engine.TaskList(_taskTab);
+        var all = _engine.TaskList(_taskTab).Where(t => !leafOnly || t.IsLeaf).ToList();
         var rows = all.Take(30).Select(t => new MyTaskRowVm { Item = t, Running = running.Contains(t.Key) || t.Timing }).ToList();
         MyTaskList.ItemsSource = rows;
         MyTaskEmpty.Text = _engine.TaskLists.Count == 0 ? "讀取中…" : _taskTab switch
@@ -291,6 +294,9 @@ public partial class PanelWindow
 
         Add(running ? "❚❚  暫停計時" : "▶  開始計時", () => _ = running ? _engine.PauseTaskAsync(key) : _engine.StartTaskAsync(key));
         Add("✓  停止並完成", () => _ = _engine.CompleteTaskAsync(key));
+        var pinned = _engine.IsPinned(key);
+        Add(pinned ? "📌  取消釘選" : "📌  釘到托盤", () => _ = pinned ? _engine.UnpinTaskAsync(key) : _engine.PinTaskAsync(key),
+            pinned || _engine.Pins.Count < TimerEngine.MaxPins);
         Add(status is null ? "⇄  改狀態…" : $"⇄  改狀態…（{status}）", () => _ = ShowStatusMenuAsync(key, anchor));
         menu.Items.Add(new Separator { Margin = new Thickness(4), Background = Brushes2.Get("LineBrush") });
         Add("⏰  新增提醒…", () => RequestWorkspace("reminders", key));

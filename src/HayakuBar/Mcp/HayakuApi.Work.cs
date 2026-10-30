@@ -16,7 +16,12 @@ public sealed record TaskSummary(
     DateOnly? PlannedEnd,
     bool Timing,
     string Path,
-    IReadOnlyList<(string Key, string Title)>? Ancestors = null);
+    IReadOnlyList<(string Key, string Title)>? Ancestors = null,
+    int? ChildCount = null)
+{
+    /// <summary>沒有子任務（真正要做的事）；舊版回應沒有子任務數時當作沒有。</summary>
+    public bool IsLeaf => ChildCount is null or 0;
+}
 
 public sealed record PersonRef(string Username, string DisplayName);
 
@@ -28,7 +33,8 @@ public sealed record ProjectTask(
     string StatusCategory,
     string? Parent,
     DateOnly? PlannedStart,
-    DateOnly? PlannedEnd);
+    DateOnly? PlannedEnd,
+    bool IsCategory = false);
 
 /// <summary>任務完整資料（get_task）。</summary>
 public sealed record TaskDetail(
@@ -49,12 +55,17 @@ public sealed record TaskDetail(
     IReadOnlyList<(string Key, string Title)> Path,
     IReadOnlyList<(string Key, string Title, string Status)> Children,
     int PendingChangeRequests,
-    double? LoggedMinutes = null);
+    double? LoggedMinutes = null,
+    bool IsCategory = false);
 
 public sealed record StatusOption(string Name, string Category, bool IsDefault);
 
-public sealed record ProjectInfo(string Key, string Name, string Role)
+/// <summary>專案；Icon、IconColor 是 Hayaku 的圖示與顏色名稱（例 rocket、moss）。</summary>
+public sealed record ProjectInfo(string Key, string Name, string Role, string? Icon = null, string? IconColor = null, bool IsArchived = false)
 {
+    /// <summary>專案管理員或編輯者：可以審核變更申請。</summary>
+    public bool CanReview => Role is "ADMIN" or "MANAGER" or "OWNER" or "EDITOR";
+
     public override string ToString() => Name;
 }
 
@@ -130,7 +141,8 @@ public sealed partial class HayakuApi
             var path = string.Join(" › ", Items(t, "path").Select(x => Str(x, "title")).Where(x => x is not null));
             list.Add(new TaskSummary(key, Str(t, "title") ?? "", Str(t, "project") ?? "", Str(t, "status") ?? "",
                 Str(t, "statusCategory") ?? "", Str(t, "priority") ?? "", Day(t, "plannedStart"), Day(t, "plannedEnd"),
-                t.TryGetProperty("timing", out var timing) && timing.ValueKind == JsonValueKind.True, path, ancestors));
+                t.TryGetProperty("timing", out var timing) && timing.ValueKind == JsonValueKind.True, path, ancestors,
+                t.TryGetProperty("childCount", out var cc) && cc.TryGetInt32(out var children) ? children : null));
         }
         return list;
     }
@@ -164,7 +176,8 @@ public sealed partial class HayakuApi
                 Str(t, "statusCategory") ?? "",
                 Items(t, "path").Select(p => Str(p, "task")).LastOrDefault(k => k is not null),
                 Day(t, "plannedStart"),
-                Day(t, "plannedEnd")))
+                Day(t, "plannedEnd"),
+                t.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True))
             .ToList();
 
     public async Task<TaskDetail> GetTaskAsync(string task, CancellationToken ct)
@@ -207,7 +220,8 @@ public sealed partial class HayakuApi
             path,
             children,
             Items(r, "pendingChangeRequests").Count(),
-            loggedMinutes);
+            loggedMinutes,
+            r.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True);
     }
 
     /// <summary>部分更新任務；fields 的值為 null 代表清空。回傳伺服器的說明文字（例如送出變更申請）。</summary>
@@ -283,14 +297,19 @@ public sealed partial class HayakuApi
             .ToList();
     }
 
-    public async Task<List<ProjectInfo>> ListProjectsAsync(CancellationToken ct)
+    /// <summary>看得到的專案（含圖示與我的角色）；includeArchived 連封存的也列。</summary>
+    public async Task<List<ProjectInfo>> ListProjectsAsync(CancellationToken ct, bool includeArchived = false)
     {
-        var r = await Mcp.CallToolAsync("list_projects", null, ct);
-        return Items(r, "projects")
-            .Where(p => Str(p, "key") is not null)
-            .Select(p => new ProjectInfo(Str(p, "key")!, Str(p, "name") ?? "", Str(p, "role") ?? ""))
-            .ToList();
+        var r = await Mcp.CallToolAsync("list_projects", includeArchived ? new { includeArchived = true } : null, ct);
+        return ParseProjects(r);
     }
+
+    internal static List<ProjectInfo> ParseProjects(JsonElement r) =>
+        Items(r, "projects")
+            .Where(p => Str(p, "key") is not null)
+            .Select(p => new ProjectInfo(Str(p, "key")!, Str(p, "name") ?? "", Str(p, "role") ?? "", Str(p, "icon"), Str(p, "iconColor"),
+                p.TryGetProperty("isArchived", out var a) && a.ValueKind == JsonValueKind.True))
+            .ToList();
 
     public async Task<ProjectDetail> GetProjectAsync(string project, CancellationToken ct)
     {

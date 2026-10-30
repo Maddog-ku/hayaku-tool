@@ -35,6 +35,7 @@ public partial class QuickCreateWindow : Window
         _engine = engine;
         _suggestion = suggestion;
         HeaderText.Text = $"建立任務 · {suggestion.UnitName}";
+        HideDoneBox.IsChecked = engine.Config.TreeHideDone;
         SubText.Text = suggestion.Title is { } t ? $"Claude 正在改程式：{t}" : "Claude 正在改程式，但對應不到任務";
         SubText.ToolTip = suggestion.UnitPath;
         NewTitle.Text = suggestion.Title?.TrimEnd('…') ?? "";
@@ -142,7 +143,7 @@ public partial class QuickCreateWindow : Window
     void RenderTree(bool scrollToPicked = false)
     {
         var filter = TreeFilter.Text.Trim();
-        var roots = TaskTree.Build(_tasks, ShowDoneBox.IsChecked == true, filter);
+        var roots = TaskTree.Build(_tasks, HideDoneBox.IsChecked != true, filter);
         var expandAll = filter.Length > 0 || _tasks.Count <= 150;
         var picked = _parent is null ? new HashSet<string>() : AncestorsOf(_parent);
         _nodes = roots.Select(r => TreeNodeVm.From(r, _parent, expandAll, picked)).ToList();
@@ -222,7 +223,12 @@ public partial class QuickCreateWindow : Window
 
     void TreeFilter_TextChanged(object sender, TextChangedEventArgs e) => RenderTree();
 
-    void ShowDone_Click(object sender, RoutedEventArgs e) => RenderTree();
+    void ShowDone_Click(object sender, RoutedEventArgs e)
+    {
+        _engine.Config.TreeHideDone = HideDoneBox.IsChecked == true;
+        _engine.Config.Save();
+        RenderTree();
+    }
 
     void ProjectTree_SizeChanged(object sender, SizeChangedEventArgs e)
     {

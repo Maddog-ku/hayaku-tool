@@ -115,6 +115,25 @@
             </DataTemplate.Triggers>
         </DataTemplate>
 
+        <!-- 托盤上的一個釘選任務：▶ 切換（暫停其他）、點名稱看詳細、右鍵更多 -->
+        <DataTemplate x:Key="PinTemplate">
+            <Border x:Name="Chip" Background="{Binding ChipBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="{Binding ChipBorder}"
+                    CornerRadius="8" Padding="2,3,8,3" Margin="0,0,6,6" Cursor="Hand" Tag="{Binding}"
+                    MouseLeftButtonUp="Pin_Click" MouseRightButtonUp="Pin_RightClick" ToolTip="{Binding Tip}">
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}" Tag="{Binding}" Click="PinAction_Click"
+                            IsEnabled="{Binding CanAct}" Style="{StaticResource IconButton}" Foreground="{Binding ActionBrush}"
+                            FontSize="10" Padding="5,1" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Index}" FontSize="9.5" Foreground="{Binding MutedBrush}" VerticalAlignment="Center" Margin="0,0,4,0" />
+                    <TextBlock Text="{Binding Key}" FontWeight="SemiBold" Foreground="{Binding TextBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Title}" Foreground="{Binding MutedBrush}" MaxWidth="110" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" Margin="5,0,0,0" />
+                    <TextBlock Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}" FontSize="11" Foreground="{Binding TextBrush}"
+                               VerticalAlignment="Center" Margin="6,0,0,0" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
         <!-- 任務分頁的一列 -->
         <DataTemplate x:Key="MyTaskRowTemplate">
             <Border x:Name="Row" Style="{StaticResource ClickRow}" MouseLeftButtonUp="MyTaskRow_Click" MouseRightButtonUp="TaskRow_RightClick"
@@ -365,6 +384,21 @@
                     <Grid Margin="0,0,4,0">
                         <!-- 計時 -->
                         <StackPanel x:Name="TabTimer">
+                            <!-- 釘選托盤 -->
+                            <StackPanel x:Name="PinSection" Visibility="Collapsed">
+                                <Grid>
+                                    <TextBlock Text="托盤" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="▶ 切換（暫停其他）· Alt+1～9" FontSize="10.5" Foreground="{DynamicResource HintBrush}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                                </Grid>
+                                <ItemsControl x:Name="PinList" ItemTemplate="{StaticResource PinTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </StackPanel>
                             <TextBlock Text="計時中" Style="{StaticResource SectionTitle}" />
                             <ItemsControl x:Name="RunningList" ItemTemplate="{StaticResource TaskRowTemplate}" />
                             <TextBlock x:Name="RunningEmpty" Text="目前沒有計時" Foreground="{DynamicResource MutedBrush}" />
@@ -412,7 +446,9 @@
 
                         <!-- 任務 -->
                         <StackPanel x:Name="TabTasks" Visibility="Collapsed">
-                            <WrapPanel x:Name="TaskFilterPanel" Margin="0,10,0,6" />
+                            <WrapPanel x:Name="TaskFilterPanel" Margin="0,10,0,2" />
+                            <CheckBox x:Name="PanelLeafOnlyBox" Content="只顯示沒有子任務的" Margin="0,2,0,6" FontSize="11.5"
+                                      Click="PanelLeafOnly_Click" ToolTip="上層任務不列出來，只看真正要做的事（跟工作台同一個設定）" />
                             <ItemsControl x:Name="MyTaskList" ItemTemplate="{StaticResource MyTaskRowTemplate}" />
                             <TextBlock x:Name="MyTaskEmpty" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0" />
                             <Grid Margin="0,10,0,0">
@@ -428,6 +464,14 @@
                                     Cursor="Hand" MouseLeftButtonUp="DueCard_Click" ToolTip="在工作台看逾期的任務">
                                 <Grid>
                                     <TextBlock x:Name="DueText" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="›" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+                                </Grid>
+                            </Border>
+                            <Border x:Name="ReviewCard" Background="{DynamicResource SubtleBrush}" CornerRadius="6" Padding="10,7" Margin="0,6,0,0"
+                                    Cursor="Hand" MouseLeftButtonUp="ReviewCard_Click" ToolTip="在工作台審核（依專案分組，可以直接核准或拒絕）"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <TextBlock x:Name="ReviewText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource AccentBrush}" />
                                     <TextBlock Text="›" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
                                 </Grid>
                             </Border>

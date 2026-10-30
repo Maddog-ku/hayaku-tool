@@ -63,6 +63,7 @@ public sealed partial class TimerEngine
             lists[tab] = await Try(() => _api.MyTaskListAsync(tab, ct), TaskList(tab), "我的任務");
         TaskLists = lists;
         Team = await Try(() => _api.TeamScheduleAsync(ct), Team, "團隊狀況");
+        Pins = await Try(() => _api.ListPinsAsync(ct), Pins, "釘選托盤");
     }
 
     /// <summary>專案的狀態清單、成員（快取）。</summary>
@@ -75,8 +76,11 @@ public sealed partial class TimerEngine
         return detail;
     }
 
-    /// <summary>停止計時並把任務改成完成類狀態（跟網頁的「停止並完成」一樣）。</summary>
-    public Task CompleteTaskAsync(string key) => Guarded(async ct =>
+    /// <summary>
+    /// 停止計時並把任務改成完成類狀態（跟網頁的「停止並完成」一樣）。
+    /// cascade：false＝這次不帶動上層、子任務的狀態（任務狀態連動）；null 照專案設定。
+    /// </summary>
+    public Task CompleteTaskAsync(string key, bool? cascade = null) => Guarded(async ct =>
     {
         var project = await GetProjectAsync(KeyFinder.ProjectOf(key));
         var done = project.Statuses.FirstOrDefault(s => s.Category == "DONE")
@@ -89,7 +93,10 @@ public sealed partial class TimerEngine
                 _suppressed.Add(key);
             RemoveClaudeOwned(key);
         }
-        var message = await _api.UpdateTaskAsync(key, new Dictionary<string, object?> { ["status"] = done.Name }, ct);
+        var fields = new Dictionary<string, object?> { ["status"] = done.Name };
+        if (cascade is { } c)
+            fields["cascade"] = c;
+        var message = await _api.UpdateTaskAsync(key, fields, ct);
         Notify?.Invoke(message is { Length: > 0 } ? message : $"{key} 已停止並改成「{done.Name}」");
         InvalidateExtras();
         await RefreshCoreAsync(ct);
@@ -116,12 +123,15 @@ public sealed partial class TimerEngine
         Notifications = Notifications.Where(x => x.Id != n.Id).ToList();
     });
 
-    /// <summary>工作台做了修改後呼叫：下次同步時一併更新會議、待辦、提醒、通知、任務。</summary>
+    /// <summary>
+    /// 工作台做了修改後呼叫：馬上同步一次，一併更新會議、待辦、提醒、通知、任務（改過資料，不受打開時的節流限制）。
+    /// 有別的同步正在跑時等它跑完再同步，清單才會跟著變（不會被略過）。
+    /// </summary>
     public Task AfterExternalChangeAsync()
     {
         InvalidateExtras();
         _tasksFetched = DateTime.MinValue;
-        return LoggedIn ? RefreshAsync(userAction: false) : Task.CompletedTask; // 改過資料，不受打開時的節流限制
+        return LoggedIn ? RefreshAsync(userAction: true) : Task.CompletedTask;
     }
 
     // ───────────── Claude 整理的工作日誌 ─────────────

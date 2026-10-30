@@ -52,6 +52,11 @@ public partial class PanelWindow : Window
         };
         PreviewKeyDown += (_, e) =>
         {
+            if (HandlePinHotkey(e))
+            {
+                e.Handled = true;
+                return;
+            }
             if (e.Key != Key.Escape)
                 return;
             if (StartPopup.IsOpen)
@@ -253,8 +258,10 @@ public partial class PanelWindow : Window
         UserText.Text = _engine.User?.DisplayName ?? "Hayaku";
         StatusText.Text = WorkMath.Phase(_engine.Schedule, now, _engine.State.ClockedOut).Text;
 
+        RenderPins();
         RenderTimer(now);
         RenderTasks();
+        RenderReviews();
         RenderToday(now);
         RenderTodayExtras();
         RenderNotifications();
@@ -358,6 +365,7 @@ public partial class PanelWindow : Window
             vm.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, vm.Key, today, now));
         foreach (var vm in _paused)
             vm.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, vm.Key, today, now));
+        UpdatePinElapsed(now);
     }
 
     void Tab_Checked(object sender, RoutedEventArgs e)
@@ -409,9 +417,12 @@ public partial class PanelWindow : Window
     void FilterStart()
     {
         var q = StartBox.Text.Trim();
+        // 釘選的任務排在最前面
+        var pinned = _engine.Pins.Where(p => p.CanTime).Select(p => new PickItem(p.Key, p.Title, $"📌 {p.Project} · {p.Status}")).ToList();
+        var candidates = pinned.Concat(_allTasks.Where(t => !pinned.Any(p => string.Equals(p.Key, t.Key, StringComparison.OrdinalIgnoreCase)))).ToList();
         var items = (q.Length == 0
-                ? _allTasks
-                : _allTasks.Where(t => t.Key.Contains(q, StringComparison.OrdinalIgnoreCase)
+                ? candidates
+                : candidates.Where(t => t.Key.Contains(q, StringComparison.OrdinalIgnoreCase)
                                        || t.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
                                        || t.Detail.Contains(q, StringComparison.OrdinalIgnoreCase)))
             .Take(12)

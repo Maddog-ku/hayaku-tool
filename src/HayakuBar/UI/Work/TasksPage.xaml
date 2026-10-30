@@ -85,34 +85,6 @@
             </Grid>
         </DataTemplate>
 
-        <DataTemplate x:Key="TaskRow">
-            <Grid Margin="0,1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="28" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Button Content="{Binding TimerGlyph}" ToolTip="{Binding TimerTip}" Tag="{Binding}" Click="RowTimer_Click"
-                        Style="{StaticResource IconButton}" Foreground="{Binding TimerBrush}" FontSize="10"
-                        VerticalAlignment="Top" Margin="-4,1,0,0" />
-                <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                    <TextBlock TextTrimming="CharacterEllipsis">
-                        <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
-                        <Run Text="{Binding Title, Mode=OneWay}" />
-                    </TextBlock>
-                    <TextBlock Text="{Binding Context}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
-                               TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
-                </StackPanel>
-                <StackPanel Grid.Column="2" HorizontalAlignment="Right">
-                    <Border Style="{StaticResource Pill}" HorizontalAlignment="Right" Visibility="{Binding StatusVisibility}">
-                        <TextBlock Text="{Binding Status}" FontSize="11" />
-                    </Border>
-                    <TextBlock Text="{Binding DueText}" Foreground="{Binding DueBrush}" FontSize="11" HorizontalAlignment="Right"
-                               Margin="0,3,0,0" />
-                </StackPanel>
-            </Grid>
-        </DataTemplate>
-
         <DataTemplate x:Key="ChildRow">
             <Border Background="Transparent" Cursor="Hand" Padding="0,3" Tag="{Binding Key}" MouseLeftButtonUp="Child_Click">
                 <TextBlock TextTrimming="CharacterEllipsis">
@@ -164,33 +136,44 @@
             <Border x:Name="ListCard" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                     CornerRadius="8">
                 <DockPanel>
-                <!-- 狀態篩選與排序 -->
-                <Grid DockPanel.Dock="Top" Margin="10,8,8,2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <ComboBox x:Name="StatusFilterBox" Width="170" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,4"
-                              SelectionChanged="StatusFilterBox_SelectionChanged" ToolTip="只看某個狀態" />
-                    <ComboBox x:Name="ProjectBox" Grid.Column="1" Width="190" VerticalAlignment="Top" Margin="8,0,0,4"
-                              SelectionChanged="ProjectBox_SelectionChanged" ToolTip="只看某個專案" />
-                    <Border Grid.Column="2" Style="{StaticResource SegmentTrack}" VerticalAlignment="Top" Margin="8,0,0,4" Padding="2">
-                        <StackPanel Orientation="Horizontal">
-                            <RadioButton x:Name="ListViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="清單"
-                                         Checked="View_Checked" ToolTip="一般清單" />
-                            <RadioButton x:Name="TreeViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="樹狀"
-                                         Checked="View_Checked" ToolTip="依專案分組，照上下層排成樹" />
-                            <RadioButton x:Name="KanbanViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="看板"
-                                         Checked="View_Checked" ToolTip="待處理、進行中、已完成三欄" />
-                        </StackPanel>
-                    </Border>
-                    <ComboBox x:Name="SortBox" Grid.Column="3" Width="150" VerticalAlignment="Top" Margin="8,0,0,4"
-                              SelectionChanged="SortBox_SelectionChanged" ToolTip="排序方式" />
-                </Grid>
+                <!-- 狀態、專案篩選，顯示方式與排序；有套用條件的控制項會亮起來 -->
+                <DockPanel DockPanel.Dock="Top" Margin="10,8,8,2">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Border Style="{StaticResource SegmentTrack}" VerticalAlignment="Top" Margin="8,0,0,4" Padding="2">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="ListViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="清單"
+                                             Checked="View_Checked" ToolTip="一般清單（可以設定欄位）" />
+                                <RadioButton x:Name="TreeViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="樹狀"
+                                             Checked="View_Checked" ToolTip="依專案分組，照上下層排成樹" />
+                                <RadioButton x:Name="KanbanViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="看板"
+                                             Checked="View_Checked" ToolTip="待處理、進行中、已完成三欄" />
+                            </StackPanel>
+                        </Border>
+                        <ComboBox x:Name="SortBox" Width="150" VerticalAlignment="Top" Margin="8,0,0,4"
+                                  SelectionChanged="SortBox_SelectionChanged" ToolTip="排序方式" />
+                    </StackPanel>
+                    <WrapPanel>
+                        <Button x:Name="StatusFilterButton" Style="{StaticResource FlatButton}" Padding="10,4" Margin="0,0,8,4"
+                                Click="StatusFilter_Click" ToolTip="狀態類別與各專案的狀態可以混著選" />
+                        <ComboBox x:Name="ProjectBox" Width="200" VerticalAlignment="Top" Margin="0,0,8,4"
+                                  SelectionChanged="ProjectBox_SelectionChanged" ToolTip="只看某個專案" />
+                        <CheckBox x:Name="LeafOnlyBox" Content="只顯示沒有子任務的" VerticalAlignment="Center" Margin="0,0,10,4"
+                                  Click="LeafOnly_Click" ToolTip="上層任務不列出來，只看真正要做的事" />
+                        <CheckBox x:Name="HideDoneBox" Content="不顯示完成及不處理" VerticalAlignment="Center" Margin="0,0,10,4"
+                                  Click="HideDone_Click" ToolTip="看板不顯示完成、已取消類（例如「不處理」）的任務" />
+                        <Button x:Name="ColumnsButton" Content="▥ 欄位" Style="{StaticResource FlatButton}" Padding="10,4" Margin="0,0,8,4"
+                                Click="Columns_Click" ToolTip="設定清單要顯示哪些欄位、順序與寬度" />
+                        <Button x:Name="CollapseAllButton" Style="{StaticResource FlatButton}" Padding="10,4" Margin="0,0,8,4"
+                                Click="CollapseAll_Click" />
+                    </WrapPanel>
+                </DockPanel>
+                <!-- 清單的欄位標題：拖右邊的線調整寬度 -->
+                <Border x:Name="ColumnHeader" DockPanel.Dock="Top" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1"
+                        Margin="8,4,8,0" Padding="4,0,4,4">
+                    <Grid x:Name="ColumnHeaderGrid" />
+                </Border>
                 <Grid>
-                    <ListBox x:Name="TaskList" ItemTemplate="{StaticResource TaskRow}" BorderThickness="0" Background="Transparent"
+                    <ListBox x:Name="TaskList" BorderThickness="0" Background="Transparent"
                              PreviewMouseLeftButtonUp="TaskList_Click" KeyDown="TaskList_KeyDown" Padding="4"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" />
                     <ListBox x:Name="TreeList" BorderThickness="0" Background="Transparent" Padding="4" Visibility="Collapsed"
@@ -202,8 +185,8 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="12" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition x:Name="DoneGapColumn" Width="12" />
+                            <ColumnDefinition x:Name="DoneColumnDef" Width="*" />
                         </Grid.ColumnDefinitions>
                         <DockPanel>
                             <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="2,0,4,5"
@@ -284,6 +267,10 @@
                                             Click="Remind_Click" />
                                     <Button Content="＋ 子任務" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
                                             Click="NewChild_Click" />
+                                    <Button x:Name="PinButton" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
+                                            Click="Pin_Click" />
+                                    <Button Content="⇅ 移動…" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
+                                            Click="Move_Click" ToolTip="在同一個專案裡搬到別的任務底下或最上層" />
                                     <Button Content="在網頁開啟 ↗" Style="{StaticResource FlatButton}" Padding="12,5" Margin="0,0,6,6"
                                             Click="OpenWeb_Click" />
                                 </WrapPanel>
@@ -296,6 +283,7 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -336,11 +324,22 @@
                                         <TextBlock Text="執行者" Style="{StaticResource FieldLabel}" />
                                         <TextBlock x:Name="AssigneesText" TextWrapping="Wrap" Margin="0,2,0,0" />
                                     </StackPanel>
+                                    <CheckBox x:Name="CategoryBox" Grid.Row="4" Grid.ColumnSpan="3" Content="當作分類（只用來分組）" Margin="0,0,0,12"
+                                              Click="Category_Click"
+                                              ToolTip="不算未指派、不算逾期、不進任何人的我的任務、不能計時；日期與工時自動加總子任務。只有管理員、編輯者能設" />
                                 </Grid>
 
                                 <StackPanel x:Name="ChildrenSection">
                                     <TextBlock Text="子任務" Style="{StaticResource GroupLabel}" Margin="0,6,0,4" />
                                     <ItemsControl x:Name="ChildrenList" ItemTemplate="{StaticResource ChildRow}" />
+                                    <!-- 子任務的工時：平常收起，展開才讀，依子任務列出每一段 -->
+                                    <Expander x:Name="ChildHoursExpander" Margin="0,8,0,0" Expanded="ChildHours_Expanded"
+                                              Foreground="{DynamicResource TextBrush}">
+                                        <Expander.Header>
+                                            <TextBlock x:Name="ChildHoursHeader" Text="子任務的工時" FontWeight="SemiBold" />
+                                        </Expander.Header>
+                                        <StackPanel x:Name="ChildHoursPanel" Margin="20,6,0,0" />
+                                    </Expander>
                                 </StackPanel>
 
                                 <StackPanel x:Name="NoteSection">
@@ -387,7 +386,7 @@
                                           SelectionChanged="NewProject_SelectionChanged" />
                                 <TextBox x:Name="TreeFilter" Grid.Column="2" Style="{StaticResource HintBox}" Tag="🔍 篩選任務編號或名稱"
                                          Margin="12,0,12,0" TextChanged="TreeFilter_TextChanged" />
-                                <CheckBox x:Name="ShowDoneBox" Grid.Column="3" Content="顯示已完成" VerticalAlignment="Center"
+                                <CheckBox x:Name="TreeHideDoneBox" Grid.Column="3" Content="不顯示完成及不處理" VerticalAlignment="Center"
                                           Click="ShowDone_Click" />
                             </Grid>
 

@@ -97,6 +97,10 @@ public sealed partial class TimerEngine
             _notificationsFetched = now;
             Notifications = await Try(() => _api.ListNotificationsAsync(ct), Notifications, "通知");
         }
+        // 管理員、編輯者才抓待我審核的筆數：每 10 分鐘，或收到「有新的變更申請」通知時
+        var newRequest = Notifications.Any(n => n.Type == "CHANGE_REQUESTED" && n.Unread && n.CreatedAt.LocalDateTime > _reviewsFetched);
+        if (CanReview && (newRequest || now - _reviewsFetched >= ReviewsInterval))
+            await RefreshReviewsCoreAsync(ct);
         if (!background && now - _panelDataFetched >= PanelDataInterval)
         {
             _panelDataFetched = now;

@@ -60,8 +60,10 @@ public partial class DateRangePicker : UserControl
 
     void UpdateText()
     {
-        Show(StartText, _start, _single ? "選擇日期" : "開始日期");
-        Show(EndText, _end, "結束日期");
+        // 只填了一邊時，另一邊顯示「未指定」（不是還沒選，是刻意空著）
+        var oneSided = !_single && (_start is null) != (_end is null);
+        Show(StartText, _start, _single ? "選擇日期" : oneSided ? "未指定" : "開始日期");
+        Show(EndText, _end, oneSided ? "未指定" : "結束日期");
         Tilde.Visibility = EndText.Visibility = _single ? Visibility.Collapsed : Visibility.Visible;
     }
 

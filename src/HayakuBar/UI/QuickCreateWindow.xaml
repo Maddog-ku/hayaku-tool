@@ -30,7 +30,7 @@
             <ComboBox x:Name="ProjectBox" Grid.Column="1" DisplayMemberPath="Name" SelectionChanged="ProjectBox_SelectionChanged" />
             <TextBox x:Name="TreeFilter" Grid.Column="2" Style="{StaticResource HintBox}" Tag="🔍 篩選任務編號或名稱"
                      Margin="12,0,12,0" TextChanged="TreeFilter_TextChanged" />
-            <CheckBox x:Name="ShowDoneBox" Grid.Column="3" Content="顯示已完成" VerticalAlignment="Center" Click="ShowDone_Click" />
+            <CheckBox x:Name="HideDoneBox" Grid.Column="3" Content="不顯示完成及不處理" VerticalAlignment="Center" Click="ShowDone_Click" />
         </Grid>
 
         <Grid Grid.Row="2">

@@ -22,6 +22,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Ellipse Width="8" Height="8" Fill="{Binding DotBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" />
                     <TextBlock Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"
@@ -42,7 +43,9 @@
                                VerticalAlignment="Center" FontFamily="{StaticResource MonoFont}" />
                     <TextBox Grid.Column="6" Text="{Binding Note, UpdateSourceTrigger=LostFocus}" KeyDown="CommitOnEnter"
                              ToolTip="備註" Margin="0,0,8,0" />
-                    <Button Grid.Column="7" Content="刪除" Style="{StaticResource IconButton}" Tag="{Binding}"
+                    <Button Grid.Column="7" Content="⇆" Style="{StaticResource IconButton}" Tag="{Binding}" FontSize="13"
+                            Click="Move_Click" ToolTip="{Binding MoveTip}" IsEnabled="{Binding CanMove}" Margin="0,0,2,0" />
+                    <Button Grid.Column="8" Content="刪除" Style="{StaticResource IconButton}" Tag="{Binding}"
                             Click="Delete_Click" ToolTip="刪除這段紀錄" />
                 </Grid>
             </Border>
@@ -95,6 +98,11 @@
                 </Grid>
                 <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" Margin="0,8,0,0"
                            Visibility="Collapsed" />
+                <!-- 移動工時後的復原 -->
+                <StackPanel x:Name="UndoPanel" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="UndoText" VerticalAlignment="Center" Foreground="{DynamicResource RunBrush}" />
+                    <Button x:Name="UndoButton" Content="復原" Style="{StaticResource LinkButton}" Margin="10,0,0,0" Click="Undo_Click" />
+                </StackPanel>
             </StackPanel>
         </Border>
 

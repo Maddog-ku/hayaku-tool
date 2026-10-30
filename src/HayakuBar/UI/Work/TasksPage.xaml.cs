@@ -11,17 +11,50 @@ using HayakuBar.Mcp;
 
 namespace HayakuBar.UI.Work;
 
-public sealed class TaskListRowVm
+public sealed class TaskListRowVm : System.ComponentModel.INotifyPropertyChanged
 {
+    string _elapsed = "";
+    object? _projectBadge;
+
     public required string Key { get; init; }
     public required string Title { get; init; }
     public string Context { get; init; } = "";
     public string Status { get; init; } = "";
+    public DateOnly? PlannedStart { get; init; }
     public DateOnly? PlannedEnd { get; init; }
     public bool Timing { get; init; }
     public bool Done { get; init; }
+    public string Priority { get; init; } = "";
+
+    /// <summary>專案欄的文字（名稱，或設定成只顯示代碼）；Project 是用來找圖示的專案。</summary>
+    public string ProjectText { get; init; } = "";
+    public ProjectInfo? Project { get; init; }
 
     public Visibility StatusVisibility => Status.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ContextVisibility => Context.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string PriorityText => Priority is "" or "無" ? "" : Priority;
+    public string StartText => PlannedStart is { } s ? Inputs.ShortDate(s) : PlannedEnd is not null ? "未指定" : "";
+    public Brush StartBrush => Brushes2.Get(PlannedStart is null ? "HintBrush" : "MutedBrush");
+
+    /// <summary>專案圖示＋文字；每列各自一份（同一個元素不能放在兩個地方）。</summary>
+    public object ProjectBadge => _projectBadge ??= ProjectText.Length == 0
+        ? new TextBlock()
+        : ProjectIcons.Badge(Project, ProjectText, 16);
+
+    /// <summary>今天計時（計時中的每秒更新）。</summary>
+    public string Elapsed
+    {
+        get => _elapsed;
+        set
+        {
+            if (_elapsed == value)
+                return;
+            _elapsed = value;
+            PropertyChanged?.Invoke(this, new(nameof(Elapsed)));
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     public string TimerGlyph => Timing ? "❚❚" : "▶";
     public string TimerTip => Timing ? "暫停計時" : "開始計時";
     public Brush TimerBrush => Brushes2.Get(Timing ? "RunBrush" : "MutedBrush");
@@ -31,7 +64,7 @@ public sealed class TaskListRowVm
         get
         {
             if (PlannedEnd is not { } end)
-                return "";
+                return PlannedStart is not null ? "結束未指定" : "";
             var today = DateOnly.FromDateTime(DateTime.Today);
             var days = end.DayNumber - today.DayNumber;
             return Done ? Inputs.ShortDate(end) :
@@ -71,7 +104,7 @@ public partial class TasksPage : UserControl, IWorkPage
     List<KanbanCardVm> _runningCards = [];
     List<MyTreeProjectVm> _treeRoots = [];
     readonly HashSet<string> _collapsed = new(StringComparer.OrdinalIgnoreCase); // 樹狀檢視裡收合的專案（p:名稱）與任務
-    string? _statusFilter; // null：全部狀態
+    readonly StatusFilter _statusFilter = new(); // 都沒選：全部狀態
     bool _buildingFilters;
     List<SearchHit> _searchHits = [];
     TaskDetail? _detail;
@@ -117,6 +150,10 @@ public partial class TasksPage : UserControl, IWorkPage
         _view = _engine.Config.TaskView is "tree" or "kanban" ? _engine.Config.TaskView : "list";
         (_view switch { "tree" => TreeViewButton, "kanban" => KanbanViewButton, _ => ListViewButton }).IsChecked = true;
         _project = string.IsNullOrEmpty(_engine.Config.TaskProject) ? null : _engine.Config.TaskProject;
+        LeafOnlyBox.IsChecked = _engine.Config.TaskLeafOnly;
+        HideDoneBox.IsChecked = _engine.Config.TaskHideDone;
+        TreeHideDoneBox.IsChecked = _engine.Config.TreeHideDone;
+        InitColumns();
         _kanbanTick.Tick += (_, _) => UpdateElapsed();
         IsVisibleChanged += (_, _) => UpdateKanbanTick();
         _buildingFilters = false;
@@ -139,7 +176,7 @@ public partial class TasksPage : UserControl, IWorkPage
             RenderList(keepSelection: true);
     }
 
-    /// <summary>arg：任務編號（直接打開那個任務）、"new"（新增）、"new:F2P-5"（新增 F2P-5 的子任務）、或分頁名稱（overdue…）。</summary>
+    /// <summary>arg：任務編號（直接打開那個任務）、"new"（新增）、"new:F2P-5"（新增 F2P-5 的子任務）、分頁名稱（overdue…）或顯示方式（list、tree、kanban）。</summary>
     public async Task ActivateAsync(object? arg)
     {
         RenderList(keepSelection: true);
@@ -150,6 +187,9 @@ public partial class TasksPage : UserControl, IWorkPage
                 break;
             case string s when s.StartsWith("new:", StringComparison.OrdinalIgnoreCase) && KeyFinder.Parse(s[4..]) is { } parent:
                 ShowCreate(parent);
+                break;
+            case "list" or "tree" or "kanban":
+                (arg switch { "tree" => TreeViewButton, "kanban" => KanbanViewButton, _ => ListViewButton }).IsChecked = true;
                 break;
             case string tab when _tabs.ContainsKey(tab):
                 _tabs[tab].IsChecked = true;
@@ -165,9 +205,10 @@ public partial class TasksPage : UserControl, IWorkPage
     void RenderList(bool keepSelection = false)
     {
         var running = _engine.RunningKeys();
+        var leafOnly = LeafOnlyBox.IsChecked == true;
         foreach (var (tab, label) in TimerEngine.TaskViewTabs)
         {
-            var count = _engine.TaskList(tab).Count;
+            var count = _engine.TaskList(tab).Count(t => !leafOnly || t.IsLeaf);
             _tabs[tab].Content = count > 0 ? $"{label} {count}" : label;
         }
         List<TaskListRowVm> rows;
@@ -187,33 +228,43 @@ public partial class TasksPage : UserControl, IWorkPage
             {
                 Key = h.Key,
                 Title = h.Title,
-                Context = h.Project,
+                ProjectText = ProjectText(h.Project, h.Key),
+                Project = _engine.ProjectOf(h.Project) ?? _engine.ProjectOf(KeyFinder.ProjectOf(h.Key)),
                 Timing = running.Contains(h.Key),
             }).ToList();
             ListMessage.Text = rows.Count == 0 ? "找不到符合的任務" : "";
         }
         else
         {
-            // 看板看全部（待處理＋進行中＋已完成），其他照分頁；再套用專案篩選
+            // 看板看全部（待處理＋進行中＋已完成），其他照分頁；再套用專案、狀態、只看沒有子任務的篩選
+            var hideDone = HideDoneBox.IsChecked == true;
             IReadOnlyList<TaskSummary> all = Kanban_On
-                ? _engine.TaskLists.Values.SelectMany(l => l).Concat(_doneTasks).DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList()
+                ? _engine.TaskLists.Values.SelectMany(l => l).Concat(hideDone ? [] : _doneTasks)
+                    .DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList()
                 : _engine.TaskList(_tab);
             RenderProjectBox(_engine.TaskLists.Values.SelectMany(l => l).Concat(_doneTasks));
-            var tasks = all.Where(t => _project is null || t.Project == _project).ToList();
-            RenderStatusFilters(TaskOrder.Statuses(tasks), tasks.Count);
-            shown = TaskOrder.Sort(tasks.Where(t => _statusFilter is null || t.Status == _statusFilter), sort, running);
+            var tasks = all.Where(t => (_project is null || t.Project == _project) && (!leafOnly || t.IsLeaf)).ToList();
+            RenderStatusFilters(tasks);
+            shown = TaskOrder.Sort(tasks.Where(_statusFilter.Matches), sort, running, t => _engine.StatusRank(t.Key, t.Status));
+            if (sort == "status")
+                _ = LoadStatusOrderAsync(shown.Select(t => t.Key));
+            var projectColumn = ColumnVisible("project");
             rows = shown.Select(t => new TaskListRowVm
             {
                 Key = t.Key,
                 Title = t.Title,
-                Context = t.Path.Length > 0 ? $"{t.Project} › {t.Path}" : t.Project,
+                Context = _view == "list" && projectColumn ? t.Path : t.Path.Length > 0 ? $"{t.Project} › {t.Path}" : t.Project,
                 Status = t.Status,
+                PlannedStart = t.PlannedStart,
                 PlannedEnd = t.PlannedEnd,
+                Priority = t.Priority,
+                ProjectText = ProjectText(t.Project, t.Key),
+                Project = _engine.ProjectOf(t.Project) ?? _engine.ProjectOf(KeyFinder.ProjectOf(t.Key)),
                 Timing = running.Contains(t.Key) || t.Timing,
                 Done = t.StatusCategory is "DONE" or "CANCELLED",
             }).ToList();
-            ListMessage.Text = rows.Count > 0 ? "" : _engine.TaskLists.Count == 0 ? "讀取中…" : _statusFilter is not null
-                ? $"沒有「{_statusFilter}」的任務" : _tab switch
+            ListMessage.Text = rows.Count > 0 ? "" : _engine.TaskLists.Count == 0 ? "讀取中…" : !_statusFilter.IsEmpty
+                ? "沒有符合狀態篩選的任務" : leafOnly && all.Count > 0 ? "沒有「沒有子任務」的任務（取消勾選看上層任務）" : _tab switch
             {
                 "overdue" => "沒有逾期的任務 🎉",
                 "should_start" => "沒有該開始還沒開始的任務",
@@ -221,6 +272,8 @@ public partial class TasksPage : UserControl, IWorkPage
             };
         }
         var selected = (TaskList.SelectedItem as TaskListRowVm)?.Key ?? _detail?.Key;
+        _listRows = rows;
+        UpdateRowElapsed(DateTime.Now);
         TaskList.ItemsSource = rows;
         if (keepSelection && selected is not null)
         {
@@ -233,6 +286,10 @@ public partial class TasksPage : UserControl, IWorkPage
         var tree = _view == "tree" && _tab != SearchTab;
         var kanban = Kanban_On;
         TaskList.Visibility = tree || kanban ? Visibility.Collapsed : Visibility.Visible;
+        ColumnHeader.Visibility = TaskList.Visibility;
+        ColumnsButton.Visibility = TaskList.Visibility;
+        CollapseAllButton.Visibility = tree ? Visibility.Visible : Visibility.Collapsed;
+        HideDoneBox.Visibility = kanban ? Visibility.Visible : Visibility.Collapsed;
         TreeList.Visibility = tree ? Visibility.Visible : Visibility.Collapsed;
         Kanban.Visibility = kanban ? Visibility.Visible : Visibility.Collapsed;
         TabTrack.Visibility = kanban ? Visibility.Collapsed : Visibility.Visible; // 看板不分分頁
@@ -247,7 +304,31 @@ public partial class TasksPage : UserControl, IWorkPage
             RenderKanban(shown, rows);
         else
             TodoColumn.ItemsSource = DoingColumn.ItemsSource = DoneColumn.ItemsSource = null;
+        UpdateFilterHighlights();
         UpdateKanbanTick();
+    }
+
+    /// <summary>專案欄的文字：名稱，或設定成只顯示代碼。</summary>
+    string ProjectText(string projectName, string key) =>
+        _engine.Config.TaskProjectCodeOnly ? KeyFinder.ProjectOf(key) : projectName;
+
+    bool _loadingStatusOrder;
+
+    /// <summary>依狀態排序要用專案設定的狀態順序：還沒讀過的專案讀完再重排一次。</summary>
+    async Task LoadStatusOrderAsync(IEnumerable<string> keys)
+    {
+        if (_loadingStatusOrder)
+            return;
+        _loadingStatusOrder = true;
+        try
+        {
+            if (await _engine.LoadProjectsOfAsync(keys.ToList()))
+                RenderList(keepSelection: true);
+        }
+        finally
+        {
+            _loadingStatusOrder = false;
+        }
     }
 
     /// <summary>看板模式（搜尋時除外）。</summary>
@@ -266,6 +347,9 @@ public partial class TasksPage : UserControl, IWorkPage
         var todo = cards.Where(c => c.Task.StatusCategory is not ("IN_PROGRESS" or "DONE" or "CANCELLED")).ToList();
         var doing = Column("IN_PROGRESS");
         var done = Column("DONE", "CANCELLED");
+        var hideDone = HideDoneBox.IsChecked == true;
+        DoneGapColumn.Width = new GridLength(hideDone ? 0 : 12);
+        DoneColumnDef.Width = hideDone ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
         TodoColumn.ItemsSource = todo;
         DoingColumn.ItemsSource = doing;
         DoneColumn.ItemsSource = done;
@@ -277,7 +361,7 @@ public partial class TasksPage : UserControl, IWorkPage
             c.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, c.Key, today, now));
         if (shown.Count == 0)
             ListMessage.Text = _project is not null ? $"「{_project}」沒有指派給你的任務" : ListMessage.Text;
-        if (now - _doneFetched > TimeSpan.FromMinutes(5))
+        if (!hideDone && now - _doneFetched > TimeSpan.FromMinutes(5))
             _ = LoadDoneAsync();
     }
 
@@ -303,9 +387,11 @@ public partial class TasksPage : UserControl, IWorkPage
         RenderList(keepSelection: true);
     }
 
+    /// <summary>看板的計時中卡片、清單的「今天計時」欄：有計時中的才每秒更新。</summary>
     void UpdateKanbanTick()
     {
-        if (IsVisible && Kanban_On && _runningCards.Count > 0)
+        var listTicking = TaskList.Visibility == Visibility.Visible && ColumnVisible("elapsed") && _listRows.Any(r => r.Timing);
+        if (IsVisible && (Kanban_On && _runningCards.Count > 0 || listTicking))
             _kanbanTick.Start();
         else
             _kanbanTick.Stop();
@@ -316,6 +402,20 @@ public partial class TasksPage : UserControl, IWorkPage
         var now = DateTime.Now;
         foreach (var c in _runningCards)
             c.Elapsed = WorkMath.Clock(WorkMath.TaskMinutes(_engine.Entries, c.Key, now.Date, now));
+        UpdateRowElapsed(now);
+    }
+
+    List<TaskListRowVm> _listRows = [];
+
+    void UpdateRowElapsed(DateTime now)
+    {
+        if (!ColumnVisible("elapsed"))
+            return;
+        foreach (var r in _listRows)
+        {
+            var minutes = WorkMath.TaskMinutes(_engine.Entries, r.Key, now.Date, now);
+            r.Elapsed = minutes > 0 ? WorkMath.Clock(minutes) : "";
+        }
     }
 
     async void KanbanCard_Click(object sender, MouseButtonEventArgs e)
@@ -327,8 +427,11 @@ public partial class TasksPage : UserControl, IWorkPage
     // ───────────── 專案篩選 ─────────────
 
     List<string> _projectNames = [];
+    bool _projectIconsShown;
 
-    /// <summary>專案下拉：「全部專案」＋指派給我的任務出現過的專案；選的專案不見了就回到全部。</summary>
+    /// <summary>
+    /// 專案下拉：「全部專案」＋指派給我的任務出現過的專案（圖示＋名稱）；選的專案不見了就回到全部。
+    /// </summary>
     void RenderProjectBox(IEnumerable<TaskSummary> tasks)
     {
         var names = tasks.Select(t => t.Project).Where(p => p.Length > 0).Distinct()
@@ -336,13 +439,18 @@ public partial class TasksPage : UserControl, IWorkPage
         if (_project is not null && !names.Contains(_project) && _engine.TaskLists.Count > 0)
             _project = null;
         var index = _project is null ? 0 : names.IndexOf(_project) + 1;
-        if (names.SequenceEqual(_projectNames) && ProjectBox.Items.Count > 0 && ProjectBox.SelectedIndex == index)
+        var iconsReady = _engine.Projects.Count > 0;
+        var same = names.SequenceEqual(_projectNames) && iconsReady == _projectIconsShown && ProjectBox.Items.Count > 0;
+        if (same && ProjectBox.SelectedIndex == index)
             return;
         _buildingFilters = true;
-        if (!names.SequenceEqual(_projectNames) || ProjectBox.Items.Count == 0)
+        if (!same)
         {
             _projectNames = names;
-            ProjectBox.ItemsSource = new[] { "全部專案" }.Concat(names).ToList();
+            _projectIconsShown = iconsReady;
+            var items = new List<object> { new ComboBoxItem { Content = "全部專案", Tag = null } };
+            items.AddRange(names.Select(n => new ComboBoxItem { Content = ProjectIcons.Badge(_engine.ProjectOf(n), n, 16), Tag = n }));
+            ProjectBox.ItemsSource = items;
         }
         ProjectBox.SelectedIndex = index;
         _buildingFilters = false;
@@ -350,12 +458,50 @@ public partial class TasksPage : UserControl, IWorkPage
 
     void ProjectBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_buildingFilters || ProjectBox.SelectedIndex < 0)
+        if (_buildingFilters || ProjectBox.SelectedItem is not ComboBoxItem item)
             return;
-        _project = ProjectBox.SelectedIndex == 0 ? null : ProjectBox.SelectedItem as string;
+        _project = item.Tag as string;
         _engine.Config.TaskProject = _project ?? "";
         _engine.Config.Save();
         RenderList(keepSelection: true);
+    }
+
+    void LeafOnly_Click(object sender, RoutedEventArgs e)
+    {
+        _engine.Config.TaskLeafOnly = LeafOnlyBox.IsChecked == true;
+        _engine.Config.Save();
+        RenderList(keepSelection: true);
+    }
+
+    void HideDone_Click(object sender, RoutedEventArgs e)
+    {
+        _engine.Config.TaskHideDone = HideDoneBox.IsChecked == true;
+        _engine.Config.Save();
+        RenderList(keepSelection: true);
+    }
+
+    /// <summary>有套用條件的篩選控制項亮起來，一眼看得出清單被篩過；多選寫出選了幾個。</summary>
+    void UpdateFilterHighlights()
+    {
+        Highlight(StatusFilterButton, !_statusFilter.IsEmpty);
+        Highlight(ProjectBox, _project is not null);
+        LeafOnlyBox.Foreground = Brushes2.Get(LeafOnlyBox.IsChecked == true ? "AccentBrush" : "TextBrush");
+        HideDoneBox.Foreground = Brushes2.Get(HideDoneBox.IsChecked == true ? "AccentBrush" : "TextBrush");
+        StatusFilterButton.Content = _statusFilter.IsEmpty ? "狀態：全部 ▾" : $"狀態 · 選了 {_statusFilter.Count} 個 ▾";
+    }
+
+    static void Highlight(Control control, bool active)
+    {
+        if (active)
+        {
+            control.BorderBrush = Brushes2.Get("AccentBrush");
+            control.Background = Brushes2.Get("SelectedBrush");
+        }
+        else
+        {
+            control.ClearValue(BorderBrushProperty);
+            control.ClearValue(BackgroundProperty);
+        }
     }
 
     // ───────────── 樹狀檢視 ─────────────
@@ -374,6 +520,7 @@ public partial class TasksPage : UserControl, IWorkPage
             .ToList();
         TreeList.ItemsSource ??= _treeRows;
         _treeRows.Clear();
+        CollapseAllButton.Content = _treeRoots.Any(p => p.IsExpanded) ? "⊟ 全部收合" : "⊞ 全部展開";
         foreach (var project in _treeRoots)
         {
             _treeRows.Add(project);
@@ -420,6 +567,32 @@ public partial class TasksPage : UserControl, IWorkPage
         }
         while (index + 1 < _treeRows.Count && _treeRows[index + 1] is MyTreeTaskVm next && next.Depth > level)
             _treeRows.RemoveAt(index + 1);
+    }
+
+    /// <summary>全部收合（有展開的就全部收起來）或全部展開；收合狀態記著，別人改了任務重畫也不會又整個展開。</summary>
+    void CollapseAll_Click(object sender, RoutedEventArgs e)
+    {
+        var anyExpanded = _treeRoots.Any(p => p.IsExpanded);
+        if (anyExpanded)
+        {
+            foreach (var p in _treeRoots)
+            {
+                _collapsed.Add("p:" + p.Name);
+                CollapseTasks(p.Children);
+            }
+        }
+        else
+            _collapsed.Clear();
+        RenderList(keepSelection: true);
+    }
+
+    void CollapseTasks(IEnumerable<MyTreeTaskVm> nodes)
+    {
+        foreach (var n in nodes.Where(n => n.Children.Count > 0))
+        {
+            _collapsed.Add(n.Key);
+            CollapseTasks(n.Children);
+        }
     }
 
     void TreeToggle_Click(object sender, RoutedEventArgs e)
@@ -475,33 +648,68 @@ public partial class TasksPage : UserControl, IWorkPage
         RenderList(keepSelection: true);
     }
 
+    List<(string Category, string Label, int Count)> _categoryOptions = [];
+    List<(string Status, int Count)> _statusOptions = [];
+    int _statusTotal;
+
     /// <summary>
-    /// 狀態篩選的小標籤：「全部 27」加上這個分頁裡出現的每個狀態與數量；點了只顯示那個狀態。
-    /// 選的狀態在新清單裡不見了（換分頁、任務改狀態）就回到全部。搜尋結果沒有狀態，不顯示。
+    /// 狀態篩選的選項：這個分頁裡出現的狀態類別，加上各專案自己的狀態（處理中、待客戶回應…）與數量。
+    /// 選的項目在新清單裡不見了（換分頁、任務改狀態）就拿掉。搜尋結果沒有狀態，不顯示。
     /// </summary>
-    void RenderStatusFilters(List<(string Status, int Count)> statuses, int total = 0)
+    void RenderStatusFilters(List<TaskSummary> tasks)
     {
-        if (_statusFilter is not null && !statuses.Any(s => s.Status == _statusFilter))
-            _statusFilter = null;
-        StatusFilterBox.Visibility = statuses.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        _statusOptions = [null, .. statuses.Select(s => s.Status)];
-        var labels = new List<string> { $"全部狀態　{total}" };
-        labels.AddRange(statuses.Select(s => $"{s.Status}　{s.Count}"));
-        _buildingFilters = true;
-        if (StatusFilterBox.ItemsSource is not List<string> current || !current.SequenceEqual(labels))
-            StatusFilterBox.ItemsSource = labels;
-        StatusFilterBox.SelectedIndex = _statusOptions.IndexOf(_statusFilter);
-        _buildingFilters = false;
+        _categoryOptions = TaskOrder.Categories(tasks);
+        _statusOptions = TaskOrder.Statuses(tasks);
+        _statusTotal = tasks.Count;
+        _statusFilter.KeepOnly(_categoryOptions.Select(c => c.Category), _statusOptions.Select(s => s.Status));
+        StatusFilterButton.Visibility = tasks.Count > 0 || !_statusFilter.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    List<string?> _statusOptions = [null];
-
-    void StatusFilterBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>狀態篩選的選單：類別與各專案的狀態可以混著勾，勾了馬上套用、選單不關。</summary>
+    void StatusFilter_Click(object sender, RoutedEventArgs e)
     {
-        if (_buildingFilters || StatusFilterBox.SelectedIndex < 0 || StatusFilterBox.SelectedIndex >= _statusOptions.Count)
-            return;
-        _statusFilter = _statusOptions[StatusFilterBox.SelectedIndex];
-        RenderList(keepSelection: true);
+        var menu = new ContextMenu { PlacementTarget = StatusFilterButton, Placement = PlacementMode.Bottom };
+        MenuItem Check(string header, bool isChecked, Action<bool> toggled)
+        {
+            var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = isChecked, StaysOpenOnClick = true };
+            item.Click += (_, _) =>
+            {
+                toggled(item.IsChecked);
+                RenderList(keepSelection: true);
+            };
+            return item;
+        }
+        menu.Items.Add(new MenuItem { Header = $"狀態類別（共 {_statusTotal} 個任務）", IsEnabled = false });
+        foreach (var (category, label, count) in _categoryOptions)
+            menu.Items.Add(Check($"{label}　{count}", _statusFilter.Categories.Contains(category), on =>
+            {
+                if (on)
+                    _statusFilter.Categories.Add(category);
+                else
+                    _statusFilter.Categories.Remove(category);
+            }));
+        if (_statusOptions.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "各專案的狀態", IsEnabled = false });
+            foreach (var (status, count) in _statusOptions)
+                menu.Items.Add(Check($"{status}　{count}", _statusFilter.Statuses.Contains(status), on =>
+                {
+                    if (on)
+                        _statusFilter.Statuses.Add(status);
+                    else
+                        _statusFilter.Statuses.Remove(status);
+                }));
+        }
+        menu.Items.Add(new Separator());
+        var clear = new MenuItem { Header = "清除篩選（全部狀態）", IsEnabled = !_statusFilter.IsEmpty };
+        clear.Click += (_, _) =>
+        {
+            _statusFilter.Clear();
+            RenderList(keepSelection: true);
+        };
+        menu.Items.Add(clear);
+        menu.IsOpen = true;
     }
 
     void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -677,6 +885,14 @@ public partial class TasksPage : UserControl, IWorkPage
 
         ChildrenList.ItemsSource = d.Children.Select(c => new { Key = c.Key, Title = c.Title, Status = $"· {c.Status}" }).ToList();
         ChildrenSection.Visibility = d.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_childHoursFor != d.Key)
+        {
+            _childHoursFor = null;
+            ChildHoursExpander.IsExpanded = false;
+            ChildHoursPanel.Children.Clear();
+            ChildHoursHeader.Text = "子任務的工時";
+        }
+        CategoryBox.IsChecked = d.IsCategory;
         NoteText.Text = d.Note ?? "";
         NoteSection.Visibility = string.IsNullOrWhiteSpace(d.Note) ? Visibility.Collapsed : Visibility.Visible;
         RenderTimerButton();
@@ -696,6 +912,8 @@ public partial class TasksPage : UserControl, IWorkPage
             : $"{loggedText} 小時（未設預估）";
         LoggedText.Foreground = Brushes2.Get(d.EstimatedHours is { } e && logged > e ? "ErrorBrush" : "TextBrush");
         LoggedText.ToolTip = logged is { } exact ? $"已記錄 {WorkMath.HoursMinutes(exact * 60)}" : null;
+        if (d.IsCategory)
+            LoggedText.Text += "（加總子任務）";
     }
 
     /// <summary>伺服器的顯示文字（例「3.58 小時」）取出小時數；舊版回應沒有分鐘數時用。</summary>
@@ -712,7 +930,13 @@ public partial class TasksPage : UserControl, IWorkPage
         var running = _engine.RunningKeys().Contains(_detail.Key);
         TimerButton.Content = running ? "❚❚ 暫停計時" : "▶ 開始計時";
         TimerButton.Style = (Style)FindResource(running ? "FlatButton" : "PrimaryButton");
+        TimerButton.IsEnabled = running || !_detail.IsCategory;
+        TimerButton.ToolTip = _detail.IsCategory && !running ? "分類任務只用來分組，不能計時" : null;
         CompleteButton.IsEnabled = _detail.StatusCategory is not "DONE" and not "CANCELLED";
+        var pinned = _engine.IsPinned(_detail.Key);
+        PinButton.Content = pinned ? "📌 取消釘選" : "📌 釘選";
+        PinButton.ToolTip = pinned ? "從面板的托盤拿掉" : "釘到面板的托盤，一鍵切換正在做的任務";
+        PinButton.IsEnabled = pinned || !_detail.IsCategory;
     }
 
     async Task LoadChatAsync(string key, int version)
@@ -882,10 +1106,134 @@ public partial class TasksPage : UserControl, IWorkPage
         if (_detail is null)
             return;
         var key = _detail.Key;
+        bool? cascade = null;
+        var openChildren = _detail.Children.Count(c => !IsDoneStatus(c.Status));
+        if (openChildren > 0)
+        {
+            var answer = MessageBox.Show(Window.GetWindow(this)!,
+                $"{key} 還有 {openChildren} 個子任務沒完成。\n\n是：照專案的「任務狀態連動」設定（有開的話子任務一起完成）\n否：只完成 {key}，不帶動子任務與上層",
+                "停止並完成", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (answer == MessageBoxResult.Cancel)
+                return;
+            cascade = answer == MessageBoxResult.Yes ? null : false;
+        }
         CompleteButton.IsEnabled = false;
-        await _engine.CompleteTaskAsync(key);
+        await _engine.CompleteTaskAsync(key, cascade);
         Inputs.Show(DetailStatus, _engine.Error ?? "已停止並完成", error: _engine.Error is not null);
         await RefreshDetailQuietlyAsync(key);
+    }
+
+    /// <summary>子任務的狀態名稱是不是完成類（從專案的狀態清單查；查不到時用常見名稱判斷）。</summary>
+    bool IsDoneStatus(string status)
+    {
+        if (_detail is not null && _engine.TryGetCachedProject(KeyFinder.ProjectOf(_detail.Key)) is { } project
+            && project.Statuses.FirstOrDefault(s => s.Name == status) is { } option)
+            return option.Category is "DONE" or "CANCELLED";
+        return status is "完成" or "已完成" or "不處理" or "取消" or "已取消";
+    }
+
+    async void Pin_Click(object sender, RoutedEventArgs e)
+    {
+        if (_detail is null)
+            return;
+        var key = _detail.Key;
+        PinButton.IsEnabled = false;
+        if (_engine.IsPinned(key))
+            await _engine.UnpinTaskAsync(key);
+        else
+            await _engine.PinTaskAsync(key);
+        Inputs.Show(DetailStatus, _engine.Error ?? (_engine.IsPinned(key) ? "已釘到托盤（面板的計時分頁最上面）" : "已取消釘選"),
+            error: _engine.Error is not null);
+        RenderTimerButton();
+    }
+
+    async void Category_Click(object sender, RoutedEventArgs e)
+    {
+        if (_detail is null)
+            return;
+        await UpdateAsync(new() { ["isCategory"] = CategoryBox.IsChecked == true }, CategoryBox.IsChecked == true ? "成分類任務" : "成一般任務");
+    }
+
+    /// <summary>移動任務：同一個專案裡換上層或移到最上層（MCP 不能移到別的專案）。</summary>
+    async void Move_Click(object sender, RoutedEventArgs e)
+    {
+        if (_detail is null)
+            return;
+        var key = _detail.Key;
+        var picker = new MoveTaskWindow(_engine, key, _detail.Path.LastOrDefault().Key is { Length: > 0 } p ? p : null)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        if (picker.ShowDialog() != true)
+            return;
+        await _engine.MoveTaskAsync(key, picker.Parent);
+        Inputs.Show(DetailStatus, _engine.Error ?? (picker.Parent is null ? "已移到最上層" : $"已移到 {picker.Parent} 底下"),
+            error: _engine.Error is not null);
+        await RefreshDetailQuietlyAsync(key);
+    }
+
+    string? _childHoursFor;
+
+    /// <summary>展開「子任務的工時」才讀：每個直接子任務的計時段，依子任務列出，標題寫合計。</summary>
+    async void ChildHours_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (_detail is null || _childHoursFor == _detail.Key)
+            return;
+        var detail = _detail;
+        _childHoursFor = detail.Key;
+        ChildHoursPanel.Children.Clear();
+        ChildHoursPanel.Children.Add(new TextBlock { Text = "讀取中…", Foreground = Brushes2.Get("MutedBrush") });
+        var groups = new List<(string Key, string Title, List<TimeEntry> Entries)>();
+        try
+        {
+            foreach (var child in detail.Children.Take(30))
+                groups.Add((child.Key, child.Title, await _engine.Api.ListTaskEntriesAsync(child.Key, CancellationToken.None)));
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"讀取 {detail.Key} 子任務的工時失敗", ex);
+            ChildHoursPanel.Children.Clear();
+            ChildHoursPanel.Children.Add(new TextBlock { Text = $"讀取失敗：{ex.Message}", Foreground = Brushes2.Get("ErrorBrush"), TextWrapping = TextWrapping.Wrap });
+            _childHoursFor = null;
+            return;
+        }
+        if (_detail?.Key != detail.Key)
+            return;
+        var now = DateTime.Now;
+        double Minutes(TimeEntry t) => t.DurationMinutes ?? (t.StartedAt is { } s ? ((t.EndedAt ?? DateTimeOffset.Now) - s).TotalMinutes : 0);
+        var total = groups.Sum(g => g.Entries.Sum(Minutes));
+        ChildHoursHeader.Text = $"子任務的工時　合計 {WorkMath.HoursMinutes(total)}" + (detail.Children.Count > 30 ? "（前 30 個子任務）" : "");
+        ChildHoursPanel.Children.Clear();
+        foreach (var (key, title, entries) in groups.Where(g => g.Entries.Count > 0))
+        {
+            ChildHoursPanel.Children.Add(new TextBlock
+            {
+                Margin = new Thickness(0, 6, 0, 2),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Inlines =
+                {
+                    new System.Windows.Documents.Run(key) { FontWeight = FontWeights.SemiBold },
+                    new System.Windows.Documents.Run($" {title}"),
+                    new System.Windows.Documents.Run($"　{WorkMath.HoursMinutes(entries.Sum(Minutes))}") { Foreground = Brushes2.Get("MutedBrush") },
+                },
+            });
+            foreach (var t in entries.OrderByDescending(t => t.StartedAt))
+            {
+                var start = t.StartedAt?.ToLocalTime();
+                var end = t.EndedAt?.ToLocalTime();
+                ChildHoursPanel.Children.Add(new TextBlock
+                {
+                    Text = $"{start:M/d HH:mm}–{(t.Running ? "進行中" : end?.ToString("HH:mm"))}　{WorkMath.HoursMinutes(Minutes(t))}" +
+                           (t.User is { Length: > 0 } u ? $"　{u}" : "") + (t.Note is { Length: > 0 } n ? $"　{n}" : ""),
+                    Foreground = Brushes2.Get("MutedBrush"),
+                    FontSize = 12,
+                    Margin = new Thickness(12, 0, 0, 1),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+            }
+        }
+        if (groups.All(g => g.Entries.Count == 0))
+            ChildHoursPanel.Children.Add(new TextBlock { Text = "子任務都還沒有工時", Foreground = Brushes2.Get("MutedBrush") });
     }
 
     void Remind_Click(object sender, RoutedEventArgs e)
@@ -1032,7 +1380,7 @@ public partial class TasksPage : UserControl, IWorkPage
     void RenderTree(bool scrollToPicked = false)
     {
         var filter = TreeFilter.Text.Trim();
-        var roots = TaskTree.Build(_projectTasks, ShowDoneBox.IsChecked == true, filter);
+        var roots = TaskTree.Build(_projectTasks, TreeHideDoneBox.IsChecked != true, filter);
         var expandAll = filter.Length > 0 || _projectTasks.Count <= 150;
         var picked = _pickedParent is null ? new HashSet<string>() : AncestorsOf(_pickedParent);
         _treeNodes = roots.Select(r => TreeNodeVm.From(r, _pickedParent, expandAll, picked)).ToList();
@@ -1128,7 +1476,12 @@ public partial class TasksPage : UserControl, IWorkPage
             node.SetWidth(e.NewSize.Width);
     }
 
-    void ShowDone_Click(object sender, RoutedEventArgs e) => RenderTree();
+    void ShowDone_Click(object sender, RoutedEventArgs e)
+    {
+        _engine.Config.TreeHideDone = TreeHideDoneBox.IsChecked == true;
+        _engine.Config.Save();
+        RenderTree();
+    }
 
     async void NewTitle_KeyDown(object sender, KeyEventArgs e)
     {
@@ -1226,7 +1579,7 @@ public sealed class TreeNodeVm : System.ComponentModel.INotifyPropertyChanged
     public string Key => Task.Key;
     public string Title => Task.Title;
     public string Status => Task.Status;
-    public string StatusSuffix => $"  · {Task.Status}";
+    public string StatusSuffix => Task.IsCategory ? $"  · 分類 · {Task.Status}" : $"  · {Task.Status}";
     public int Depth { get; private init; }
     public List<TreeNodeVm> Children { get; } = [];
 
@@ -1247,8 +1600,10 @@ public sealed class TreeNodeVm : System.ComponentModel.INotifyPropertyChanged
     public double TextOpacity => Task.StatusCategory is "DONE" or "CANCELLED" ? 0.55 : 1;
     public string Tip => $"{Task.Key} {Task.Title}" +
                          (Task.PlannedStart is not null || Task.PlannedEnd is not null
-                             ? $"\n預計 {Inputs.DateText(Task.PlannedStart)} → {Inputs.DateText(Task.PlannedEnd)}" : "") +
+                             ? $"\n預計 {DateOrUnset(Task.PlannedStart)} → {DateOrUnset(Task.PlannedEnd)}" : "") +
                          "\n點一下或按 ＋：在這個任務底下新增";
+
+    static string DateOrUnset(DateOnly? d) => d is { } day ? Inputs.DateText(day) : "未指定";
 
     public bool IsExpanded
     {

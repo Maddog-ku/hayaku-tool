@@ -12,7 +12,9 @@ public sealed record TimeEntry(
     int? DurationMinutes,
     bool Running,
     string? StopReason,
-    string? Note = null);
+    string? Note = null,
+    string? User = null,
+    string? Source = null);
 
 public sealed record WorkSegment(TimeOnly Start, TimeOnly End);
 
@@ -128,7 +130,9 @@ public sealed partial class HayakuApi(McpClient mcp)
                 duration,
                 e.TryGetProperty("running", out var run) && run.ValueKind == JsonValueKind.True,
                 Str(e, "stopReason"),
-                Str(e, "note")));
+                Str(e, "note"),
+                Str(e, "user"),
+                Str(e, "source")));
         }
         return list;
     }

@@ -440,8 +440,9 @@ public sealed partial class TimerEngine
     {
         try
         {
-            foreach (var key in await _api.ProjectKeysAsync(ct))
-                _knownProjects.Add(key);
+            Projects = await _api.ListProjectsAsync(ct, includeArchived: true);
+            foreach (var p in Projects)
+                _knownProjects.Add(p.Key);
             var tasks = new List<TaskItem>();
             tasks.AddRange(await _api.MyTasksAsync("in_progress", ct));
             tasks.AddRange(await _api.MyTasksAsync("not_started", ct));
