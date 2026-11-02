@@ -666,11 +666,12 @@ public sealed partial class TimerEngine
             _state.Save();
     }
 
-    /// <summary>定期清暫存：專案狀態清單（順便讓狀態更新）、Claude session 的快取。</summary>
+    /// <summary>定期清暫存：專案狀態清單（順便讓狀態更新）、Claude session 的快取、讀過的檔案內容（圖片很佔記憶體）。</summary>
     public void TrimCaches()
     {
         _projects.Clear();
         _claude.TrimCaches();
+        _files?.Clear();
     }
 
     void Raise() => Changed?.Invoke();

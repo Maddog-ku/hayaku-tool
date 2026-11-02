@@ -35,7 +35,7 @@ public partial class HoverCard : Window
         var parts = new List<string>();
         if (phase.Length > 0)
             parts.Add(phase);
-        if (expected > 0 && worked < expected)
+        if (!WorkMath.IsFilled(worked, expected))
             parts.Add($"還差 {WorkMath.HoursMinutes(expected - worked)}");
         if (engine.UnreadCount > 0)
             parts.Add($"{engine.UnreadCount} 則未讀通知");

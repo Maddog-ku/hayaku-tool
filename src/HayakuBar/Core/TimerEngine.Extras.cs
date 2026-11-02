@@ -82,6 +82,7 @@ public sealed partial class TimerEngine
         "HOURS_UNFILLED" or "HOURS_UNFILLED_WEEKLY" => ("hours", null),
         "FORUM_POST" => ("forum", n.ProjectKey),
         "SPACE_PAGE_COMMENT" => ("spaces", null),
+        _ when n.Feedback is { } number => ("feedback", number),
         _ when n.MeetingId is { } meeting => ("meetings", meeting),
         _ when n.TaskKey is { } key => ("tasks", key),
         "CHANNEL_MESSAGE" or "THREAD_REPLY" or "CHAT_REACTION" => ("chat", null),
@@ -348,7 +349,7 @@ public sealed partial class TimerEngine
         var actions = new List<ToastAction>();
         if (stopped.Count > 0)
             actions.Add(new ToastAction("復原", () => UndoClockOutAsync(stopped), Primary: true));
-        var unfilled = _config.PromptUnfilled && expected > 0 && worked < expected - 5;
+        var unfilled = _config.PromptUnfilled && expected > 0 && !WorkMath.IsFilled(worked, expected);
         if (unfilled)
             actions.Add(new ToastAction("補登工時", () =>
             {
@@ -422,7 +423,9 @@ public sealed partial class TimerEngine
             }
             else
             {
-                foreach (var n in fresh)
+                foreach (var n in fresh.Where(n => n.IsTestResult && n.TaskKey is not null))
+                    Toast?.Invoke(TestToast(n, duration, seconds == 0));
+                foreach (var n in fresh.Where(n => !(n.IsTestResult && n.TaskKey is not null)))
                     Toast?.Invoke(new ToastRequest(n.Label, (n.Actor is { } actor ? $"{actor}：" : "") + n.Text,
                     [
                         new ToastAction("標為已讀", () => MarkNotificationsReadAsync([n.Id]), Primary: true),

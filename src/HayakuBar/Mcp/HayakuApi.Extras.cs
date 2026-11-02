@@ -35,7 +35,22 @@ public sealed record NotificationItem(
     string? MeetingId,
     DateTimeOffset CreatedAt,
     bool Unread,
-    int Count);
+    int Count,
+    int? Feedback = null)
+{
+    /// <summary>測試結果的通知（被退回、進待復驗…）：代碼裡有 TEST，或標籤是測試結果。</summary>
+    public bool IsTestResult => Type.Contains("TEST", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>測試結果被退回（要再修）。</summary>
+    public bool IsReopened => IsTestResult && (Type.Contains("REOPEN", StringComparison.OrdinalIgnoreCase)
+                                               || Type.Contains("REJECT", StringComparison.OrdinalIgnoreCase)
+                                               || Type.Contains("RETURN", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>測試結果修好了、等復驗（回報的人要驗）。</summary>
+    public bool IsReadyToRetest => IsTestResult && !IsReopened && (Type.Contains("RETEST", StringComparison.OrdinalIgnoreCase)
+                                                                   || Type.Contains("VERIFY", StringComparison.OrdinalIgnoreCase)
+                                                                   || Type.Contains("READY", StringComparison.OrdinalIgnoreCase));
+}
 
 /// <summary>會議、待辦、提醒、隨手記、通知、工時修改。</summary>
 public sealed partial class HayakuApi
@@ -188,10 +203,26 @@ public sealed partial class HayakuApi
                 text = "今天到期、逾期、等你審核的事情與會議";
             text ??= project.ValueKind == JsonValueKind.Object ? Str(project, "name") : null;
             var actor = n.TryGetProperty("actor", out var a) && a.ValueKind == JsonValueKind.Object ? Str(a, "displayName") : null;
+            int? feedback = null;
+            if (type.StartsWith("FEEDBACK", StringComparison.Ordinal))
+            {
+                foreach (var source in new[] { payload, n.TryGetProperty("feedback", out var fb) ? fb : default })
+                {
+                    if (source.ValueKind == JsonValueKind.Number && source.TryGetInt32(out var direct))
+                        feedback ??= direct;
+                    else if (source.ValueKind == JsonValueKind.Object)
+                        feedback ??= new[] { "number", "feedbackNumber", "feedback" }
+                            .Select(p => source.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var num) ? num : (int?)null)
+                            .FirstOrDefault(x => x is not null);
+                }
+                text ??= payload.ValueKind == JsonValueKind.Object ? FirstStr(payload, "title", "summary") : null;
+            }
             list.Add(new NotificationItem(
                 id,
                 type,
-                NotificationLabels.GetValueOrDefault(type, type.StartsWith("FEEDBACK", StringComparison.Ordinal) ? "問題回報" : type),
+                NotificationLabels.GetValueOrDefault(type,
+                    type.StartsWith("FEEDBACK", StringComparison.Ordinal) ? "問題回報"
+                    : type.Contains("TEST", StringComparison.OrdinalIgnoreCase) ? TestNotificationLabel(type) : type),
                 text ?? "",
                 actor,
                 taskKey,
@@ -199,9 +230,22 @@ public sealed partial class HayakuApi
                 meetingId,
                 Date(n, "createdAt") ?? DateTimeOffset.Now,
                 unreadCount > 0 || (n.TryGetProperty("readAt", out var readAt) && readAt.ValueKind == JsonValueKind.Null),
-                count));
+                count,
+                feedback));
         }
         return list;
+    }
+
+    /// <summary>測試結果類通知的標題（代碼沒有固定清單，看關鍵字）。</summary>
+    internal static string TestNotificationLabel(string type)
+    {
+        var t = type.ToUpperInvariant();
+        return t.Contains("REOPEN") || t.Contains("REJECT") || t.Contains("RETURN") ? "測試結果被退回"
+            : t.Contains("RETEST") || t.Contains("VERIFY") || t.Contains("READY") ? "測試結果待復驗"
+            : t.Contains("ASSIGN") ? "被指派修測試結果"
+            : t.Contains("APPROV") ? "改測試結果執行者的申請"
+            : t.Contains("PASS") || t.Contains("CLOSE") || t.Contains("DONE") ? "測試結果已通過"
+            : "測試結果有更新";
     }
 
     // ───────────── 工時（補登、修改、刪除） ─────────────

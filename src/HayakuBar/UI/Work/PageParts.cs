@@ -37,6 +37,7 @@ static class PageParts
             box.MaxHeight = 220;
             box.VerticalContentAlignment = VerticalAlignment.Top;
             box.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            MarkdownTable.Attach(box); // 從 Excel 貼上變成表格
         }
         return box;
     }

@@ -143,11 +143,11 @@ public partial class DayEntriesPage : UserControl, IWorkPage
         var worked = WorkMath.UnionMinutes(entries, dayStart, now);
         var expected = _schedule?.ExpectedMinutes ?? 0;
         TotalText.Text = $"{WorkMath.HoursMinutes(worked)}" + (expected > 0 ? $" / {WorkMath.HoursMinutes(expected)}" : "");
-        TotalText.Foreground = Brushes2.Get(expected > 0 && worked < expected - 5 ? "AccentBrush" : "TextBrush");
+        TotalText.Foreground = Brushes2.Get(!WorkMath.IsFilled(worked, expected) ? "AccentBrush" : "TextBrush");
         ScheduleText.Text = _schedule is null || _schedule.Working.Count == 0
             ? (_schedule?.Holiday is { } h ? $"放假（{h}）" : "不上班")
             : "班表 " + string.Join("、", _schedule.Working.Select(s => $"{s.Start:HH:mm}–{s.End:HH:mm}")) +
-              (expected > 0 && worked < expected ? $"　還差 {WorkMath.HoursMinutes(expected - worked)}" : "");
+              (!WorkMath.IsFilled(worked, expected) ? $"　還差 {WorkMath.HoursMinutes(expected - worked)}" : "");
 
         Timeline.SetData(dayStart, _schedule?.Working, entries, now);
         RenderGaps(entries, dayStart, now);

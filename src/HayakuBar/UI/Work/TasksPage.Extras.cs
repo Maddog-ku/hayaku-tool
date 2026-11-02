@@ -80,8 +80,9 @@ public partial class TasksPage
         DepsPanel.Children.Clear();
         AddDepGroup("這個任務在等", deps.Predecessors, key);
         AddDepGroup("在等這個任務", deps.Successors, key);
-        if (deps.Predecessors.Count == 0 && deps.Successors.Count == 0)
-            DepsPanel.Children.Add(Muted("沒有相依關係"));
+        AddRelatedGroup(deps.RelatedTasks, key);
+        if (deps.Predecessors.Count == 0 && deps.Successors.Count == 0 && deps.RelatedTasks.Count == 0)
+            DepsPanel.Children.Add(Muted("沒有相依關係，也沒有關聯任務"));
         DepsPanel.Children.Add(NewDependencyRow(key));
     }
 
@@ -120,22 +121,84 @@ public partial class TasksPage
         }
     }
 
-    /// <summary>新增相依：任務編號、方向（這個任務等它／它等這個任務）、規則。</summary>
+    /// <summary>關聯任務（不擋開始、不影響日期，可以跨專案）：點編號打開，可以移除。</summary>
+    void AddRelatedGroup(IReadOnlyList<DependencyItem> items, string key)
+    {
+        if (items.Count == 0)
+            return;
+        DepsPanel.Children.Add(new TextBlock { Text = "關聯任務", Foreground = Brushes2.Get("MutedBrush"), FontSize = 12, Margin = new Thickness(0, 4, 0, 2) });
+        foreach (var d in items)
+        {
+            var text = new TextBlock { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+            text.Inlines.Add(TaskLink(d.OtherKey));
+            text.Inlines.Add(new Run($" {d.OtherTitle}"));
+            if (d.OtherStatus is { Length: > 0 } status)
+                text.Inlines.Add(new Run($"  · {status}") { Foreground = Brushes2.Get("MutedBrush"), FontSize = 12 });
+            var remove = new Button { Content = "移除", Style = (Style)FindResource("FlatButton"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(8, 0, 0, 0) };
+            remove.Click += async (_, _) =>
+            {
+                string? message = null;
+                if (await Inputs.Run(remove, DetailStatus, async () => message = await _engine.Api.RemoveRelatedAsync(key, d.OtherKey, CancellationToken.None)))
+                {
+                    Inputs.Show(DetailStatus, message ?? $"已移除與 {d.OtherKey} 的關聯", error: false);
+                    await LoadDepsAsync(key);
+                }
+            };
+            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+            DockPanel.SetDock(remove, Dock.Right);
+            row.Children.Add(remove);
+            row.Children.Add(text);
+            DepsPanel.Children.Add(row);
+        }
+    }
+
+    /// <summary>新增相依：任務編號、方向（這個任務等它／它等這個任務）、規則；或「關聯」（不擋開始、可以跨專案）。</summary>
     FrameworkElement NewDependencyRow(string key)
     {
         var other = new TextBox { Width = 110, Style = (Style)FindResource("HintBox"), Tag = "任務編號", Margin = new Thickness(0, 0, 6, 0) };
-        var direction = new ComboBox { Width = 130, Margin = new Thickness(0, 0, 6, 0), ItemsSource = new[] { "這個任務等它", "它等這個任務" }, SelectedIndex = 0 };
+        var direction = new ComboBox
+        {
+            Width = 130, Margin = new Thickness(0, 0, 6, 0), ItemsSource = new[] { "這個任務等它", "它等這個任務", "關聯（不擋開始）" }, SelectedIndex = 0,
+        };
         var template = new ComboBox
         {
             Width = 170, Margin = new Thickness(0, 0, 6, 0), SelectedIndex = 0,
             ItemsSource = HayakuApi.DependencyTemplates.Select(t => t.Label).ToList(),
         };
-        var add = new Button { Content = "＋ 新增相依", Style = (Style)FindResource("FlatButton"), Padding = new Thickness(10, 3, 10, 3) };
+        var add = new Button { Content = "＋ 新增", Style = (Style)FindResource("FlatButton"), Padding = new Thickness(10, 3, 10, 3) };
+        direction.SelectionChanged += (_, _) => template.Visibility = direction.SelectedIndex == 2 ? Visibility.Collapsed : Visibility.Visible;
+        // 快速選同一層的任務當關聯（打開過上層才有，不多打請求）
+        var parent = _detail?.Path.Count > 0 ? _detail.Path[^1].Key : null;
+        if (parent is not null && _childrenOf.TryGetValue(parent, out var siblings) && siblings.Count > 1)
+        {
+            var quick = new ComboBox { Width = 150, Margin = new Thickness(0, 0, 6, 0), ToolTip = "快速選同一層的任務" };
+            quick.ItemsSource = new[] { "同一層的任務…" }.Concat(siblings.Where(c => c.Key != key).Select(c => $"{c.Key} {c.Title}")).ToList();
+            quick.SelectedIndex = 0;
+            quick.SelectionChanged += (_, _) =>
+            {
+                if (quick.SelectedIndex > 0 && KeyFinder.Parse(quick.SelectedItem as string) is { } picked)
+                {
+                    other.Text = picked;
+                    direction.SelectedIndex = 2;
+                }
+            };
+            add.Tag = quick;
+        }
         add.Click += async (_, _) =>
         {
             if (KeyFinder.Parse(other.Text) is not { } target)
             {
                 Inputs.Show(DetailStatus, "請填另一個任務的編號（例 F2P-12）");
+                return;
+            }
+            if (direction.SelectedIndex == 2)
+            {
+                string? related = null;
+                if (await Inputs.Run(add, DetailStatus, async () => related = await _engine.Api.AddRelatedAsync(key, target, CancellationToken.None)))
+                {
+                    Inputs.Show(DetailStatus, related ?? $"已關聯 {target}", error: false);
+                    await LoadDepsAsync(key);
+                }
                 return;
             }
             var code = HayakuApi.DependencyTemplates[Math.Max(0, template.SelectedIndex)].Code;
@@ -147,7 +210,10 @@ public partial class TasksPage
                 await LoadDepsAsync(key);
             }
         };
-        return new WrapPanel { Margin = new Thickness(0, 8, 0, 4), Children = { other, direction, template, add } };
+        var panel = new WrapPanel { Margin = new Thickness(0, 8, 0, 4), Children = { other, direction, template, add } };
+        if (add.Tag is ComboBox q)
+            panel.Children.Insert(1, q);
+        return panel;
     }
 
     // ───────────── 附件 ─────────────
@@ -181,11 +247,15 @@ public partial class TasksPage
         foreach (var a in items)
         {
             var text = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 2) };
+            // 有 id 就在這裡直接看內容（圖片看圖、文件讀文字），沒有才開網頁
             var link = new Hyperlink(new Run($"📎 {a.Name}"));
             var url = a.Url ?? webUrl;
+            link.ToolTip = a.Id is not null ? "點一下直接看內容（圖片、PDF、Word、Excel、文字檔）" : "在網頁開啟";
             link.Click += (_, _) =>
             {
-                if (url is not null)
+                if (a.Id is { } id)
+                    FilePreviewWindow.Show(_engine, id, a.Name, Window.GetWindow(this), url);
+                else if (url is not null)
                     Web.Open(url);
             };
             text.Inlines.Add(link);

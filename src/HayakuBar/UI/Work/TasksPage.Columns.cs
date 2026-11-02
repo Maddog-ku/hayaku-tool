@@ -63,10 +63,10 @@ public partial class TasksPage
             const string cell = "Margin=\"0,0,8,0\" VerticalAlignment=\"Top\"";
             cells.Append(c.Key switch
             {
-                "key" => $"<TextBlock Grid.Column=\"{col}\" {cell} Text=\"{{Binding Key}}\" FontWeight=\"SemiBold\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" />",
+                "key" => $"<TextBlock Grid.Column=\"{col}\" {cell} Text=\"{{Binding Key}}\" FontWeight=\"SemiBold\" Tag=\"copykey\" Cursor=\"Hand\" ToolTip=\"點一下複製編號\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" />",
                 "title" => $"<StackPanel Grid.Column=\"{col}\" {cell}>" +
                            "<TextBlock TextTrimming=\"CharacterEllipsis\" ToolTip=\"{Binding Title}\">" +
-                           (keyColumn ? "" : "<Run Text=\"{Binding Key, Mode=OneWay}\" FontWeight=\"SemiBold\" /> ") +
+                           (keyColumn ? "" : "<Run Text=\"{Binding Key, Mode=OneWay}\" FontWeight=\"SemiBold\" Tag=\"copykey\" Cursor=\"Hand\" /> ") +
                            "<Run Text=\"{Binding Title, Mode=OneWay}\" /></TextBlock>" +
                            "<TextBlock Text=\"{Binding Context}\" FontSize=\"11\" Foreground=\"{DynamicResource MutedBrush}\" " +
                            "TextTrimming=\"CharacterEllipsis\" Margin=\"0,2,0,0\" Visibility=\"{Binding ContextVisibility}\" /></StackPanel>",

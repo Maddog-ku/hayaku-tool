@@ -38,6 +38,12 @@ public sealed class SpacesPage : UserControl, IWorkPage
     readonly Dictionary<string, SpacePageContent> _pages = [];
     readonly Stack<(string? FolderId, string Name)> _folders = new();
     List<SpaceInfo> _spaces = [];
+    readonly Button _newTop;
+
+    /// <summary>選著的空間；專案封存了是唯讀（不能新增頁、附加內容）。</summary>
+    SpaceInfo? CurrentSpace => _spaces.FirstOrDefault(s => s.Key == SpaceKey);
+
+    bool Writable => CurrentSpace is not { Archived: true };
     SpaceNode? _node;
     bool _composeChild; // true：新增子頁；false：附加內容
     bool _loaded;
@@ -87,15 +93,18 @@ public sealed class SpacesPage : UserControl, IWorkPage
                 _folders.Pop();
             await LoadFilesAsync();
         };
-        _fileList.MouseDoubleClick += async (_, _) => await OpenFileAsync();
+        _fileList.MouseDoubleClick += async (_, _) => await OpenFileAsync(download: false);
         _fileList.KeyDown += async (_, e) =>
         {
             if (e.Key == Key.Enter)
-                await OpenFileAsync();
+                await OpenFileAsync(download: false);
         };
-        var fileHint = PageParts.Muted("點兩下資料夾進去、點兩下檔案用瀏覽器下載（連結 1 小時有效）。上傳、刪除請到網頁。", 11);
+        var download = PageParts.Button(this, "⬇ 下載選取的檔案");
+        download.ToolTip = "用瀏覽器下載原檔（連結 1 小時有效）";
+        download.Click += async (_, _) => await OpenFileAsync(download: true);
+        var fileHint = PageParts.Muted("點兩下資料夾進去、點兩下檔案直接看內容（圖片、PDF、Word、Excel、文字檔）。上傳、刪除請到網頁。", 11);
         fileHint.Margin = new Thickness(0, 0, 0, 6);
-        _files.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6), Children = { _up } });
+        _files.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6), Children = { _up, download } });
         _files.Children.Add(fileHint);
         _files.Children.Add(_fileList);
 
@@ -120,9 +129,9 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _composer.Children.Add(warn);
         _composer.Children.Add(_composeTitle);
         _composer.Children.Add(_composeBody);
-        _composer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { _composeButton, cancel } });
+        _composer.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { _composeButton, cancel, MarkdownTable.InsertButton(this, _composeBody) } });
 
-        var newTop = PageParts.Button(this, "＋ 新頁", primary: true);
+        var newTop = _newTop = PageParts.Button(this, "＋ 新頁", primary: true);
         newTop.ToolTip = "在這個空間的最上層新增一頁";
         newTop.Click += (_, _) =>
         {
@@ -190,10 +199,16 @@ public sealed class SpacesPage : UserControl, IWorkPage
         }
         var selected = SpaceKey;
         _building = true;
+        // 專案裡開的空間標專案代碼（跟網頁側邊欄一樣），專案封存了的標唯讀
         var items = _spaces.Select(s => new ComboBoxItem
         {
-            Content = s.PageCount is { } n ? $"{s.Name}（{n} 頁）" : s.Name, Tag = s.Key,
-            ToolTip = s.Role is { } role ? $"{s.Key}・我的角色：{role}" : s.Key,
+            Content = (s.Project is { } p ? $"[{p}] " : "") + (s.PageCount is { } n ? $"{s.Name}（{n} 頁）" : s.Name) + (s.Archived ? "・唯讀" : ""),
+            Tag = s.Key,
+            ToolTip = string.Join("・", new[]
+            {
+                s.Key, s.Role is { } role ? $"我的角色：{role}" : null, s.Project is { } proj ? $"專案 {proj} 的空間（成員和權限跟著專案）" : null,
+                s.Archived ? "專案已封存，只能看" : null,
+            }.Where(x => x is not null)),
         }).ToList();
         _space.ItemsSource = items;
         _space.SelectedItem = items.FirstOrDefault(i => i.Tag as string == selected) ?? items.FirstOrDefault();
@@ -212,6 +227,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
     {
         if (SpaceKey is not { } space)
             return;
+        _newTop.Visibility = Writable ? Visibility.Visible : Visibility.Collapsed;
         _search.Text = "";
         ShowTree();
         if (!refresh && _trees.TryGetValue(space, out var cached))
@@ -368,7 +384,9 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _content.Visibility = _content.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         _rightMessage.Text = "這頁還沒有內容";
         _rightMessage.Visibility = _content.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
-        _actions.Visibility = Visibility.Visible;
+        _actions.Visibility = Writable ? Visibility.Visible : Visibility.Collapsed;
+        if (!Writable)
+            _meta.Text += (_meta.Text.Length > 0 ? "・" : "") + "專案已封存，只能看";
     }
 
     void ShowEmpty()
@@ -422,14 +440,26 @@ public sealed class SpacesPage : UserControl, IWorkPage
         PageParts.Size(f.Size), f.Uploader ?? "", f.At is { } at ? Inputs.Ago(at) : "",
     }.Where(s => s.Length > 0));
 
-    async Task OpenFileAsync()
+    /// <summary>資料夾：進去；檔案：直接看內容（read_file），download 才拿下載連結用瀏覽器下載。</summary>
+    async Task OpenFileAsync(bool download)
     {
         if (_fileList.SelectedItem is not ListBoxItem { Tag: SpaceFile file })
+        {
+            if (download)
+                Inputs.Show(_status, "先在清單選一個檔案");
             return;
+        }
         if (file.IsFolder)
         {
+            if (download)
+                return;
             _folders.Push((file.Id, file.Name));
             await LoadFilesAsync();
+            return;
+        }
+        if (!download)
+        {
+            FilePreviewWindow.Show(_engine, file.Id, file.Name, Window.GetWindow(this));
             return;
         }
         string? link = null;

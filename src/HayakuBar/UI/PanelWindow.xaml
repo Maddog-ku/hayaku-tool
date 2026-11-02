@@ -118,7 +118,7 @@
         <!-- 托盤上的一個釘選任務：▶ 切換（暫停其他）、點名稱看詳細、右鍵更多 -->
         <DataTemplate x:Key="PinTemplate">
             <Border x:Name="Chip" Background="{Binding ChipBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="{Binding ChipBorder}"
-                    CornerRadius="8" Padding="2,3,8,3" Margin="0,0,6,6" Cursor="Hand" Tag="{Binding}"
+                    CornerRadius="8" Padding="2,3,8,3" Margin="0,0,6,6" Cursor="Hand" Tag="{Binding}" Opacity="{Binding ChipOpacity}"
                     MouseLeftButtonUp="Pin_Click" MouseRightButtonUp="Pin_RightClick" ToolTip="{Binding Tip}">
                 <StackPanel Orientation="Horizontal">
                     <Button Content="{Binding ActionGlyph}" ToolTip="{Binding ActionTip}" Tag="{Binding}" Click="PinAction_Click"
@@ -146,7 +146,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock TextTrimming="CharacterEllipsis">
-                            <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
+                            <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" Tag="copykey" Cursor="Hand" ToolTip="點一下複製編號" />
                             <Run Text="{Binding Title, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
                         </TextBlock>
                         <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
@@ -472,6 +472,15 @@
                                     Visibility="Collapsed">
                                 <Grid>
                                     <TextBlock x:Name="ReviewText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource AccentBrush}" />
+                                    <TextBlock Text="›" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+                                </Grid>
+                            </Border>
+                            <!-- 我要修的測試結果、要測的測試任務（從我的任務那一份算，不另外抓） -->
+                            <Border x:Name="TestCard" Background="{DynamicResource SubtleBrush}" CornerRadius="6" Padding="10,7" Margin="0,6,0,0"
+                                    Cursor="Hand" MouseLeftButtonUp="TestCard_Click" ToolTip="在工作台看「測試」：需修復、需測試、測試總覽"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <TextBlock x:Name="TestText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource AccentBrush}" />
                                     <TextBlock Text="›" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
                                 </Grid>
                             </Border>

@@ -19,7 +19,7 @@ public sealed class MyTaskRowVm : INotifyPropertyChanged
     public required TaskSummary Item { get; init; }
     public required bool Running { get; init; }
     public string Key => Item.Key;
-    public string Title => Item.Title;
+    public string Title => TaskText.Title(Item);
     public string Status => Item.Status;
 
     public string DueText
@@ -149,6 +149,9 @@ public partial class PanelWindow
         {
             var count = _engine.TaskList(tab).Count(t => !leafOnly || t.IsLeaf);
             _taskFilters[tab].Content = count > 0 ? $"{label} {count}" : label;
+            // 測試分頁沒有東西時收起來（面板很窄）；正選著的照樣顯示
+            if (tab == "test")
+                _taskFilters[tab].Visibility = count > 0 || _taskTab == tab ? Visibility.Visible : Visibility.Collapsed;
         }
         var all = _engine.TaskList(_taskTab).Where(t => !leafOnly || t.IsLeaf).ToList();
         var rows = all.Take(30).Select(t => new MyTaskRowVm { Item = t, Running = running.Contains(t.Key) || t.Timing }).ToList();
@@ -157,6 +160,7 @@ public partial class PanelWindow
         {
             "overdue" => "沒有逾期的任務 🎉",
             "should_start" => "沒有該開始還沒開始的任務",
+            "test" => "沒有指派給你的測試任務或測試結果",
             _ => "這裡沒有任務",
         };
         MyTaskEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -167,10 +171,12 @@ public partial class PanelWindow
         TasksBadgeText.Text = overdue > 99 ? "99+" : overdue.ToString();
     }
 
+    /// <summary>點編號是複製編號，點其他地方才打開任務（跟網頁一樣）。</summary>
     void MyTaskRow_Click(object sender, MouseButtonEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is MyTaskRowVm vm)
-            RequestWorkspace("tasks", vm.Key);
+        if ((sender as FrameworkElement)?.Tag is not MyTaskRowVm vm || KeyCopy.TryCopy(e.OriginalSource, _engine, vm.Key))
+            return;
+        RequestWorkspace("tasks", vm.Key);
     }
 
     async void MyTaskAction_Click(object sender, RoutedEventArgs e)

@@ -120,6 +120,8 @@
                                         <Button Content="離開" Style="{StaticResource FlatButton}" Padding="10,4" Tag="{Binding}"
                                                 Click="Leave_Click" Visibility="{Binding LeaveVisibility}" Margin="6,0,0,0"
                                                 ToolTip="停止這場會議的計時" />
+                                        <Button Content="📌" Style="{StaticResource IconButton}" Tag="{Binding}" Click="PinRow_Click" Margin="6,0,0,0"
+                                                Opacity="{Binding PinOpacity}" ToolTip="{Binding PinTip}" />
                                         <Button Content="開啟" Style="{StaticResource IconButton}" Tag="{Binding}" Click="Open_Click" Margin="6,0,0,0" />
                                         <Button Content="取消會議" Style="{StaticResource IconButton}" Tag="{Binding}" Click="CancelMeeting_Click"
                                                 Visibility="{Binding CancelVisibility}" Margin="6,0,0,0"

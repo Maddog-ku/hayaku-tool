@@ -70,6 +70,17 @@ public sealed class McpClient
         }
     }
 
+    /// <summary>
+    /// 呼叫 MCP 工具，回傳整個結果（content 陣列與 structuredContent 都在）；圖片這類不是 JSON 的內容（read_file）用。
+    /// </summary>
+    public async Task<JsonElement> CallToolRawAsync(string name, object? arguments, CancellationToken ct)
+    {
+        var result = await RpcAsync("tools/call", new { name, arguments = arguments ?? new { } }, ct, statName: name);
+        if (result.TryGetProperty("isError", out var isError) && isError.ValueKind == JsonValueKind.True)
+            throw new McpException(ExtractText(result) ?? $"{name} 失敗");
+        return result;
+    }
+
     /// <summary>列出伺服器提供的所有工具（診斷用）。</summary>
     public Task<JsonElement> ListToolsAsync(CancellationToken ct) => RpcAsync("tools/list", new { }, ct);
 

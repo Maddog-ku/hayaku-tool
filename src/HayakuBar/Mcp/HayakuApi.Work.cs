@@ -17,8 +17,11 @@ public sealed record TaskSummary(
     bool Timing,
     string Path,
     IReadOnlyList<(string Key, string Title)>? Ancestors = null,
-    int? ChildCount = null)
+    int? ChildCount = null,
+    TestInfo Test = default)
 {
+    public TaskKind Kind => Test.Kind;
+
     /// <summary>沒有子任務（真正要做的事）；舊版回應沒有子任務數時當作沒有。</summary>
     public bool IsLeaf => ChildCount is null or 0;
 }
@@ -36,7 +39,11 @@ public sealed record ProjectTask(
     DateOnly? PlannedEnd,
     bool IsCategory = false,
     IReadOnlyList<string>? Assignees = null,
-    string? Priority = null);
+    string? Priority = null,
+    TestInfo Test = default)
+{
+    public TaskKind Kind => Test.Kind;
+}
 
 /// <summary>任務完整資料（get_task）。</summary>
 public sealed record TaskDetail(
@@ -59,7 +66,12 @@ public sealed record TaskDetail(
     int PendingChangeRequests,
     double? LoggedMinutes = null,
     bool IsCategory = false,
-    int ContentBlockCount = 0);
+    int ContentBlockCount = 0,
+    TestInfo Test = default,
+    string? CreatedBy = null)
+{
+    public TaskKind Kind => Test.Kind;
+}
 
 public sealed record StatusOption(string Name, string Category, bool IsDefault);
 
@@ -156,7 +168,7 @@ public sealed partial class HayakuApi
             list.Add(new TaskSummary(key, Str(t, "title") ?? "", Str(t, "project") ?? "", Str(t, "status") ?? "",
                 Str(t, "statusCategory") ?? "", Str(t, "priority") ?? "", Day(t, "plannedStart"), Day(t, "plannedEnd"),
                 t.TryGetProperty("timing", out var timing) && timing.ValueKind == JsonValueKind.True, path, ancestors,
-                t.TryGetProperty("childCount", out var cc) && cc.TryGetInt32(out var children) ? children : null));
+                t.TryGetProperty("childCount", out var cc) && cc.TryGetInt32(out var children) ? children : null, ReadTestInfo(t)));
         }
         return list;
     }
@@ -198,7 +210,8 @@ public sealed partial class HayakuApi
                     ? a.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : Str(x, "username"))
                         .OfType<string>().ToList()
                     : null,
-                Str(t, "priority")))
+                Str(t, "priority"),
+                ReadTestInfo(t)))
             .ToList();
 
     public async Task<TaskDetail> GetTaskAsync(string task, CancellationToken ct)
@@ -243,7 +256,9 @@ public sealed partial class HayakuApi
             Items(r, "pendingChangeRequests").Count(),
             loggedMinutes,
             r.TryGetProperty("isCategory", out var cat) && cat.ValueKind == JsonValueKind.True,
-            Items(r, "contentBlocks").Count());
+            Items(r, "contentBlocks").Count(),
+            ReadTestInfo(r),
+            FirstName(r, "createdBy"));
     }
 
     /// <summary>部分更新任務；fields 的值為 null 代表清空。回傳伺服器的說明文字（例如送出變更申請）。</summary>

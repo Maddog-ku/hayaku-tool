@@ -2,8 +2,22 @@ using System.Text.Json;
 
 namespace HayakuBar.Mcp;
 
-/// <summary>釘在托盤上的任務（list_pins）：今天累積、是否正在計時、能不能計時。</summary>
-public sealed record PinItem(string Key, string Title, string Project, string Status, int TodayMinutes, bool Running, bool CanTime);
+/// <summary>
+/// 釘在托盤上的任務或會議（list_pins）：今天累積、是否正在計時、能不能計時。
+/// 會議（IsMeeting）多了起訖時間與是否已取消；▶ 是加入會議（開會前 10 分鐘起），已取消、已結束的不能加入。
+/// </summary>
+public sealed record PinItem(string Key, string Title, string Project, string Status, int TodayMinutes, bool Running, bool CanTime,
+    bool IsMeeting = false, DateTimeOffset? StartAt = null, DateTimeOffset? EndAt = null, bool Cancelled = false)
+{
+    /// <summary>會議開始前多久可以加入（跟網頁一樣 10 分鐘）。</summary>
+    public static readonly TimeSpan JoinLead = TimeSpan.FromMinutes(10);
+
+    public bool Ended(DateTimeOffset now) => EndAt is { } end && now >= end;
+
+    /// <summary>會議現在能不能從托盤加入：沒取消、沒結束、開始前 10 分鐘起。</summary>
+    public bool CanJoin(DateTimeOffset now) =>
+        IsMeeting && !Cancelled && !Ended(now) && (StartAt is not { } start || now >= start - JoinLead);
+}
 
 /// <summary>
 /// 變更申請（list_change_requests）。Type：CREATE、UPDATE、DELETE；Status：PENDING、APPROVED、REJECTED、WITHDRAWN。
@@ -65,17 +79,40 @@ public sealed partial class HayakuApi
     public async Task<List<PinItem>> UnpinTaskAsync(string task, CancellationToken ct) =>
         ParsePins(await Mcp.CallToolAsync("unpin_task", new { task }, ct));
 
+    /// <summary>
+    /// 托盤：任務是 { task }，會議可能是 { meeting }、{ task, kind: MEETING } 或帶 startAt／endAt；
+    /// 已取消可能是 cancelled: true 或狀態「已取消」。
+    /// </summary>
     internal static List<PinItem> ParsePins(JsonElement r) =>
         Items(r, "pins")
-            .Where(p => Str(p, "task") is not null)
-            .Select(p => new PinItem(
-                Str(p, "task")!,
-                Str(p, "title") ?? "",
-                Str(p, "project") ?? "",
-                Str(p, "status") ?? "",
-                MinutesOf(p, "today"),
-                Bool(p, "running"),
-                !(p.TryGetProperty("canTime", out var c) && c.ValueKind == JsonValueKind.False)))
+            .Select(p =>
+            {
+                var meetingObj = p.TryGetProperty("meeting", out var mo) && mo.ValueKind == JsonValueKind.Object ? mo : default;
+                var key = FirstKey(p, "task", "meeting", "key", "number")
+                          ?? (meetingObj.ValueKind == JsonValueKind.Object ? FirstKey(meetingObj, "meeting", "task", "key") : null);
+                if (key is null)
+                    return null;
+                var source = meetingObj.ValueKind == JsonValueKind.Object ? meetingObj : p;
+                var kind = FirstStr(p, "kind", "type", "pinType") ?? "";
+                var isMeeting = kind.Contains("MEETING", StringComparison.OrdinalIgnoreCase) || kind == "會議"
+                                || p.TryGetProperty("meeting", out _) || Date(source, "startAt") is not null;
+                var status = FirstStr(source, "status", "state") ?? Str(p, "status") ?? "";
+                var cancelled = Bool(source, "cancelled") || Bool(source, "canceled") || Date(source, "cancelledAt") is not null
+                                || status is "已取消" or "CANCELLED" or "CANCELED";
+                return new PinItem(
+                    key,
+                    FirstStr(source, "title", "name") ?? Str(p, "title") ?? "",
+                    Str(p, "project") ?? Str(source, "project") ?? "",
+                    status,
+                    MinutesOf(p, "today"),
+                    Bool(p, "running"),
+                    !(p.TryGetProperty("canTime", out var c) && c.ValueKind == JsonValueKind.False),
+                    isMeeting,
+                    Date(source, "startAt"),
+                    Date(source, "endAt"),
+                    cancelled);
+            })
+            .OfType<PinItem>()
             .ToList();
 
     /// <summary>切換計時（同網頁托盤的 ▶）：同一個交易裡暫停我所有正在計時的，開始這個；keepOthers 是同時計時。</summary>

@@ -46,6 +46,23 @@ public sealed class MeetingListVm : INotifyPropertyChanged
 
     public Brush CardBrush => Brushes2.Get(_selected ? "SelectedBrush" : "BgBrush");
 
+    bool _pinned;
+
+    /// <summary>釘在托盤上（托盤上按 ▶ 就加入會議）。</summary>
+    public bool Pinned
+    {
+        get => _pinned;
+        set
+        {
+            _pinned = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PinOpacity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PinTip)));
+        }
+    }
+
+    public double PinOpacity => _pinned ? 1 : 0.3;
+    public string PinTip => _pinned ? "已釘在托盤，點一下取消" : "釘到托盤：開會前 10 分鐘起在面板按 ▶ 就加入";
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string Title => Item.Title;
@@ -78,6 +95,30 @@ public partial class MeetingsPage : UserControl, IWorkPage
     {
         _engine = engine;
         InitializeComponent();
+        // P：釘選／取消釘選正在看的會議（跟網頁一樣）
+        PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.P || System.Windows.Input.Keyboard.Modifiers != System.Windows.Input.ModifierKeys.None
+                || System.Windows.Input.Keyboard.FocusedElement is TextBox or ComboBox || _pinCurrent is null)
+                return;
+            e.Handled = true;
+            await _pinCurrent();
+        };
+    }
+
+    /// <summary>托盤變了（釘選、取消）：清單上的圖釘跟著變，不重讀會議。</summary>
+    void RenderList()
+    {
+        foreach (var row in MeetingList.ItemsSource as IEnumerable<MeetingListVm> ?? [])
+            row.Pinned = _engine.IsPinned(row.Item.Key);
+    }
+
+    async void PinRow_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not MeetingListVm vm)
+            return;
+        e.Handled = true;
+        await TogglePinAsync(vm.Item.Key, null, ListStatus);
     }
 
     /// <summary>arg："new" 開新增表單；會議編號或 id（例如從會議通知點過來）直接打開那場的詳細。</summary>
@@ -103,7 +144,8 @@ public partial class MeetingsPage : UserControl, IWorkPage
                 : await _engine.Api.UpcomingMeetingsAsync(CancellationToken.None);
             if (version != _version)
                 return;
-            var rows = items.Select(m => new MeetingListVm { Item = m, Past = _past, Selected = m.Key == _detailKey }).ToList();
+            var rows = items.Select(m => new MeetingListVm { Item = m, Past = _past, Selected = m.Key == _detailKey, Pinned = _engine.IsPinned(m.Key) })
+                .ToList();
             MeetingList.ItemsSource = rows;
             EmptyText.Text = _past ? "還沒有參加過的會議" : "接下來沒有會議";
             EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;

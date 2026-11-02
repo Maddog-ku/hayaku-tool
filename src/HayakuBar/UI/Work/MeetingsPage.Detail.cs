@@ -58,6 +58,7 @@ public partial class MeetingsPage
         _detailVersion++;
         _detailKey = null;
         _detail = null;
+        _pinCurrent = null;
         DetailCard.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         foreach (var row in MeetingList.ItemsSource as IEnumerable<MeetingListVm> ?? [])
@@ -105,7 +106,17 @@ public partial class MeetingsPage
         edit.ToolTip = d.CanEdit ? "名稱、時間、地點、參加者、會議紀錄" : "時間、參加者只有主辦或專案管理員能改；會議紀錄參加者都能改";
         var web = Button("在網頁開啟 ↗", "FlatButton");
         web.Click += (_, _) => Web.Open(_engine.MeetingUrl(d.Id));
-        DetailHost.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { edit, web } });
+        var pin = Button("", "FlatButton");
+        void RenderPin()
+        {
+            var pinned = _engine.IsPinned(d.Key);
+            pin.Content = pinned ? "📌 取消釘選" : "📌 釘到托盤";
+            pin.ToolTip = (pinned ? "從面板的托盤拿掉" : "釘到面板的托盤，開會前 10 分鐘起按 ▶ 就加入") + "（P）";
+        }
+        RenderPin();
+        pin.Click += async (_, _) => await TogglePinAsync(d.Key, RenderPin, status);
+        _pinCurrent = async () => await TogglePinAsync(d.Key, RenderPin, status);
+        DetailHost.Children.Add(new WrapPanel { Margin = new Thickness(0, 8, 0, 0), Children = { edit, pin, web } });
         DetailHost.Children.Add(status);
         var form = new StackPanel { Visibility = Visibility.Collapsed };
         DetailHost.Children.Add(form);
@@ -157,8 +168,9 @@ public partial class MeetingsPage
         {
             Text = d.Note ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80, MaxHeight = 260,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalContentAlignment = VerticalAlignment.Top,
-            Style = (Style)FindResource("HintBox"), Tag = "會議紀錄（Markdown）",
+            Style = (Style)FindResource("HintBox"), Tag = "會議紀錄（Markdown；從 Excel 貼上會變成表格）",
         };
+        MarkdownTable.Attach(note);
         var attendees = new WrapPanel();
         var thisOnly = new RadioButton { Content = "只改這一場", IsChecked = true, Margin = new Thickness(0, 0, 14, 0) };
         var following = new RadioButton { Content = "這一場和之後的" };
@@ -329,11 +341,18 @@ public partial class MeetingsPage
         {
             var meta = string.Join(" · ", new[] { FileSize(f.SizeBytes), f.SourceText, f.UploadedBy, f.UploadedAt is { } at ? Inputs.Ago(at) : null }
                 .Where(s => !string.IsNullOrWhiteSpace(s)));
+            var canRead = f.Id.Length > 0;
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, 6), Cursor = Cursors.Hand, Background = System.Windows.Media.Brushes.Transparent,
-                ToolTip = "在網頁開啟這場會議，從「檔案」下載" };
+                ToolTip = canRead ? "點一下直接看內容（圖片、PDF、Word、Excel、文字檔）" : "在網頁開啟這場會議，從「檔案」下載" };
             row.Children.Add(new TextBlock { Text = f.FileName, Foreground = Brushes2.Get("AccentBrush"), TextTrimming = TextTrimming.CharacterEllipsis });
             row.Children.Add(new TextBlock { Text = meta, Style = (Style)FindResource("CardDesc") });
-            row.MouseLeftButtonUp += (_, _) => Web.Open(_engine.MeetingUrl(id));
+            row.MouseLeftButtonUp += (_, _) =>
+            {
+                if (canRead)
+                    FilePreviewWindow.Show(_engine, f.Id, f.FileName, Window.GetWindow(this), _engine.MeetingUrl(id));
+                else
+                    Web.Open(_engine.MeetingUrl(id));
+            };
             body.Children.Add(row);
         }
     }
@@ -357,11 +376,45 @@ public partial class MeetingsPage
                 meta.Add($"{Inputs.Ago(at)}更新");
             body.Children.Add(new TextBlock { Text = b.Title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 2) });
             body.Children.Add(new TextBlock { Text = string.Join(" · ", meta), Style = (Style)FindResource("CardDesc") });
+            // 白板的縮圖、白板上的圖片：直接看圖（read_file）
+            var images = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            if (b.Id is { } boardId)
+                images.Children.Add(PreviewButton("🖼 看白板", boardId, $"白板：{b.Title}"));
+            var n = 1;
+            foreach (var imageId in b.ImageIds ?? [])
+                images.Children.Add(PreviewButton($"圖片 {n}", imageId, $"{b.Title} 圖片 {n++}"));
+            if (images.Children.Count > 0)
+                body.Children.Add(images);
             body.Children.Add(b.Text.Count == 0
-                ? Muted("（沒有文字，只有手繪或圖形；要看圖請在網頁開啟）")
+                ? Muted(b.Id is null ? "（沒有文字，只有手繪或圖形；要看圖請在網頁開啟）" : "（沒有文字，只有手繪或圖形；按「看白板」看圖）")
                 : new TextBox { Text = string.Join("\n", b.Text), Style = (Style)FindResource("PlainText"), Margin = new Thickness(0, 4, 0, 8), MaxHeight = 240,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         }
+    }
+
+    Button PreviewButton(string text, string id, string name)
+    {
+        var b = new Button { Content = text, Style = (Style)FindResource("FlatButton"), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 6) };
+        b.Click += (_, _) => FilePreviewWindow.Show(_engine, id, name, Window.GetWindow(this));
+        return b;
+    }
+
+    /// <summary>目前詳細的會議釘選／取消（P 鍵）。</summary>
+    Func<Task>? _pinCurrent;
+
+    /// <summary>會議釘到托盤或取消（托盤上 ▶ 是加入會議）。</summary>
+    async Task TogglePinAsync(string key, Action? after, TextBlock? status)
+    {
+        var pinned = _engine.IsPinned(key);
+        if (pinned)
+            await _engine.UnpinTaskAsync(key);
+        else
+            await _engine.PinTaskAsync(key);
+        if (status is not null)
+            Inputs.Show(status, _engine.Error ?? (pinned ? "已取消釘選" : "已釘到托盤（面板的計時分頁最上面，開會前 10 分鐘起按 ▶ 加入）"),
+                error: _engine.Error is not null);
+        after?.Invoke();
+        RenderList();
     }
 
     /// <summary>可展開的區塊：第一次展開才讀，讀失敗下次展開再試。</summary>

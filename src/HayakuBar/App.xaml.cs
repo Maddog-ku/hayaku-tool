@@ -82,6 +82,7 @@ public partial class App : Application
         engine.NewWorkReady += PrewarmQuickCreate;
         engine.PickTaskRequested += PickTaskForSession;
         engine.RejectRequested += OpenRejectReview;
+        engine.TestActionRequested += OpenTestAction;
 
         var tray = _tray = new TrayIcon(new TrayActions(
             TogglePanel: TogglePanel,
@@ -326,6 +327,15 @@ public partial class App : Application
     {
         if (_engine is null)
             return;
+        if (page == "feedback" && arg is int number)
+        {
+            // 問題回報不在工作台裡，開獨立視窗
+            if (Windows.OfType<FeedbackWindow>().FirstOrDefault(w => w.Tag is int n && n == number) is { } open)
+                open.Activate();
+            else
+                new FeedbackWindow(_engine, number) { Tag = number }.Show();
+            return;
+        }
         if (_workspace is null)
         {
             _workspace = new UI.Work.WorkspaceWindow(_engine);
@@ -403,6 +413,30 @@ public partial class App : Application
     }
 
     /// <summary>審核提示按了「駁回」：開填說明的小視窗（同一筆申請只開一個）。</summary>
+    /// <summary>
+    /// 從提示、面板按了測試結果的「開始修」「退回」：開小視窗（同一筆只開一個）；
+    /// add 是在測試任務加入測試結果。
+    /// </summary>
+    void OpenTestAction(TestActionRequest request)
+    {
+        if (_engine is not { } engine)
+            return;
+        var tag = $"{request.Action}:{request.Key}";
+        if (Windows.OfType<Window>().FirstOrDefault(w => w.Tag as string == tag) is { } open)
+        {
+            open.Activate();
+            return;
+        }
+        Window window = request.Action == "add"
+            ? new AddTestResultWindow(engine, request.Key, request.Title, null)
+            : new TestActionWindow(engine, request);
+        window.Tag = tag;
+        if (window is TestActionWindow action)
+            action.Done += message => engine.ShowNotice(message);
+        window.Show();
+        window.Activate();
+    }
+
     void OpenRejectReview(ChangeRequest request)
     {
         if (_engine is not { } engine)
@@ -471,6 +505,16 @@ public partial class App : Application
                 await Task.Delay(1500);
                 OpenQuickCreate(suggestion);
                 target = Windows.OfType<QuickCreateWindow>().LastOrDefault();
+            }
+            else if (page is "testfix" or "testadd")
+            {
+                // 範例：測試結果的「開始修」小視窗、測試任務的「加入測試結果」小視窗（不按按鈕就不會送出）
+                Window window = page == "testfix"
+                    ? new TestActionWindow(_engine, new TestActionRequest("fix", "F2P-140", "登入頁跑版（範例）"))
+                    : new AddTestResultWindow(_engine, "F2P-139", "第二階段測試（範例）", "F2P-25");
+                window.Show();
+                await Task.Delay(1500);
+                target = window;
             }
             else if (page.StartsWith("settings-", StringComparison.OrdinalIgnoreCase))
             {

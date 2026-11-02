@@ -111,6 +111,15 @@ public static class WorkMath
         return gaps.Where(g => (g.End - g.Start).TotalMinutes >= minMinutes).ToList();
     }
 
+    /// <summary>
+    /// 已填有沒有滿應出勤（跟 Hayaku 同一套）：都算到分再比，差不到半分鐘就算填滿。
+    /// 補工時提醒、月曆、統計、下班提示都用這個，不會出現「還差 0 分」卻照樣提醒。
+    /// </summary>
+    public static bool IsFilled(double worked, double expected) => expected <= 0 || expected - worked < 0.5;
+
+    /// <summary>還差幾分（填滿了是 0）。</summary>
+    public static double Shortfall(double worked, double expected) => IsFilled(worked, expected) ? 0 : expected - worked;
+
     public static double TaskMinutes(IEnumerable<TimeEntry> entries, string task, DateTime day, DateTime now) =>
         UnionMinutes(entries.Where(e => string.Equals(e.Task, task, StringComparison.OrdinalIgnoreCase)), day, now);
 

@@ -9,7 +9,8 @@ namespace HayakuBar.UI.Work;
 
 /// <summary>
 /// 專案：任一個專案的全部任務（不只指派給我的），樹狀顯示；可套用專案存好的視圖、篩選、只看我的、只看沒有子任務的，
-/// 勾選多個一次改狀態或優先級。點任務在「我的任務」的詳細打開。
+/// 勾選多個一次改狀態、優先級或類型。點編號複製編號，點名稱在「我的任務」的詳細打開。
+/// 跟網頁一樣不列測試結果，測試任務後面標底下測試結果的數量（全部、通過、修復中、測試中）。
 /// 任務樹與「建立任務」小視窗共用快取（10 分鐘內不重抓，按重新整理才重讀）；視圖的篩選能在本機套用就不另外打請求。
 /// </summary>
 public sealed class ProjectsPage : UserControl, IWorkPage
@@ -31,6 +32,8 @@ public sealed class ProjectsPage : UserControl, IWorkPage
     readonly TextBlock _batchText = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), FontWeight = FontWeights.SemiBold };
     readonly ComboBox _batchStatus = new() { Width = 140, Margin = new Thickness(0, 0, 6, 0) };
     readonly ComboBox _batchPriority = new() { Width = 80, Margin = new Thickness(0, 0, 6, 0), ItemsSource = Priorities };
+    readonly ComboBox _batchType = new() { Width = 90, Margin = new Thickness(0, 0, 6, 0), ItemsSource = new[] { "一般", "測試", "測試結果" } };
+    readonly ComboBox _type = new() { Width = 110, Margin = new Thickness(0, 0, 10, 0), ItemsSource = new[] { "全部類型", "一般", "測試" }, SelectedIndex = 0, ToolTip = "依類型篩選" };
     readonly StackPanel _list = new();
     readonly Dictionary<string, List<ProjectView>> _views = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
@@ -68,6 +71,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
             Render();
         };
         _mine.Click += (_, _) => Render();
+        _type.SelectionChanged += (_, _) => Render();
         _leafOnly.Click += (_, _) => Render();
 
         var create = Button("＋ 新增任務", "FlatButton");
@@ -86,7 +90,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         title.Children.Add(actions);
         title.Children.Add(new TextBlock { Text = "專案", Style = (Style)FindResource("PageTitle"), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center });
 
-        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8), Children = { _project, _view, _filter, _hideDone, _mine, _leafOnly } };
+        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8), Children = { _project, _view, _filter, _type, _hideDone, _mine, _leafOnly } };
 
         var applyStatus = Button("改狀態", "PrimaryButton");
         applyStatus.Click += async (_, _) =>
@@ -100,6 +104,13 @@ public sealed class ProjectsPage : UserControl, IWorkPage
             if (_batchPriority.SelectedItem is string priority)
                 await BatchAsync(applyPriority, "priority", priority, $"優先級改成「{priority}」");
         };
+        var applyType = Button("改類型", "FlatButton");
+        applyType.ToolTip = "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
+        applyType.Click += async (_, _) =>
+        {
+            if (_batchType.SelectedItem is string type)
+                await BatchAsync(applyType, "type", type, $"類型改成「{type}」");
+        };
         var clear = Button("取消選取", "FlatButton");
         clear.Click += (_, _) =>
         {
@@ -109,7 +120,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         _batch = new Border
         {
             Style = (Style)FindResource("Card"), Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed,
-            Child = new WrapPanel { Children = { _batchText, _batchStatus, applyStatus, _batchPriority, applyPriority, clear } },
+            Child = new WrapPanel { Children = { _batchText, _batchStatus, applyStatus, _batchPriority, applyPriority, _batchType, applyType, clear } },
         };
 
         var dock = new DockPanel { Margin = new Thickness(24, 18, 24, 16) };
@@ -238,8 +249,17 @@ public sealed class ProjectsPage : UserControl, IWorkPage
     {
         _list.Children.Clear();
         var me = _engine.User?.Username;
-        var source = _viewTasks ?? _tasks;
+        // 跟網頁的列表一樣不列測試結果（在測試任務後面標數量）
+        var source = (_viewTasks ?? _tasks).Where(t => t.Kind != TaskKind.TestResult).ToList();
+        _results = (_viewTasks ?? _tasks).Concat(_tasks).Where(t => t.Kind == TaskKind.TestResult && t.Parent is not null)
+            .DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(t => t.Parent!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
         IEnumerable<ProjectTask> shown = source;
+        if (_type.SelectedIndex == 1)
+            shown = shown.Where(t => t.Kind == TaskKind.Normal);
+        else if (_type.SelectedIndex == 2)
+            shown = shown.Where(t => t.Kind == TaskKind.Test);
         if (_mine.IsChecked == true && me is not null)
             shown = shown.Where(t => t.Assignees?.Contains(me, StringComparer.OrdinalIgnoreCase) == true);
         var includeDone = _hideDone.IsChecked != true;
@@ -248,7 +268,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         if (_leafOnly.IsChecked == true)
         {
             // 沒有子任務的（用整個專案判斷，不受篩選影響），平鋪列出
-            var parents = _tasks.Select(t => t.Parent).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var parents = _tasks.Where(t => t.Kind != TaskKind.TestResult).Select(t => t.Parent).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var t in shown.Where(t => !parents.Contains(t.Key) && !t.IsCategory
                                                && (includeDone || t.StatusCategory is not ("DONE" or "CANCELLED"))
                                                && (filter.Length == 0 || t.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) || t.Title.Contains(filter, StringComparison.OrdinalIgnoreCase))))
@@ -278,6 +298,9 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         _batch.Visibility = _selected.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         _batchText.Text = $"已選 {_selected.Count} 個";
     }
+
+    /// <summary>測試任務 → 底下的測試結果（列表不列，只在測試任務後面標數量）。</summary>
+    Dictionary<string, List<ProjectTask>> _results = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>任務多（超過 150 個）時預設只展開最上層，使用者點開的記在這裡。</summary>
     readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
@@ -335,14 +358,32 @@ public sealed class ProjectsPage : UserControl, IWorkPage
             grid.Children.Add(toggle);
         }
 
-        var name = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, ToolTip = $"{t.Key} {t.Title}\n點一下看詳細" };
-        var link = new Hyperlink(new Run(t.Key)) { FontWeight = FontWeights.SemiBold, TextDecorations = null, Cursor = System.Windows.Input.Cursors.Hand };
-        link.SetResourceReference(TextElement.ForegroundProperty, "AccentBrush");
-        link.Click += (_, _) => _host.ShowPage("tasks", t.Key);
-        name.Inlines.Add(link);
-        name.Inlines.Add(new Run($" {t.Title}") { FontWeight = t.IsCategory ? FontWeights.SemiBold : FontWeights.Normal });
+        // 點編號複製編號、點名稱打開詳細（跟網頁一樣）
+        var name = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, ToolTip = $"{t.Key} {t.Title}\n點編號複製、點名稱看詳細" };
+        var key = KeyCopy.Run(t.Key);
+        key.FontWeight = FontWeights.SemiBold;
+        key.SetResourceReference(TextElement.ForegroundProperty, "AccentBrush");
+        name.MouseLeftButtonUp += (_, e) => KeyCopy.TryCopy(e.OriginalSource, _engine, t.Key);
+        name.Inlines.Add(key);
+        name.Inlines.Add(new Run(" "));
+        var title = new Hyperlink(new Run(TaskText.Title(t.Title, t.Test)))
+        {
+            FontWeight = t.IsCategory ? FontWeights.SemiBold : FontWeights.Normal, TextDecorations = null, Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        title.SetResourceReference(TextElement.ForegroundProperty, "TextBrush");
+        title.Click += (_, _) => _host.ShowPage("tasks", t.Key);
+        name.Inlines.Add(title);
         if (t.IsCategory)
             name.Inlines.Add(new Run("  · 分類") { Foreground = Brushes2.Get("MutedBrush"), FontSize = 11 });
+        if (t.Kind == TaskKind.Test && _results.TryGetValue(t.Key, out var results))
+        {
+            int N(string bucket) => results.Count(r => TaskKinds.Bucket(r.Status, r.StatusCategory) == bucket);
+            name.Inlines.Add(new Run($"  🐞{results.Count} ✓{N("pass")} 🔧{N("fixing")} 🧪{N("testing") + N("retest")}")
+            {
+                Foreground = Brushes2.Get("MutedBrush"), FontSize = 11,
+                ToolTip = $"測試結果 全部 {results.Count}、通過 {N("pass")}、修復中 {N("fixing")}、測試中 {N("testing") + N("retest")}",
+            });
+        }
         var done = t.StatusCategory is "DONE" or "CANCELLED";
         name.Opacity = done ? 0.55 : 1;
         Grid.SetColumn(name, 2);

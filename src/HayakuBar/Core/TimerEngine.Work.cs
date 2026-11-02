@@ -10,10 +10,11 @@ public sealed record ClaudeDigest(string Markdown, IReadOnlyDictionary<string, s
 /// <summary>我的任務分頁、團隊請假、任務狀態、通知封存／稍後提醒。</summary>
 public sealed partial class TimerEngine
 {
-    /// <summary>my_tasks 的分頁：進行中、逾期、該開始還沒開始、未開始。</summary>
+    /// <summary>my_tasks 的分頁：進行中、測試（放在進行中後面，跟網頁一樣）、逾期、該開始還沒開始、未開始。</summary>
     public static readonly IReadOnlyList<(string Tab, string Label)> TaskTabs =
     [
         ("in_progress", "進行中"),
+        ("test", "測試"),
         ("overdue", "逾期"),
         ("should_start", "該開始"),
         ("not_started", "未開始"),

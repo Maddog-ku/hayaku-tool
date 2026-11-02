@@ -62,7 +62,7 @@ public sealed class NotesPage : UserControl, IWorkPage
         _appendButton.Click += async (_, _) => await AppendAsync();
         _appendPanel.Children.Add(new TextBlock { Text = "附加內容", Style = (Style)FindResource("GroupLabel") });
         _appendPanel.Children.Add(_append);
-        _appendPanel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { _appendButton } });
+        _appendPanel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { _appendButton, MarkdownTable.InsertButton(this, _append) } });
 
         _newTitle = PageParts.Input(this, "名稱");
         _newBody = PageParts.Input(this, "內容（Markdown，可以先空著）", multiline: true);
@@ -73,7 +73,7 @@ public sealed class NotesPage : UserControl, IWorkPage
         _createPanel.Children.Add(new TextBlock { Text = "新增筆記（只有你看得到）", Style = (Style)FindResource("GroupLabel"), Margin = new Thickness(2, 0, 0, 8) });
         _createPanel.Children.Add(_newTitle);
         _createPanel.Children.Add(_newBody);
-        _createPanel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { _createButton, cancel } });
+        _createPanel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { _createButton, cancel, MarkdownTable.InsertButton(this, _newBody) } });
 
         var add = PageParts.Button(this, "＋ 新增筆記", primary: true);
         add.Click += (_, _) =>

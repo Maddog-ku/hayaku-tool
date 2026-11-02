@@ -355,7 +355,7 @@ public partial class PanelWindow : Window
         TotalText.Text = WorkMath.HoursText(worked);
         ExpectedText.Text = expected > 0 ? $" / {WorkMath.HoursText(expected)}" : "";
         ProgressFill.Width = expected > 0 ? ProgressWidth * Math.Min(1, worked / expected) : 0;
-        SummaryDetail.Text = expected > 0 && worked < expected
+        SummaryDetail.Text = !WorkMath.IsFilled(worked, expected)
             ? $"還差 {WorkMath.HoursMinutes(expected - worked)}"
             : WorkMath.HoursMinutes(worked);
 

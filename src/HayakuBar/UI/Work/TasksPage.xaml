@@ -11,7 +11,7 @@
                     ToolTip="{Binding Tip}">
                 <StackPanel>
                     <TextBlock FontSize="10.5" Foreground="{Binding MutedBrush}" TextTrimming="CharacterEllipsis">
-                        <Run Text="{Binding Key, Mode=OneWay}" />
+                        <Run Text="{Binding Key, Mode=OneWay}" Tag="copykey" Cursor="Hand" ToolTip="點一下複製編號" />
                         <Run Text="{Binding Project, Mode=OneWay}" />
                     </TextBlock>
                     <TextBlock Text="{Binding PathText}" FontSize="10.5" Foreground="{Binding MutedBrush}" TextTrimming="CharacterEllipsis"
@@ -69,7 +69,7 @@
                         VerticalAlignment="Top" Margin="-4,1,0,0" Visibility="{Binding RowVisibility}" />
                 <StackPanel Grid.Column="2" Margin="0,0,8,0" Opacity="{Binding TextOpacity}">
                     <TextBlock TextTrimming="CharacterEllipsis">
-                        <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
+                        <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" Tag="copykey" Cursor="Hand" ToolTip="點一下複製編號" />
                         <Run Text="{Binding Title, Mode=OneWay}" />
                     </TextBlock>
                     <TextBlock Text="{Binding SubText}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
@@ -157,6 +157,8 @@
                                 Click="StatusFilter_Click" ToolTip="狀態類別與各專案的狀態可以混著選" />
                         <ComboBox x:Name="ProjectBox" Width="200" VerticalAlignment="Top" Margin="0,0,8,4"
                                   SelectionChanged="ProjectBox_SelectionChanged" ToolTip="只看某個專案" />
+                        <ComboBox x:Name="DoneDaysBox" Width="110" VerticalAlignment="Top" Margin="0,0,8,4" Visibility="Collapsed"
+                                  SelectionChanged="DoneDaysBox_SelectionChanged" ToolTip="已完成：最近完成的在最上面" />
                         <CheckBox x:Name="LeafOnlyBox" Content="只顯示沒有子任務的" VerticalAlignment="Center" Margin="0,0,10,4"
                                   Click="LeafOnly_Click" ToolTip="上層任務不列出來，只看真正要做的事" />
                         <CheckBox x:Name="HideDoneBox" Content="不顯示完成及不處理" VerticalAlignment="Center" Margin="0,0,10,4"
@@ -257,6 +259,8 @@
                                          ToolTip="點一下修改名稱，Enter 儲存" />
                                 <TextBlock x:Name="ApprovalText" FontSize="12" Foreground="{DynamicResource WarnBrush}" Margin="0,4,0,0"
                                            TextWrapping="Wrap" Visibility="Collapsed" />
+                                <!-- 測試任務、測試結果：分類、嚴重度、輪數、回報的人與處理按鈕（開始修、送復驗、通過、退回…） -->
+                                <StackPanel x:Name="TestPanel" Visibility="Collapsed" Margin="0,10,0,0" />
 
                                 <WrapPanel Margin="0,12,0,0">
                                     <Button x:Name="TimerButton" Style="{StaticResource PrimaryButton}" Padding="12,5" Margin="0,0,6,6"
@@ -326,13 +330,25 @@
                                         <TextBlock Text="執行者" Style="{StaticResource FieldLabel}" />
                                         <TextBlock x:Name="AssigneesText" TextWrapping="Wrap" Margin="0,2,0,0" />
                                     </StackPanel>
-                                    <CheckBox x:Name="CategoryBox" Grid.Row="4" Grid.ColumnSpan="3" Content="當作分類（只用來分組）" Margin="0,0,0,12"
-                                              Click="Category_Click"
+                                    <StackPanel Grid.Row="4" Grid.Column="2" Margin="0,0,0,12">
+                                        <TextBlock Text="類型" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="TypeBox" SelectionChanged="TypeBox_SelectionChanged"
+                                                  ToolTip="一般、測試、測試結果；測試結果只能放在測試任務底下" />
+                                    </StackPanel>
+                                    <CheckBox x:Name="CategoryBox" Grid.Row="4" Content="當作分類（只用來分組）" Margin="0,18,0,12"
+                                              VerticalAlignment="Top" Click="Category_Click"
                                               ToolTip="不算未指派、不算逾期、不進任何人的我的任務、不能計時；日期與工時自動加總子任務。只有管理員、編輯者能設" />
                                 </Grid>
 
                                 <StackPanel x:Name="ChildrenSection">
-                                    <TextBlock Text="子任務" Style="{StaticResource GroupLabel}" Margin="0,6,0,4" />
+                                    <TextBlock x:Name="ChildrenHeader" Text="子任務" Style="{StaticResource GroupLabel}" Margin="0,6,0,4" />
+                                    <!-- 測試任務的測試結果：用名稱或編號搜尋、依狀態篩選 -->
+                                    <DockPanel x:Name="ResultFilterBar" Visibility="Collapsed" Margin="0,0,0,6">
+                                        <ComboBox x:Name="ResultBucketBox" DockPanel.Dock="Right" Width="110" Margin="8,0,0,0"
+                                                  SelectionChanged="ResultBucket_SelectionChanged" ToolTip="依狀態篩選" />
+                                        <TextBox x:Name="ResultFilterBox" Style="{StaticResource HintBox}" Tag="🔍 用名稱或編號找測試結果"
+                                                 TextChanged="ResultFilter_TextChanged" />
+                                    </DockPanel>
                                     <ItemsControl x:Name="ChildrenList" ItemTemplate="{StaticResource ChildRow}" />
                                     <!-- 子任務的工時：平常收起，展開才讀，依子任務列出每一段 -->
                                     <Expander x:Name="ChildHoursExpander" Margin="0,8,0,0" Expanded="ChildHours_Expanded"
@@ -354,7 +370,7 @@
                                 <!-- 相依、附件、文件、異動紀錄：平常收起，展開才讀（省請求） -->
                                 <Expander x:Name="DepsExpander" Margin="0,12,0,0" Expanded="Deps_Expanded" Foreground="{DynamicResource TextBrush}">
                                     <Expander.Header>
-                                        <TextBlock Text="相依關係" FontWeight="SemiBold" />
+                                        <TextBlock Text="相依與關聯任務" FontWeight="SemiBold" />
                                     </Expander.Header>
                                     <StackPanel x:Name="DepsPanel" Margin="20,6,0,0" />
                                 </Expander>

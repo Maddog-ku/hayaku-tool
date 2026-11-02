@@ -10,10 +10,15 @@ namespace HayakuBar.Mcp;
 /// </summary>
 public sealed record DependencyItem(string Id, string OtherKey, string OtherTitle, string? OtherStatus, string Rule, bool Blocking);
 
-/// <summary>Predecessors：這個任務在等的；Successors：在等這個任務的。</summary>
-public sealed record DependencyInfo(IReadOnlyList<DependencyItem> Predecessors, IReadOnlyList<DependencyItem> Successors);
+/// <summary>Predecessors：這個任務在等的；Successors：在等這個任務的；Related：關聯任務（不擋開始、可以跨專案）。</summary>
+public sealed record DependencyInfo(IReadOnlyList<DependencyItem> Predecessors, IReadOnlyList<DependencyItem> Successors,
+    IReadOnlyList<DependencyItem>? Related = null)
+{
+    public IReadOnlyList<DependencyItem> RelatedTasks => Related ?? [];
+}
 
-public sealed record AttachmentItem(string Name, long? Size, string? Uploader, DateTimeOffset? At, string? Url);
+/// <summary>附件；Id 給 read_file 讀內容。</summary>
+public sealed record AttachmentItem(string Name, long? Size, string? Uploader, DateTimeOffset? At, string? Url, string? Id = null);
 
 /// <summary>任務異動紀錄的一則：Text 已經換成中文說明。</summary>
 public sealed record TaskActivityItem(DateTimeOffset At, string Actor, string Text);
@@ -77,13 +82,29 @@ public sealed partial class HayakuApi
 
     // ───────────── 解析 ─────────────
 
-    internal static DependencyInfo ParseDependencies(JsonElement r) =>
-        new(Items(r, "predecessors").Select(d => ParseDependency(d, "predecessor")).OfType<DependencyItem>().ToList(),
-            Items(r, "successors").Select(d => ParseDependency(d, "successor")).OfType<DependencyItem>().ToList());
+    /// <summary>關聯任務可能另外放在 related，也可能混在前置／後續裡（kind: related），都挑出來放 Related。</summary>
+    internal static DependencyInfo ParseDependencies(JsonElement r)
+    {
+        static bool IsRelated(JsonElement d) =>
+            FirstStr(d, "kind", "type") is { } k && k.Equals("related", StringComparison.OrdinalIgnoreCase);
+        var related = Items(r, "related", "relatedTasks")
+            .Concat(Items(r, "predecessors").Concat(Items(r, "successors")).Where(IsRelated))
+            .Select(d => ParseDependency(d, "related"))
+            .OfType<DependencyItem>()
+            .Select(d => d with { Rule = "", Blocking = false })
+            .DistinctBy(d => d.OtherKey, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new(
+            Items(r, "predecessors").Where(d => !IsRelated(d)).Select(d => ParseDependency(d, "predecessor")).OfType<DependencyItem>().ToList(),
+            Items(r, "successors").Where(d => !IsRelated(d)).Select(d => ParseDependency(d, "successor")).OfType<DependencyItem>().ToList(),
+            related);
+    }
 
     /// <summary>另一端的任務可能放在 task、predecessor／successor、other 底下，或直接在這一層。</summary>
     static DependencyItem? ParseDependency(JsonElement d, string side)
     {
+        if (d.ValueKind == JsonValueKind.String)
+            return KeyFinder.Parse(d.GetString()) is { } k ? new DependencyItem("", k, "", null, "", false) : null;
         if (d.ValueKind != JsonValueKind.Object)
             return null;
         var other = new[] { side, "task", "other" }
@@ -114,7 +135,8 @@ public sealed partial class HayakuApi
                     ? u.ValueKind == JsonValueKind.String ? u.GetString() : Person(u)?.DisplayName
                     : null,
                 Date(a, "createdAt") ?? Date(a, "uploadedAt"),
-                Str(a, "webUrl") ?? Str(a, "url")))
+                Str(a, "webUrl") ?? Str(a, "url"),
+                FirstStr(a, "id", "attachmentId", "fileId")))
             .ToList();
 
     internal static List<ContentDoc> ParseContent(JsonElement r)

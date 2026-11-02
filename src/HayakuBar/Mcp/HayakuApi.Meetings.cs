@@ -41,9 +41,12 @@ public sealed record MeetingFile(string Id, string FileName, long SizeBytes, str
     };
 }
 
-/// <summary>白板：文字（由上到下、由左到右）、圖形數量、圖片數、快照數。MCP 不能改白板。</summary>
+/// <summary>
+/// 白板：文字（由上到下、由左到右）、圖形數量、圖片數、快照數。MCP 不能改白板。
+/// Id 給 read_file 看縮圖，ImageIds 是白板上的圖片（read_file 看圖）。
+/// </summary>
 public sealed record MeetingWhiteboard(string Title, DateTimeOffset? UpdatedAt, IReadOnlyList<string> Text, int ElementCount, int ImageCount,
-    int Snapshots);
+    int Snapshots, string? Id = null, IReadOnlyList<string>? ImageIds = null);
 
 /// <summary>會議詳細、修改、會議紀錄、檔案、白板。</summary>
 public sealed partial class HayakuApi
@@ -163,6 +166,10 @@ public sealed partial class HayakuApi
                     : [],
                 b.TryGetProperty("elementCount", out var ec) && ec.TryGetInt32(out var count) ? count : 0,
                 Items(b, "images").Count(),
-                b.TryGetProperty("snapshots", out var sn) && sn.TryGetInt32(out var snaps) ? snaps : 0))
+                b.TryGetProperty("snapshots", out var sn) && sn.TryGetInt32(out var snaps) ? snaps : 0,
+                FirstStr(b, "id", "whiteboardId"),
+                Items(b, "images")
+                    .Select(i => i.ValueKind == JsonValueKind.String ? i.GetString() : FirstStr(i, "attachmentId", "id", "fileId"))
+                    .OfType<string>().ToList()))
             .ToList();
 }

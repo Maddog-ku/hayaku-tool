@@ -38,6 +38,13 @@
                     </Grid>
                 </RadioButton>
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="projects" Checked="Nav_Checked" Content="專案" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="tests" Checked="Nav_Checked">
+                    <Grid>
+                        <TextBlock Text="測試" />
+                        <TextBlock x:Name="TestsBadge" HorizontalAlignment="Right" FontSize="11"
+                                   Foreground="{DynamicResource AccentBrush}" ToolTip="要修的測試結果" />
+                    </Grid>
+                </RadioButton>
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="reviews" Checked="Nav_Checked">
                     <Grid>
                         <TextBlock Text="待我審核" />

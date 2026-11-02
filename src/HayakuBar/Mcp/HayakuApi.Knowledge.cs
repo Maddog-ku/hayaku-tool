@@ -18,8 +18,8 @@ public sealed record NoteContent(string Id, string Title, string Markdown, IRead
 /// <summary>筆記本、團隊空間的搜尋結果；Space 只有團隊空間才有。</summary>
 public sealed record KnowledgeHit(string Id, string Title, string? Space, string? Snippet);
 
-/// <summary>團隊空間（list_spaces）。</summary>
-public sealed record SpaceInfo(string Key, string Name, string? Role, int? PageCount);
+/// <summary>團隊空間（list_spaces）；Project：所屬專案的代碼（專案裡開的空間），Archived：專案封存了、只能看。</summary>
+public sealed record SpaceInfo(string Key, string Name, string? Role, int? PageCount, string? Project = null, bool Archived = false);
 
 /// <summary>空間頁面樹的一個節點（get_space_tree）；Kind：一般頁、檔案庫（FILES）…</summary>
 public sealed record SpaceNode(string Id, string Title, string? ParentId, string? Kind, DateTimeOffset? UpdatedAt)
@@ -104,9 +104,16 @@ public sealed partial class HayakuApi
     public async Task<SpacePageContent> GetSpacePageAsync(string space, string pageId, CancellationToken ct) =>
         ParseSpacePage(await Mcp.CallToolAsync("get_space_page", new { space, pageId }, ct), pageId);
 
-    /// <summary>space 為 null 時搜全部看得到的空間。</summary>
-    public async Task<List<KnowledgeHit>> SearchSpacesAsync(string q, string? space, CancellationToken ct) =>
-        ParseHits(await Mcp.CallToolAsync("search_spaces", space is null ? new { q } : new { q, space }, ct));
+    /// <summary>space 為 null 時搜全部看得到的空間；project：只搜那個專案的空間。</summary>
+    public async Task<List<KnowledgeHit>> SearchSpacesAsync(string q, string? space, CancellationToken ct, string? project = null)
+    {
+        var args = new Dictionary<string, object?> { ["q"] = q };
+        if (space is not null)
+            args["space"] = space;
+        if (project is not null)
+            args["project"] = project;
+        return ParseHits(await Mcp.CallToolAsync("search_spaces", args, ct));
+    }
 
     /// <summary>新增一頁（parentId 為 null 放最上層）；回傳新頁的 id（回應裡找不到就是 null）。</summary>
     public async Task<string?> CreateSpacePageAsync(string space, string? parentId, string title, string markdown, CancellationToken ct)
@@ -140,7 +147,10 @@ public sealed partial class HayakuApi
         Items(r, "spaces", "items")
             .Where(s => FirstStr(s, "key", "code") is not null)
             .Select(s => new SpaceInfo(FirstStr(s, "key", "code")!, FirstStr(s, "name", "title") ?? FirstStr(s, "key", "code")!,
-                FirstStr(s, "role", "myRole"), Number(s, "pageCount", "pages")))
+                FirstStr(s, "role", "myRole"), Number(s, "pageCount", "pages"),
+                s.TryGetProperty("project", out var p) && p.ValueKind == JsonValueKind.Object ? FirstStr(p, "key", "code")
+                    : FirstStr(s, "project", "projectKey"),
+                Bool(s, "archived") || Bool(s, "isArchived") || Bool(s, "readOnly")))
             .ToList();
 
     /// <summary>頁面樹：平的清單（parentId）或巢狀（children）都接受，攤平成照樹狀順序的清單。</summary>

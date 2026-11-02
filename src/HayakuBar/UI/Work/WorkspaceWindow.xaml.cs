@@ -29,7 +29,7 @@ public partial class WorkspaceWindow : Window
         RefreshChrome();
     }
 
-    /// <summary>頁面：tasks、projects、reviews、hours、entries、worklog、reminders、meetings、chat、notes、spaces、forum、team、activity、workload、leaves、eipleaves、stats。</summary>
+    /// <summary>頁面：tasks、projects、tests、reviews、hours、entries、worklog、reminders、meetings、chat、notes、spaces、forum、team、activity、workload、leaves、eipleaves、stats。</summary>
     public void ShowPage(string page, object? arg = null)
     {
         _pendingArg = arg;
@@ -70,6 +70,7 @@ public partial class WorkspaceWindow : Window
                 "activity" => new ActivityPage(_engine, this),
                 "workload" => new WorkloadPage(_engine, this),
                 "projects" => new ProjectsPage(_engine, this),
+                "tests" => new TestsPage(_engine, this),
                 _ => new TasksPage(_engine, this),
             };
             _pages[page] = view;
@@ -94,6 +95,8 @@ public partial class WorkspaceWindow : Window
         TasksBadge.Text = overdue > 0 ? $"逾期 {overdue}" : "";
         var reviews = _engine.PendingReviews.Count;
         ReviewsBadge.Text = reviews > 0 ? reviews.ToString() : "";
+        var fixes = _engine.MyFixes.Count;
+        TestsBadge.Text = fixes > 0 ? fixes.ToString() : "";
     }
 
     void OnPreviewKeyDown(object sender, KeyEventArgs e)

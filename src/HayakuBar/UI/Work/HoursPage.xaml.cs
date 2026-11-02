@@ -101,7 +101,7 @@ public partial class HoursPage : UserControl, IWorkPage
             if (d <= today)
             {
                 expectedToDate += expected;
-                missingToDate += Math.Max(0, expected - worked);
+                missingToDate += WorkMath.Shortfall(worked, expected);
             }
 
             string tag = s?.Holiday ?? (s?.OnLeave == true ? "請假" : "");
@@ -119,7 +119,7 @@ public partial class HoursPage : UserControl, IWorkPage
                 value = $"應 {WorkMath.HoursText(expected)}";
                 valueBrush = Brushes2.Get("MutedBrush");
             }
-            else if (worked >= expected - 5)
+            else if (WorkMath.IsFilled(worked, expected))
             {
                 bg = Brushes2.Get("FilledBrush");
                 value = $"{WorkMath.HoursText(worked)} / {WorkMath.HoursText(expected)}";
@@ -165,7 +165,7 @@ public partial class HoursPage : UserControl, IWorkPage
         ExpectedText.Text = WorkMath.HoursText(expectedTotal);
         ExpectedToDateText.Text = $"到今天 {WorkMath.HoursMinutes(expectedToDate)}";
         MissingText.Text = WorkMath.HoursText(missingToDate);
-        MissingText.Foreground = Brushes2.Get(missingToDate > 5 ? "ErrorBrush" : "TextBrush");
+        MissingText.Foreground = Brushes2.Get(missingToDate >= 0.5 ? "ErrorBrush" : "TextBrush");
         UnfilledText.Text = $"{partialDays + emptyDays} 天";
         UnfilledDetail.Text = $"不足 {partialDays} · 沒填 {emptyDays}";
     }

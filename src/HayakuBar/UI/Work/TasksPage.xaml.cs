@@ -91,6 +91,11 @@ public partial class TasksPage : UserControl, IWorkPage
 {
     const string SearchTab = "search";
 
+    /// <summary>已完成分頁：不在我的任務那一份裡，切過來才讀（my_tasks tab=done，選期間）。</summary>
+    const string DoneTab = "done";
+
+    static readonly (string Days, string Label)[] DoneRanges = [("7", "最近 7 天"), ("30", "最近 30 天"), ("90", "最近 90 天"), ("all", "全部")];
+
     readonly TimerEngine _engine;
     readonly WorkspaceWindow _host;
     readonly Dictionary<string, RadioButton> _tabs = [];
@@ -98,6 +103,7 @@ public partial class TasksPage : UserControl, IWorkPage
     string _view = "list"; // list、tree、kanban
     string? _project; // 只看這個專案（名稱）；null＝全部
     List<TaskSummary> _doneTasks = [];
+    string _doneDays = "30";
     DateTime _doneFetched = DateTime.MinValue;
     bool _loadingDone;
     readonly System.Windows.Threading.DispatcherTimer _kanbanTick = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -123,7 +129,7 @@ public partial class TasksPage : UserControl, IWorkPage
         _engine = engine;
         _host = host;
         InitializeComponent();
-        foreach (var (tab, label) in TimerEngine.TaskViewTabs.Append((SearchTab, "搜尋結果")))
+        foreach (var (tab, label) in TimerEngine.TaskViewTabs.Append((DoneTab, "已完成")).Append((SearchTab, "搜尋結果")))
         {
             var button = new RadioButton
             {
@@ -144,6 +150,8 @@ public partial class TasksPage : UserControl, IWorkPage
         _tabs[_tab].IsChecked = true;
 
         _buildingFilters = true;
+        DoneDaysBox.ItemsSource = DoneRanges.Select(r => r.Label).ToList();
+        DoneDaysBox.SelectedIndex = 1;
         SortBox.ItemsSource = TaskOrder.Sorts.Select(s => s.Label).ToList();
         var sortIndex = TaskOrder.Sorts.ToList().FindIndex(s => s.Key == _engine.Config.TaskSort);
         SortBox.SelectedIndex = Math.Max(0, sortIndex);
@@ -165,6 +173,8 @@ public partial class TasksPage : UserControl, IWorkPage
                 CloseDialog();
                 e.Handled = true;
             }
+            else
+                HandleDetailKeys(e);
         };
         Loaded += (_, _) => _engine.Changed += OnEngineChanged;
         Unloaded += (_, _) => _engine.Changed -= OnEngineChanged;
@@ -211,6 +221,10 @@ public partial class TasksPage : UserControl, IWorkPage
             var count = _engine.TaskList(tab).Count(t => !leafOnly || t.IsLeaf);
             _tabs[tab].Content = count > 0 ? $"{label} {count}" : label;
         }
+        _tabs[DoneTab].Content = _doneTasks.Count > 0 && _doneFetched > DateTime.MinValue ? $"已完成 {_doneTasks.Count}" : "已完成";
+        DoneDaysBox.Visibility = _tab == DoneTab && !Kanban_On ? Visibility.Visible : Visibility.Collapsed;
+        if (_tab == DoneTab && !Kanban_On && DateTime.Now - _doneFetched > TimeSpan.FromMinutes(5))
+            _ = LoadDoneAsync();
         List<TaskListRowVm> rows;
         List<TaskSummary> shown = [];
         var sort = TaskOrder.Sorts[Math.Max(0, SortBox.SelectedIndex)].Key;
@@ -241,7 +255,7 @@ public partial class TasksPage : UserControl, IWorkPage
             IReadOnlyList<TaskSummary> all = Kanban_On
                 ? _engine.TaskLists.Values.SelectMany(l => l).Concat(hideDone ? [] : _doneTasks)
                     .DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList()
-                : _engine.TaskList(_tab);
+                : _tab == DoneTab ? _doneTasks : _engine.TaskList(_tab);
             RenderProjectBox(_engine.TaskLists.Values.SelectMany(l => l).Concat(_doneTasks));
             var tasks = all.Where(t => (_project is null || t.Project == _project) && (!leafOnly || t.IsLeaf)).ToList();
             RenderStatusFilters(tasks);
@@ -252,7 +266,7 @@ public partial class TasksPage : UserControl, IWorkPage
             rows = shown.Select(t => new TaskListRowVm
             {
                 Key = t.Key,
-                Title = t.Title,
+                Title = TaskText.Title(t),
                 Context = _view == "list" && projectColumn ? t.Path : t.Path.Length > 0 ? $"{t.Project} › {t.Path}" : t.Project,
                 Status = t.Status,
                 PlannedStart = t.PlannedStart,
@@ -263,11 +277,13 @@ public partial class TasksPage : UserControl, IWorkPage
                 Timing = running.Contains(t.Key) || t.Timing,
                 Done = t.StatusCategory is "DONE" or "CANCELLED",
             }).ToList();
-            ListMessage.Text = rows.Count > 0 ? "" : _engine.TaskLists.Count == 0 ? "讀取中…" : !_statusFilter.IsEmpty
+            ListMessage.Text = rows.Count > 0 ? "" : _engine.TaskLists.Count == 0 || _tab == DoneTab && _loadingDone ? "讀取中…" : !_statusFilter.IsEmpty
                 ? "沒有符合狀態篩選的任務" : leafOnly && all.Count > 0 ? "沒有「沒有子任務」的任務（取消勾選看上層任務）" : _tab switch
             {
                 "overdue" => "沒有逾期的任務 🎉",
                 "should_start" => "沒有該開始還沒開始的任務",
+                "test" => "沒有指派給你的測試任務或測試結果",
+                DoneTab => $"{DoneRanges.First(r => r.Days == _doneDays).Label}沒有完成的任務",
                 _ => "這裡沒有任務",
             };
         }
@@ -365,7 +381,10 @@ public partial class TasksPage : UserControl, IWorkPage
             _ = LoadDoneAsync();
     }
 
-    /// <summary>已完成欄：my_tasks 的 DONE（最多 3 頁），5 分鐘內不重讀。</summary>
+    /// <summary>
+    /// 已完成分頁、看板的已完成欄：my_tasks 的已完成分頁（最近完成的在最上面，一個請求），期間照「已完成」分頁選的；
+    /// 5 分鐘內不重讀。
+    /// </summary>
     async Task LoadDoneAsync()
     {
         if (_loadingDone)
@@ -374,7 +393,7 @@ public partial class TasksPage : UserControl, IWorkPage
         _doneFetched = DateTime.Now;
         try
         {
-            _doneTasks = await _engine.Api.MyTasksByCategoryAsync("DONE", 3, CancellationToken.None);
+            _doneTasks = await _engine.Api.MyDoneTasksAsync(_doneDays, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -420,8 +439,18 @@ public partial class TasksPage : UserControl, IWorkPage
 
     async void KanbanCard_Click(object sender, MouseButtonEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is KanbanCardVm card)
+        if ((sender as FrameworkElement)?.Tag is KanbanCardVm card && !KeyCopy.TryCopy(e.OriginalSource, _engine, card.Key))
             await OpenTaskAsync(card.Key);
+    }
+
+    void DoneDaysBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_buildingFilters || DoneDaysBox.SelectedIndex < 0)
+            return;
+        _doneDays = DoneRanges[DoneDaysBox.SelectedIndex].Days;
+        _doneTasks = [];
+        _doneFetched = DateTime.MinValue;
+        RenderList();
     }
 
     // ───────────── 專案篩選 ─────────────
@@ -607,8 +636,11 @@ public partial class TasksPage : UserControl, IWorkPage
         for (var d = e.OriginalSource as DependencyObject; d is not null && d != TreeList; d = VisualTreeHelper.GetParent(d))
             if (d is ButtonBase)
                 return;
-        switch ((e.OriginalSource as FrameworkElement)?.DataContext)
+        var context = (e.OriginalSource as FrameworkElement)?.DataContext ?? (e.OriginalSource as FrameworkContentElement)?.DataContext;
+        switch (context)
         {
+            case MyTreeTaskVm task when KeyCopy.TryCopy(e.OriginalSource, _engine, task.Key):
+                break;
             case MyTreeTaskVm task:
                 await OpenTaskAsync(task.Key);
                 break;
@@ -771,7 +803,8 @@ public partial class TasksPage : UserControl, IWorkPage
         for (var d = e.OriginalSource as DependencyObject; d is not null && d != TaskList; d = VisualTreeHelper.GetParent(d))
             if (d is ButtonBase)
                 return;
-        if ((e.OriginalSource as FrameworkElement)?.DataContext is TaskListRowVm row)
+        var context = (e.OriginalSource as FrameworkElement)?.DataContext ?? (e.OriginalSource as FrameworkContentElement)?.DataContext;
+        if (context is TaskListRowVm row && !KeyCopy.TryCopy(e.OriginalSource, _engine, row.Key))
             await OpenTaskAsync(row.Key);
     }
 
@@ -893,6 +926,7 @@ public partial class TasksPage : UserControl, IWorkPage
             ChildHoursHeader.Text = "子任務的工時";
         }
         CategoryBox.IsChecked = d.IsCategory;
+        RenderTesting(d);
         NoteText.Text = d.Note ?? "";
         NoteSection.Visibility = string.IsNullOrWhiteSpace(d.Note) ? Visibility.Collapsed : Visibility.Visible;
         ResetExtras(d);
@@ -1710,7 +1744,7 @@ public sealed class MyTreeTaskVm : System.ComponentModel.INotifyPropertyChanged
         var vm = new MyTreeTaskVm
         {
             Key = node.Key,
-            Title = node.Title,
+            Title = node.Task is not null && rows.GetValueOrDefault(node.Key) is { } row ? row.Title : node.Title,
             Row = node.Task is not null ? rows.GetValueOrDefault(node.Key) : null,
             Depth = depth,
             _collapsed = collapsed,
@@ -1730,7 +1764,7 @@ public sealed class KanbanCardVm(TaskSummary task, TaskListRowVm row) : System.C
     public TaskSummary Task { get; } = task;
     public TaskListRowVm Row { get; } = row;
     public string Key => Task.Key;
-    public string Title => Task.Title;
+    public string Title => Row.Title;
     public string Project => Task.Project;
     public string Status => Task.Status;
     public string PathText => Task.Path;
