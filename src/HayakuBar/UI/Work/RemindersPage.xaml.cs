@@ -76,6 +76,9 @@ public partial class RemindersPage : UserControl, IWorkPage
         MessageInput.Text = "";
         TaskBox.Text = "";
         RepeatBox.SelectedIndex = 0;
+        RelativeBox.SelectedIndex = 0;
+        OffsetBox.Text = "";
+        AudienceBox.SelectedIndex = 0;
     }
 
     async Task LoadAsync()
@@ -168,9 +171,18 @@ public partial class RemindersPage : UserControl, IWorkPage
             MessageInput.Focus();
             return;
         }
-        if (Inputs.ParseDate(DateBox.Text) is not { } date)
+        var relative = (RelativeBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        var audience = (AudienceBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "me";
+        var repeat = (RepeatBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "none";
+        if ((relative.Length > 0 || audience == "assignees") && task is null)
         {
-            Inputs.Show(FormStatus, "日期看不懂，請用 今天、明天、11/5 這類寫法");
+            Inputs.Show(FormStatus, relative.Length > 0 ? "照任務預計日期提醒要先填綁哪個任務" : "提醒所有執行者要先填綁哪個任務");
+            TaskBox.Focus();
+            return;
+        }
+        if (relative.Length > 0 && repeat != "none")
+        {
+            Inputs.Show(FormStatus, "照任務預計日期提醒不能重複，重複請改回「上面的日期」");
             return;
         }
         if (Inputs.ParseTime(TimeBox.Text) is not { } time)
@@ -183,7 +195,33 @@ public partial class RemindersPage : UserControl, IWorkPage
             args["message"] = message;
         if (task is not null)
             args["task"] = task;
-        var repeat = (RepeatBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "none";
+        if (audience == "assignees")
+            args["audience"] = "assignees";
+        if (relative.Length > 0)
+        {
+            var offsetText = OffsetBox.Text.Trim();
+            if (!int.TryParse(offsetText.Length == 0 ? "0" : offsetText, out var offset) || offset is < -30 or > 30)
+            {
+                Inputs.Show(FormStatus, "前後幾天請填 -30～30 的整數，例 -1 是前一天");
+                return;
+            }
+            args["relativeTo"] = relative;
+            args["offsetDays"] = offset;
+            args["time"] = time.ToString("HH:mm");
+            var when = $"{(relative == "plannedStart" ? "預計開始" : "預計結束")}{(offset == 0 ? "當天" : offset < 0 ? $"前 {-offset} 天" : $"後 {offset} 天")}";
+            if (!await Inputs.Run(AddButton, FormStatus, () => _engine.Api.CreateReminderAsync(args, CancellationToken.None),
+                    $"已新增：{task} {when} {time:HH:mm}{(message.Length > 0 ? " " + message : "")}"))
+                return;
+            ResetForm();
+            await _engine.AfterExternalChangeAsync();
+            await LoadAsync();
+            return;
+        }
+        if (Inputs.ParseDate(DateBox.Text) is not { } date)
+        {
+            Inputs.Show(FormStatus, "日期看不懂，請用 今天、明天、11/5 這類寫法");
+            return;
+        }
         if (repeat == "none")
         {
             var at = Inputs.Local(date, time);

@@ -256,6 +256,17 @@ public sealed partial class HayakuApi
             .Where(t => FirstKey(t, "task", "key") is not null)
             .Select(t =>
             {
+                // 實際回應：results { total, open, byStatus { 狀態: 筆數 } }，依狀態分組加總
+                var byStatus = Obj(Obj(t, "results"), "byStatus");
+                if (byStatus.ValueKind == JsonValueKind.Object)
+                {
+                    var buckets = byStatus.EnumerateObject()
+                        .GroupBy(p => TaskKinds.Bucket(p.Name))
+                        .ToDictionary(g => g.Key, g => g.Sum(p => p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var n) ? n : 0));
+                    int B(string bucket) => buckets.GetValueOrDefault(bucket);
+                    return new TestTaskProgress(FirstKey(t, "task", "key")!, FirstStr(t, "title", "name") ?? "", ProjectName(t),
+                        Number(Obj(t, "results"), "total") ?? buckets.Values.Sum(), B("pass"), B("fixing"), B("testing"), B("retest"));
+                }
                 var counts = Obj(t, "counts").ValueKind == JsonValueKind.Object ? Obj(t, "counts") : t;
                 int N(params string[] names) => Number(counts, names) ?? 0;
                 return new TestTaskProgress(FirstKey(t, "task", "key")!, FirstStr(t, "title", "name") ?? "", ProjectName(t),

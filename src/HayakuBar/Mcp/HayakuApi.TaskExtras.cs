@@ -26,6 +26,9 @@ public sealed record TaskActivityItem(DateTimeOffset At, string Actor, string Te
 /// <summary>任務的文件（Markdown）與白板文字。</summary>
 public sealed record ContentDoc(string Title, string Text);
 
+/// <summary>子任務樹攤平的一列（get_task_tree）；Depth：1 是直接子任務。</summary>
+public sealed record TaskTreeRow(string Key, string Title, string Status, string? StatusCategory, int Depth, IReadOnlyList<string> Assignees);
+
 /// <summary>任務詳細的附加資料：相依、附件、文件、異動紀錄、刪除。都是展開那一塊才讀。</summary>
 public sealed partial class HayakuApi
 {
@@ -37,6 +40,33 @@ public sealed partial class HayakuApi
         ("finishThenTodo", "完成後自動變成待處理"),
         ("finishThenStart", "完成後自動開始"),
     ];
+
+    /// <summary>整棵子任務樹（照樹狀順序攤平）；Truncated：太大被截掉了。</summary>
+    public async Task<(List<TaskTreeRow> Rows, bool Truncated)> TaskTreeAsync(string task, int depth, CancellationToken ct)
+    {
+        var r = await Mcp.CallToolAsync("get_task_tree", new { task, depth }, ct);
+        return (ParseTaskTree(r), Bool(r, "truncated"));
+    }
+
+    internal static List<TaskTreeRow> ParseTaskTree(JsonElement r)
+    {
+        var rows = new List<TaskTreeRow>();
+        void Walk(JsonElement node, int depth)
+        {
+            foreach (var c in Items(node, "children"))
+            {
+                if (FirstKey(c, "task", "key") is not { } key)
+                    continue;
+                var assignees = Items(c, "assignees")
+                    .Select(a => a.ValueKind == JsonValueKind.String ? a.GetString() : Person(a)?.DisplayName ?? FirstStr(a, "name"))
+                    .Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a!).ToList();
+                rows.Add(new TaskTreeRow(key, FirstStr(c, "title") ?? "", FirstStr(c, "status") ?? "", FirstStr(c, "statusCategory"), depth, assignees));
+                Walk(c, depth + 1);
+            }
+        }
+        Walk(r, 1);
+        return rows;
+    }
 
     public async Task<DependencyInfo> ListDependenciesAsync(string task, CancellationToken ct) =>
         ParseDependencies(await Mcp.CallToolAsync("list_dependencies", new { task }, ct));

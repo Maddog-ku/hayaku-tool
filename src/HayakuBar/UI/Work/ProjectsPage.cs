@@ -76,6 +76,17 @@ public sealed class ProjectsPage : UserControl, IWorkPage
 
         var create = Button("＋ 新增任務", "FlatButton");
         create.Click += (_, _) => _host.ShowPage("tasks", "new");
+        var batchCreate = Button("＋ 批次新增", "FlatButton");
+        batchCreate.ToolTip = "貼上清單一次建立多個任務或整棵任務樹（縮排是子任務）；勾了一個任務時預設放在它底下";
+        batchCreate.Click += async (_, _) =>
+        {
+            if (SelectedProject is not { } key)
+                return;
+            var dialog = new BatchCreateWindow(_engine, key, _selected.Count == 1 ? _selected.First() : null) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+            if (dialog.Created)
+                await LoadAsync(fresh: true);
+        };
         var reload = Button("⟳ 重新整理", "FlatButton");
         reload.Click += async (_, _) => await LoadAsync(fresh: true);
         var web = Button("在網頁開啟 ↗", "FlatButton");
@@ -85,7 +96,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
                 Web.Open(_engine.WebUrl($"/projects/{Uri.EscapeDataString(key)}"));
         };
         var title = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { create, reload, web } };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { create, batchCreate, reload, web } };
         DockPanel.SetDock(actions, Dock.Right);
         title.Children.Add(actions);
         title.Children.Add(new TextBlock { Text = "專案", Style = (Style)FindResource("PageTitle"), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center });

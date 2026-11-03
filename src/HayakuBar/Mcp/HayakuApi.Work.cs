@@ -107,7 +107,8 @@ public sealed record WorkLogEntry(string Task, int Minutes, IReadOnlyList<(DateT
 
 public sealed record WorkLog(DateOnly Date, int TotalMinutes, IReadOnlyList<WorkLogEntry> Entries, string Markdown);
 
-public sealed record ChatMessage(string Id, PersonRef Author, string Body, DateTimeOffset CreatedAt, bool Deleted, string? PollQuestion);
+public sealed record ChatMessage(string Id, PersonRef Author, string Body, DateTimeOffset CreatedAt, bool Deleted, string? PollQuestion,
+    string? PollId = null);
 
 
 /// <summary>任務、提醒、請假、團隊、工作日誌、聊天、統計。</summary>
@@ -279,6 +280,27 @@ public sealed partial class HayakuApi
             Log.Info($"create_task 的回應裡找不到任務編號：{(raw.Length > 500 ? raw[..500] + "…" : raw)}");
         }
         return key ?? "";
+    }
+
+    /// <summary>
+    /// 一次建立整棵任務樹（create_tasks，全部成功或全部不建，最多 100 筆）；parent 有值時全部放在它底下。
+    /// assignMe：每個任務都指派給自己。回傳伺服器的說明（例如執行者建的要等核准），沒有就是 null。
+    /// </summary>
+    public async Task<string?> CreateTasksAsync(string project, string? parent, IReadOnlyList<OutlineNode> nodes, bool assignMe, CancellationToken ct)
+    {
+        object Item(OutlineNode n)
+        {
+            var item = new Dictionary<string, object?> { ["title"] = n.Title };
+            if (assignMe)
+                item["assignees"] = new[] { "me" };
+            if (n.Children.Count > 0)
+                item["children"] = n.Children.Select(Item).ToList();
+            return item;
+        }
+        var args = new Dictionary<string, object?> { ["project"] = project, ["tasks"] = nodes.Select(Item).ToList() };
+        if (parent is not null)
+            args["parent"] = parent;
+        return Message(await Mcp.CallToolAsync("create_tasks", args, ct));
     }
 
     /// <summary>上層、路徑、子任務裡的編號不是新任務的，找的時候跳過。</summary>
@@ -536,16 +558,23 @@ public sealed partial class HayakuApi
             args["project"] = project;
             args["channel"] = channel;
         }
-        var r = await Mcp.CallToolAsync("list_chat", args, ct);
+        return ParseChat(await Mcp.CallToolAsync("list_chat", args, ct));
+    }
+
+    /// <summary>list_chat 的訊息；投票訊息帶題目與投票 id（get_poll 看結果）。</summary>
+    internal static List<ChatMessage> ParseChat(JsonElement r)
+    {
         var list = new List<ChatMessage>();
         foreach (var m in Items(r, "items", "messages"))
         {
             if (Str(m, "id") is not { } id)
                 continue;
             var author = m.TryGetProperty("author", out var a) ? Person(a) : null;
-            var poll = m.TryGetProperty("poll", out var p) && p.ValueKind == JsonValueKind.Object ? Str(p, "question") : null;
+            var pollElement = m.TryGetProperty("poll", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
+            var poll = pollElement.ValueKind == JsonValueKind.Object ? Str(pollElement, "question") : null;
             list.Add(new ChatMessage(id, author ?? new PersonRef("", "系統"), Str(m, "body") ?? "", Date(m, "createdAt") ?? DateTimeOffset.Now,
-                m.TryGetProperty("deletedAt", out var d) && d.ValueKind == JsonValueKind.String, poll));
+                m.TryGetProperty("deletedAt", out var d) && d.ValueKind == JsonValueKind.String, poll,
+                pollElement.ValueKind == JsonValueKind.Object ? Str(pollElement, "id") : null));
         }
         return list;
     }

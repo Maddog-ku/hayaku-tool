@@ -178,6 +178,28 @@
                                     Click="OpenWeb_Click" />
                         </Grid>
                     </Border>
+                    <!-- Hayaku 的 MCP 沒有提供的個人設定：直接開網頁的那一頁 -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Hayaku 個人設定" Style="{StaticResource CardTitle}" />
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0,2,0,8"
+                                       Text="這些設定 Hayaku 還沒開放給應用程式改，點了直接開網頁的那一頁。" />
+                            <WrapPanel>
+                                <Button Content="基本資料與偏好" Style="{StaticResource LinkButton}" Margin="0,0,16,4" Tag="/me" Click="WebSetting_Click"
+                                        ToolTip="頭像、顯示名稱、職稱、工時顯示單位、同一時間只能有一個進行中任務" />
+                                <Button Content="外觀" Style="{StaticResource LinkButton}" Margin="0,0,16,4" Tag="/me?tab=appearance" Click="WebSetting_Click"
+                                        ToolTip="網頁的淺色、暗色、跟隨系統" />
+                                <Button Content="工作時間" Style="{StaticResource LinkButton}" Margin="0,0,16,4" Tag="/me?tab=work-time" Click="WebSetting_Click"
+                                        ToolTip="依工作時間自動暫停計時（午休、下班）" />
+                                <Button Content="通知" Style="{StaticResource LinkButton}" Margin="0,0,16,4" Tag="/me?tab=notifications" Click="WebSetting_Click"
+                                        ToolTip="通知量、各類通知要不要推播、提醒的預設方式、Hayaku 的 Slack 開通" />
+                                <Button Content="安全" Style="{StaticResource LinkButton}" Margin="0,0,16,4" Tag="/me?tab=security" Click="WebSetting_Click"
+                                        ToolTip="兩步驟驗證" />
+                                <Button Content="已連線的應用程式" Style="{StaticResource LinkButton}" Margin="0,0,16,4" Tag="/me?tab=claude" Click="WebSetting_Click"
+                                        ToolTip="Claude Code、HayakuBar 等已授權的應用程式，可以中斷連線" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- 工作列 -->

@@ -34,6 +34,13 @@ public sealed record SpacePageContent(string Id, string Title, string Markdown, 
 /// <summary>檔案庫的資料夾或檔案（list_space_files）。</summary>
 public sealed record SpaceFile(string Id, string Name, bool IsFolder, long? Size, string? Uploader, DateTimeOffset? At);
 
+/// <summary>投票的一個選項；Voters 匿名時是空的，Mine：我投了這個。</summary>
+public sealed record PollOption(string Label, int? Votes, IReadOnlyList<string> Voters, bool Mine);
+
+/// <summary>投票（get_poll，唯讀）；Votes 是 null 表示「投了才看得到結果」而我還沒投。</summary>
+public sealed record PollInfo(string Question, string? Place, string? Type, bool Anonymous, string? Status, DateTimeOffset? ClosesAt,
+    string? CreatedBy, IReadOnlyList<PollOption> Options, int? Voted, int? Pending);
+
 /// <summary>論壇貼文（list_forum_posts）。</summary>
 public sealed record ForumPost(string Id, string Title, string Author, DateTimeOffset? CreatedAt, int Replies,
     DateTimeOffset? LastActivityAt, IReadOnlyList<string> Tags, bool Pinned, bool Solved);
@@ -126,6 +133,25 @@ public sealed partial class HayakuApi
 
     public Task AppendSpacePageAsync(string space, string pageId, string markdown, CancellationToken ct) =>
         Mcp.CallToolAsync("append_to_space_page", new { space, pageId, markdown }, ct);
+
+    /// <summary>改一頁：title、markdown 為 null 的不改；整頁換掉前伺服器會自動存一版。</summary>
+    public Task UpdateSpacePageAsync(string space, string pageId, string? title, string? markdown, CancellationToken ct)
+    {
+        var args = new Dictionary<string, object?> { ["space"] = space, ["pageId"] = pageId };
+        if (title is not null)
+            args["title"] = title;
+        if (markdown is not null)
+            args["markdown"] = markdown;
+        return Mcp.CallToolAsync("update_space_page", args, ct);
+    }
+
+    /// <summary>移到同一個空間的別的上層（parentId 為 null＝最上層），排在最後。</summary>
+    public Task MoveSpacePageAsync(string space, string pageId, string? parentId, CancellationToken ct) =>
+        Mcp.CallToolAsync("move_space_page", new Dictionary<string, object?> { ["space"] = space, ["pageId"] = pageId, ["parentId"] = parentId }, ct);
+
+    /// <summary>刪除一頁（連子頁）；30 天內空間管理員可以在網頁還原。</summary>
+    public Task DeleteSpacePageAsync(string space, string pageId, CancellationToken ct) =>
+        Mcp.CallToolAsync("delete_space_page", new { space, pageId }, ct);
 
     /// <summary>檔案庫頁（kind 是 FILES）裡的資料夾與檔案；folderId 看某個資料夾。</summary>
     public async Task<List<SpaceFile>> ListSpaceFilesAsync(string space, string pageId, string? folderId, CancellationToken ct)
@@ -250,6 +276,22 @@ public sealed partial class HayakuApi
             ? new ForumMessage(id, PersonName(m, "author") ?? "", FirstStr(m, "body", "content") ?? "", FirstDate(m, "createdAt"),
                 Str(m, "deletedAt") is not null)
             : null;
+
+    // ───────────── 投票 ─────────────
+
+    public async Task<PollInfo> GetPollAsync(string poll, CancellationToken ct) =>
+        ParsePoll(await Mcp.CallToolAsync("get_poll", new { poll }, ct));
+
+    internal static PollInfo ParsePoll(JsonElement r) =>
+        new(FirstStr(r, "question", "title") ?? "（沒有題目）", FirstStr(r, "place"), FirstStr(r, "type"), Bool(r, "anonymous"),
+            FirstStr(r, "status"), FirstDate(r, "closesAt"), PersonName(r, "createdBy"),
+            Items(r, "options")
+                .Select(o => new PollOption(FirstStr(o, "label", "text") ?? "", Number(o, "votes"),
+                    Items(o, "voters").Select(v => v.ValueKind == JsonValueKind.String ? v.GetString() : Person(v)?.DisplayName ?? FirstStr(v, "name"))
+                        .Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v!).ToList(),
+                    Bool(o, "mine")))
+                .ToList(),
+            Number(r, "votedCount"), Number(r, "pendingCount"));
 
     // ───────────── 共用 ─────────────
 

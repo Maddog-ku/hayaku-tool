@@ -28,6 +28,9 @@ public sealed record MeetingDetail(
 /// <summary>會議紀錄的一份（一場會議可能有好幾份）。</summary>
 public sealed record MeetingNote(string Title, DateTimeOffset? UpdatedAt, string Markdown);
 
+/// <summary>會議紀錄的一版更新（get_meeting_note_history）：誰、何時、摘要與差異（＋新增、－刪除、～改了）。</summary>
+public sealed record MeetingNoteVersion(string Editor, DateTimeOffset? At, string Summary, string Diff);
+
 /// <summary>會議的檔案：Source 是 ATTACHMENT（會議附件）、CHAT（留言的附件）或紀錄裡上傳的。</summary>
 public sealed record MeetingFile(string Id, string FileName, long SizeBytes, string Source, string? UploadedBy, DateTimeOffset? UploadedAt)
 {
@@ -64,6 +67,10 @@ public sealed partial class HayakuApi
 
     public async Task<List<MeetingNote>> MeetingNotesAsync(string meeting, CancellationToken ct) =>
         ParseMeetingNotes(await Mcp.CallToolAsync("get_meeting_notes", new { meeting }, ct));
+
+    /// <summary>第一份會議紀錄最近幾版的更新歷程（新到舊）。</summary>
+    public async Task<List<MeetingNoteVersion>> MeetingNoteHistoryAsync(string meeting, int limit, CancellationToken ct) =>
+        ParseMeetingNoteHistory(await Mcp.CallToolAsync("get_meeting_note_history", new { meeting, limit }, ct));
 
     public async Task<List<MeetingFile>> MeetingFilesAsync(string meeting, CancellationToken ct) =>
         ParseMeetingFiles(await Mcp.CallToolAsync("list_meeting_files", new { meeting }, ct));
@@ -142,6 +149,14 @@ public sealed partial class HayakuApi
         Items(r, "notes")
             .Select(n => new MeetingNote(FirstStr(n, "title", "name") ?? "會議紀錄", FirstDate(n, "updatedAt"),
                 FirstStr(n, "markdown", "content", "text") ?? ""))
+            .ToList();
+
+    internal static List<MeetingNoteVersion> ParseMeetingNoteHistory(JsonElement r) =>
+        Items(r, "versions", "items")
+            .Select(v => new MeetingNoteVersion(
+                v.TryGetProperty("editor", out var e) && e.ValueKind == JsonValueKind.Object
+                    ? FirstStr(e, "displayName", "name", "username") ?? "" : FirstStr(v, "editor") ?? "",
+                FirstDate(v, "endedAt", "startedAt", "at"), FirstStr(v, "summary") ?? "", FirstStr(v, "diff") ?? ""))
             .ToList();
 
     internal static List<MeetingFile> ParseMeetingFiles(JsonElement r) =>

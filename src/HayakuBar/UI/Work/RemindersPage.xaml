@@ -56,6 +56,24 @@
                     <Button x:Name="AddButton" Content="新增" Style="{StaticResource PrimaryButton}" Padding="18,6" HorizontalAlignment="Right"
                             Click="Add_Click" />
                 </Grid>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <TextBlock Text="時間照" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox x:Name="RelativeBox" Width="170" SelectedIndex="0"
+                              ToolTip="綁任務時可以照任務的預計日期提醒，任務改日期提醒跟著動；用上面的時間、不看日期">
+                        <ComboBoxItem Content="上面的日期" Tag="" />
+                        <ComboBoxItem Content="任務預計開始" Tag="plannedStart" />
+                        <ComboBoxItem Content="任務預計結束" Tag="plannedEnd" />
+                    </ComboBox>
+                    <TextBox x:Name="OffsetBox" Style="{StaticResource HintBox}" Tag="0" Width="50" Margin="8,0,4,0" KeyDown="Form_KeyDown"
+                             ToolTip="前後幾天：-1 是前一天、0 是當天、2 是兩天後（-30～30）" />
+                    <TextBlock Text="天" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <TextBlock Text="提醒誰" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox x:Name="AudienceBox" Width="150" SelectedIndex="0"
+                              ToolTip="提醒所有執行者只有綁任務、而且是專案管理員、編輯者或任務建立者才能設">
+                        <ComboBoxItem Content="只有我" Tag="me" />
+                        <ComboBoxItem Content="任務的所有執行者" Tag="assignees" />
+                    </ComboBox>
+                </StackPanel>
                 <TextBlock x:Name="FormStatus" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
             </StackPanel>
         </Border>

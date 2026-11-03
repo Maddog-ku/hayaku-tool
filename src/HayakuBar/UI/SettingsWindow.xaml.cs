@@ -371,6 +371,13 @@ public partial class SettingsWindow : Window
 
     void OpenWeb_Click(object sender, RoutedEventArgs e) => Open(_engine.Config.BaseUrl);
 
+    /// <summary>Hayaku 網頁上的個人設定頁（Tag 是路徑）。</summary>
+    void WebSetting_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string path)
+            Open(_engine.WebUrl(path));
+    }
+
     // ───────────── EIP 請假 ─────────────
 
     void LoadEip()

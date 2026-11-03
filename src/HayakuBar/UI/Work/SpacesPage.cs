@@ -8,7 +8,8 @@ using HayakuBar.Mcp;
 namespace HayakuBar.UI.Work;
 
 /// <summary>
-/// 團隊空間：選空間 → 左邊頁面樹（可全文搜尋）→ 右邊看那頁的 Markdown；可以新增頁、在頁面最後附加內容。
+/// 團隊空間：選空間 → 左邊頁面樹（可全文搜尋）→ 右邊看那頁的 Markdown；可以新增頁、在頁面最後附加內容、
+/// 編輯（改名、整頁換內容）、移到別的上層、刪除（連子頁，30 天內空間管理員可以在網頁還原）。
 /// 檔案庫頁列出資料夾與檔案，點檔案拿下載連結（1 小時有效）用瀏覽器開。
 /// 第一次切到這頁才讀；頁面樹、頁面內容快取到按重新整理或換空間。
 /// </summary>
@@ -45,7 +46,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
 
     bool Writable => CurrentSpace is not { Archived: true };
     SpaceNode? _node;
-    bool _composeChild; // true：新增子頁；false：附加內容
+    ComposeMode _mode;
     bool _loaded;
     bool _building;
     int _version;
@@ -109,11 +110,21 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _files.Children.Add(_fileList);
 
         var child = PageParts.Button(this, "＋ 新增子頁");
-        child.Click += (_, _) => Compose(child: true);
+        child.Click += (_, _) => Compose(ComposeMode.Child);
         var append = PageParts.Button(this, "附加內容");
-        append.Click += (_, _) => Compose(child: false);
+        append.Click += (_, _) => Compose(ComposeMode.Append);
+        var edit = PageParts.Button(this, "✎ 編輯");
+        edit.ToolTip = "改頁名、整頁換成新的內容（換掉前網頁會自動存一版）";
+        edit.Click += (_, _) => Compose(ComposeMode.Edit);
+        var move = PageParts.Button(this, "移動…");
+        move.Click += async (_, _) => await MoveAsync();
+        var delete = PageParts.Button(this, "刪除…");
+        delete.Click += async (_, _) => await DeleteAsync();
         _actions.Children.Add(child);
         _actions.Children.Add(append);
+        _actions.Children.Add(edit);
+        _actions.Children.Add(move);
+        _actions.Children.Add(delete);
         _actions.Visibility = Visibility.Collapsed;
 
         _composeTitle = PageParts.Input(this, "名稱");
@@ -136,13 +147,13 @@ public sealed class SpacesPage : UserControl, IWorkPage
         newTop.Click += (_, _) =>
         {
             _node = _node is { IsFiles: true } ? null : _node;
-            Compose(child: true, topLevel: true);
+            Compose(ComposeMode.Child, topLevel: true);
         };
         var reload = PageParts.Button(this, "⟳ 重新整理");
         reload.Click += async (_, _) => await LoadSpacesAsync();
         var web = PageParts.Button(this, "在網頁開啟 ↗");
         web.Margin = new Thickness(0);
-        web.ToolTip = "編輯、移動、刪除頁面、上傳檔案請到網頁";
+        web.ToolTip = "上傳、刪除檔案、還原刪掉的頁面請到網頁";
         web.Click += (_, _) => Web.Open(_engine.WebUrl(SpaceKey is { } key ? $"/spaces/{Uri.EscapeDataString(key)}" : "/spaces"));
 
         var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
@@ -472,23 +483,43 @@ public sealed class SpacesPage : UserControl, IWorkPage
         }
     }
 
-    // ───────────── 新增頁、附加內容 ─────────────
+    // ───────────── 新增頁、附加內容、編輯 ─────────────
 
-    void Compose(bool child, bool topLevel = false)
+    enum ComposeMode { Child, Append, Edit }
+
+    void Compose(ComposeMode mode, bool topLevel = false)
     {
         if (SpaceKey is null)
             return;
-        _composeChild = child;
         if (topLevel)
             _node = null;
-        _composerLabel.Text = !child ? $"附加到「{_node?.Title}」最後" : _node is null ? "在最上層新增一頁" : $"在「{_node.Title}」底下新增一頁";
-        _composeTitle.Visibility = child ? Visibility.Visible : Visibility.Collapsed;
-        _composeBody.Tag = child ? "內容（Markdown，可以先空著）" : "要加在這頁最後的內容（Markdown，不會取代原本的內容）";
+        SpacePageContent? page = null;
+        if (mode == ComposeMode.Edit && (_node is null || !_pages.TryGetValue(_node.Id, out page)))
+            return;
+        _mode = mode;
+        _composerLabel.Text = mode switch
+        {
+            ComposeMode.Append => $"附加到「{_node?.Title}」最後",
+            ComposeMode.Edit => $"編輯「{_node?.Title}」",
+            _ => _node is null ? "在最上層新增一頁" : $"在「{_node.Title}」底下新增一頁",
+        };
+        _composeTitle.Visibility = mode == ComposeMode.Append ? Visibility.Collapsed : Visibility.Visible;
+        _composeBody.Tag = mode switch
+        {
+            ComposeMode.Append => "要加在這頁最後的內容（Markdown，不會取代原本的內容）",
+            ComposeMode.Edit => "整頁的內容（Markdown，會取代原本的內容）",
+            _ => "內容（Markdown，可以先空著）",
+        };
+        if (page is not null)
+        {
+            _composeTitle.Text = page.Title;
+            _composeBody.Text = page.Markdown.Trim();
+        }
         _composer.Visibility = Visibility.Visible;
-        if (child)
-            _composeTitle.Focus();
-        else
+        if (mode == ComposeMode.Append)
             _composeBody.Focus();
+        else
+            _composeTitle.Focus();
     }
 
     async Task SubmitAsync()
@@ -497,36 +528,144 @@ public sealed class SpacesPage : UserControl, IWorkPage
             return;
         var title = _composeTitle.Text.Trim();
         var body = _composeBody.Text.Trim();
-        if (_composeChild && title.Length == 0)
+        if (_mode != ComposeMode.Append && title.Length == 0)
         {
             Inputs.Show(_status, "請填名稱");
             _composeTitle.Focus();
             return;
         }
-        if (!_composeChild && (body.Length == 0 || _node is null))
+        if (_mode == ComposeMode.Append && (body.Length == 0 || _node is null))
         {
             Inputs.Show(_status, "請先填要附加的內容");
             _composeBody.Focus();
             return;
         }
         var parent = _node;
-        var ok = _composeChild
-            ? await Inputs.Run(_composeButton, _status, () => _engine.Api.CreateSpacePageAsync(space, parent?.Id, title, body, CancellationToken.None),
-                $"已新增「{title}」")
-            : await Inputs.Run(_composeButton, _status, () => _engine.Api.AppendSpacePageAsync(space, parent!.Id, body, CancellationToken.None),
-                "已附加到這頁");
+        var mode = _mode;
+        bool ok;
+        switch (mode)
+        {
+            case ComposeMode.Child:
+                ok = await Inputs.Run(_composeButton, _status, () => _engine.Api.CreateSpacePageAsync(space, parent?.Id, title, body, CancellationToken.None),
+                    $"已新增「{title}」");
+                break;
+            case ComposeMode.Append:
+                ok = await Inputs.Run(_composeButton, _status, () => _engine.Api.AppendSpacePageAsync(space, parent!.Id, body, CancellationToken.None),
+                    "已附加到這頁");
+                break;
+            default:
+                if (parent is null || !_pages.TryGetValue(parent.Id, out var old))
+                    return;
+                // 只送有改的：沒改名不送 title、內容沒變不送 markdown（免得多存一版）
+                var newTitle = title == old.Title ? null : title;
+                var newBody = body == old.Markdown.Trim() ? null : body;
+                if (newTitle is null && newBody is null)
+                {
+                    _composer.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                ok = await Inputs.Run(_composeButton, _status,
+                    () => _engine.Api.UpdateSpacePageAsync(space, parent.Id, newTitle, newBody, CancellationToken.None), "已儲存");
+                break;
+        }
         if (!ok)
             return;
         _composeTitle.Text = _composeBody.Text = "";
         _composer.Visibility = Visibility.Collapsed;
         var message = _status.Text;
-        if (_composeChild)
+        if (mode == ComposeMode.Child || mode == ComposeMode.Edit && title != parent?.Title)
             await LoadTreeAsync(refresh: true);
-        else if (parent is not null)
+        if (mode != ComposeMode.Child && parent is not null)
         {
             _pages.Remove(parent.Id);
-            await OpenAsync(parent);
+            await OpenAsync(parent with { Title = mode == ComposeMode.Edit ? title : parent.Title });
         }
         Inputs.Show(_status, message, error: false);
+    }
+
+    // ───────────── 移動、刪除 ─────────────
+
+    /// <summary>選新的上層（同一個空間、不能放進自己或子頁底下），移過去排在最後。</summary>
+    async Task MoveAsync()
+    {
+        if (SpaceKey is not { } space || _node is not { } node || !_trees.TryGetValue(space, out var nodes))
+            return;
+        var blocked = new HashSet<string> { node.Id };
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var n in nodes)
+                if (n.ParentId is { } p && blocked.Contains(p) && blocked.Add(n.Id))
+                    added = true;
+        } while (added);
+        var byId = nodes.ToDictionary(n => n.Id);
+        int Depth(SpaceNode n) => n.ParentId is { } p && byId.TryGetValue(p, out var parent) ? Depth(parent) + 1 : 0;
+        var choices = new List<(string? Id, string Text)> { (null, "（最上層）") };
+        choices.AddRange(nodes.Where(n => !blocked.Contains(n.Id) && !n.IsFiles)
+            .Select(n => ((string?)n.Id, new string(' ', Depth(n) * 3) + n.Title)));
+        var current = node.ParentId is { } cp && byId.ContainsKey(cp) ? cp : null;
+        var picker = new SpaceMoveWindow(node.Title, choices, current) { Owner = Window.GetWindow(this) };
+        if (picker.ShowDialog() != true || picker.Selected == current)
+            return;
+        var target = picker.Selected;
+        if (await Inputs.Run(null, _status, () => _engine.Api.MoveSpacePageAsync(space, node.Id, target, CancellationToken.None), $"已移動「{node.Title}」"))
+        {
+            var message = _status.Text;
+            await LoadTreeAsync(refresh: true);
+            Inputs.Show(_status, message, error: false);
+        }
+    }
+
+    async Task DeleteAsync()
+    {
+        if (SpaceKey is not { } space || _node is not { } node)
+            return;
+        var children = _trees.TryGetValue(space, out var nodes) ? nodes.Count(n => n.ParentId == node.Id) : 0;
+        var ok = MessageBox.Show(Window.GetWindow(this),
+            $"刪除「{node.Title}」？" + (children > 0 ? "底下的子頁會一起刪除。" : "") + "\n30 天內空間管理員可以在網頁還原。",
+            "刪除頁面", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        if (ok != MessageBoxResult.OK)
+            return;
+        if (await Inputs.Run(null, _status, () => _engine.Api.DeleteSpacePageAsync(space, node.Id, CancellationToken.None), $"已刪除「{node.Title}」"))
+        {
+            var message = _status.Text;
+            _pages.Remove(node.Id);
+            ShowEmpty();
+            await LoadTreeAsync(refresh: true);
+            Inputs.Show(_status, message, error: false);
+        }
+    }
+}
+
+/// <summary>移動團隊空間頁面：選新的上層（排在最後）。</summary>
+sealed class SpaceMoveWindow : SmallDialog
+{
+    readonly ListBox _list = new() { Height = 280, Margin = new Thickness(0, 0, 0, 12) };
+
+    public string? Selected { get; private set; }
+
+    public SpaceMoveWindow(string title, IReadOnlyList<(string? Id, string Text)> choices, string? current) : base("移動頁面")
+    {
+        Body.Children.Add(Label($"把「{title}」移到哪一頁底下？（排在最後）"));
+        foreach (var c in choices)
+            _list.Items.Add(new ListBoxItem { Content = c.Text + (c.Id == current ? "　· 目前位置" : ""), Tag = c.Id });
+        _list.SelectedIndex = Math.Max(0, choices.ToList().FindIndex(c => c.Id == current));
+        _list.MouseDoubleClick += (_, _) => Done();
+        Body.Children.Add(_list);
+        AddButton("移動", primary: true, () =>
+        {
+            Done();
+            return Task.CompletedTask;
+        });
+        AddButton("取消", primary: false, cancel: true);
+    }
+
+    void Done()
+    {
+        if (_list.SelectedItem is not ListBoxItem item)
+            return;
+        Selected = item.Tag as string;
+        DialogResult = true;
     }
 }

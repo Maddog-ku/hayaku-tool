@@ -84,7 +84,10 @@ public sealed class TaskListRowVm : System.ComponentModel.INotifyPropertyChanged
     }
 }
 
-public sealed record ChatRowVm(string Author, string Time, string Body);
+public sealed record ChatRowVm(string Author, string Time, string Body, string? PollId = null)
+{
+    public Visibility PollVisibility => PollId is null ? Visibility.Collapsed : Visibility.Visible;
+}
 
 /// <summary>我的任務：分頁清單、搜尋、詳細（直接改狀態、日期、工時）、子任務、聊天、新增任務。</summary>
 public partial class TasksPage : UserControl, IWorkPage
@@ -925,6 +928,13 @@ public partial class TasksPage : UserControl, IWorkPage
             ChildHoursPanel.Children.Clear();
             ChildHoursHeader.Text = "子任務的工時";
         }
+        if (_treeFor != d.Key)
+        {
+            _treeFor = null;
+            TreeExpander.IsExpanded = false;
+            TreePanel.Children.Clear();
+            TreeHeader.Text = "整棵子任務樹";
+        }
         CategoryBox.IsChecked = d.IsCategory;
         RenderTesting(d);
         NoteText.Text = d.Note ?? "";
@@ -997,8 +1007,14 @@ public partial class TasksPage : UserControl, IWorkPage
     internal static List<ChatRowVm> ChatRows(IEnumerable<ChatMessage> messages) =>
         messages.OrderBy(m => m.CreatedAt)
             .Select(m => new ChatRowVm(m.Author.DisplayName, Inputs.Ago(m.CreatedAt),
-                m.Deleted ? "（訊息已刪除）" : m.PollQuestion is { } q ? $"📊 投票：{q}" : m.Body))
+                m.Deleted ? "（訊息已刪除）" : m.PollQuestion is { } q ? $"📊 投票：{q}" : m.Body, m.Deleted ? null : m.PollId))
             .ToList();
+
+    /// <summary>聊天裡的投票：開小視窗看選項、票數與誰投了（唯讀，投票要到網頁）。</summary>
+    internal static void ShowPoll(TimerEngine engine, object sender) =>
+        PollWindow.Show(engine, (sender as FrameworkElement)?.Tag as string, sender is DependencyObject d ? Window.GetWindow(d) : null);
+
+    void Poll_Click(object sender, RoutedEventArgs e) => ShowPoll(_engine, sender);
 
     /// <summary>更新任務欄位；伺服器回的說明（例如送出變更申請）顯示在下方。</summary>
     async Task UpdateAsync(Dictionary<string, object?> fields, string what)
@@ -1269,6 +1285,57 @@ public partial class TasksPage : UserControl, IWorkPage
         }
         if (groups.All(g => g.Entries.Count == 0))
             ChildHoursPanel.Children.Add(new TextBlock { Text = "子任務都還沒有工時", Foreground = Brushes2.Get("MutedBrush") });
+    }
+
+    string? _treeFor;
+
+    /// <summary>展開「整棵子任務樹」才讀（最多 5 層）：照樹狀縮排，點編號打開那個任務。</summary>
+    async void Tree_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (_detail is null || _treeFor == _detail.Key)
+            return;
+        var key = _detail.Key;
+        _treeFor = key;
+        TreePanel.Children.Clear();
+        TreePanel.Children.Add(new TextBlock { Text = "讀取中…", Foreground = Brushes2.Get("MutedBrush") });
+        List<TaskTreeRow> rows;
+        bool truncated;
+        try
+        {
+            (rows, truncated) = await _engine.Api.TaskTreeAsync(key, 5, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"讀取 {key} 的子任務樹失敗", ex);
+            TreePanel.Children.Clear();
+            TreePanel.Children.Add(new TextBlock { Text = $"讀取失敗：{ex.Message}", Foreground = Brushes2.Get("ErrorBrush"), TextWrapping = TextWrapping.Wrap });
+            _treeFor = null;
+            return;
+        }
+        if (_detail?.Key != key)
+            return;
+        TreeHeader.Text = $"整棵子任務樹　{rows.Count} 個" + (truncated ? "（太多了，只列一部分）" : "");
+        TreePanel.Children.Clear();
+        foreach (var r in rows)
+        {
+            var row = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, Padding = new Thickness((r.Depth - 1) * 16, 2, 0, 2), Tag = r.Key };
+            row.MouseLeftButtonUp += Child_Click;
+            row.Child = new TextBlock
+            {
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Opacity = r.StatusCategory is "DONE" or "CANCELLED" ? 0.6 : 1,
+                Inlines =
+                {
+                    new System.Windows.Documents.Run(r.Key) { FontWeight = FontWeights.SemiBold, Foreground = Brushes2.Get("AccentBrush") },
+                    new System.Windows.Documents.Run($" {r.Title}"),
+                    new System.Windows.Documents.Run($" · {r.Status}" + (r.Assignees.Count > 0 ? $" · {string.Join("、", r.Assignees)}" : ""))
+                        { Foreground = Brushes2.Get("MutedBrush") },
+                },
+            };
+            TreePanel.Children.Add(row);
+        }
+        if (rows.Count == 0)
+            TreePanel.Children.Add(new TextBlock { Text = "沒有子任務", Foreground = Brushes2.Get("MutedBrush") });
     }
 
     void Remind_Click(object sender, RoutedEventArgs e)

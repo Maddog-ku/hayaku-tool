@@ -147,6 +147,7 @@ public partial class MeetingsPage
             DetailHost.Children.Add(Muted("沒有參加者"));
 
         DetailHost.Children.Add(LazySection("會議紀錄", d.Key, LoadNotesAsync));
+        DetailHost.Children.Add(LazySection("紀錄更新歷程", d.Key, LoadNoteHistoryAsync));
         DetailHost.Children.Add(LazySection("檔案", d.Key, LoadFilesAsync));
         DetailHost.Children.Add(LazySection("白板", d.Key, LoadWhiteboardsAsync));
     }
@@ -324,6 +325,30 @@ public partial class MeetingsPage
                     Child = new TextBox
                     {
                         Text = n.Markdown.Trim(), Style = (Style)FindResource("PlainText"), MaxHeight = 360,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    },
+                });
+        }
+    }
+
+    /// <summary>會議紀錄最近 10 版：誰、何時、摘要，差異（＋新增、－刪除、～改了）放在底下。</summary>
+    async Task LoadNoteHistoryAsync(string key, StackPanel body)
+    {
+        var versions = await _engine.Api.MeetingNoteHistoryAsync(key, 10, CancellationToken.None);
+        body.Children.Clear();
+        if (versions.Count == 0)
+            body.Children.Add(Muted("還沒有人改過會議紀錄"));
+        foreach (var v in versions)
+        {
+            var head = string.Join("　", new[] { v.Editor, v.At is { } at ? Inputs.Ago(at) : null, v.Summary }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            body.Children.Add(new TextBlock { Text = head, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4) });
+            if (v.Diff.Trim().Length > 0)
+                body.Children.Add(new Border
+                {
+                    Background = Brushes2.Get("SubtleBrush"), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 8, 10, 8), Margin = new Thickness(0, 0, 0, 8),
+                    Child = new TextBox
+                    {
+                        Text = v.Diff.Trim(), Style = (Style)FindResource("PlainText"), MaxHeight = 220,
                         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     },
                 });

@@ -158,6 +158,8 @@ public partial class ChatPage : UserControl, IWorkPage
 
     async void Reload_Click(object sender, RoutedEventArgs e) => await LoadMessagesAsync(scrollToEnd: false);
 
+    void Poll_Click(object sender, RoutedEventArgs e) => TasksPage.ShowPoll(_engine, sender);
+
     void Web_Click(object sender, RoutedEventArgs e)
     {
         if (_current is null)

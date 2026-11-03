@@ -106,6 +106,8 @@
                     <Run Text="{Binding Time, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" FontSize="11" />
                 </TextBlock>
                 <TextBox Text="{Binding Body, Mode=OneWay}" Style="{StaticResource PlainText}" Margin="0,2,0,0" />
+                <Button Content="看投票結果" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Margin="0,2,0,0"
+                        Tag="{Binding PollId}" Visibility="{Binding PollVisibility}" Click="Poll_Click" />
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -361,6 +363,14 @@
                                             <TextBlock x:Name="ChildHoursHeader" Text="子任務的工時" FontWeight="SemiBold" />
                                         </Expander.Header>
                                         <StackPanel x:Name="ChildHoursPanel" Margin="20,6,0,0" />
+                                    </Expander>
+                                    <!-- 整棵子任務樹（子任務的子任務…）：展開才讀 -->
+                                    <Expander x:Name="TreeExpander" Margin="0,4,0,0" Expanded="Tree_Expanded"
+                                              Foreground="{DynamicResource TextBrush}">
+                                        <Expander.Header>
+                                            <TextBlock x:Name="TreeHeader" Text="整棵子任務樹" FontWeight="SemiBold" />
+                                        </Expander.Header>
+                                        <StackPanel x:Name="TreePanel" Margin="20,6,0,0" />
                                     </Expander>
                                 </StackPanel>
 

@@ -126,6 +126,21 @@ public class TestingTests
     }
 
     [Fact]
+    public void ParseTestOverview_測試任務的筆數讀results的byStatus_取自實際回應()
+    {
+        var o = HayakuApi.ParseTestOverview(Json("""
+            {"view":"測試總覽","cards":{},
+             "tests":[{"task":"F2P-149","title":"bug修復","status":"測試中","parent":"F2P-50 第四階段","assignees":[],"plannedEnd":null,
+                       "results":{"total":5,"open":3,"byStatus":{"已完成":1,"待修復":1,"修復中":1,"待復驗":1,"不處理":1}},
+                       "avgRound":1,"oldestOpenDays":null,"stale":0},
+                      {"task":"F2P-146","title":"bug修復","status":"未開始","results":{"total":0,"open":0,"byStatus":{}}}],
+             "stale":{"total":0,"items":[]},"timezone":"Asia/Taipei"}
+            """));
+        Assert.Equal((5, 1, 2, 0, 1), (o.Tests[0].Total, o.Tests[0].Passed, o.Tests[0].Fixing, o.Tests[0].Testing, o.Tests[0].Retest));
+        Assert.Equal((0, 0), (o.Tests[1].Total, o.Tests[1].Passed));
+    }
+
+    [Fact]
     public void ParseTestOverview_沒有資料時平均輪數是null_取自實際回應()
     {
         var o = HayakuApi.ParseTestOverview(Json("""
