@@ -9,6 +9,7 @@
 - 工作台集中處理任務、專案、測試（需修復、需測試、測試總覽）、待我審核、工時紀錄、工作日誌、提醒、會議、聊天、筆記、團隊空間、論壇、專案動態、工作負荷、請假與統計，不用一直開瀏覽器。
 - 附件、會議檔案、白板、空間檔案直接在工具裡看（圖片看圖，PDF、Word、Excel、文字檔讀文字）。
 - 在公司 **EIP** 請假後，上班前、下班時自動登記到 Hayaku，不用請兩次假（早上臨時請整天假也不會先自動上班）。
+- 通知傳到 **Slack** 私訊，在 Slack 上直接按已讀、核准、駁回、復驗通過或退回（開會、離開座位時用手機處理）。
 
 所有資料都以 Hayaku 為準，工具本身不另外存工時；工時的算法跟 Hayaku 網頁一致（見[工時怎麼算](#工時怎麼算)）。
 
@@ -184,6 +185,24 @@
   也不自動跟 Hayaku 要任何資料（啟動、定時同步、打開面板都不會；按 ⟳ 才會）。
 - 有登記或取消時跳出提示，可以直接開工作台的請假頁；工作台「EIP 請假紀錄」可以看 EIP 上實際讀到的假單。
 
+### Slack 通知
+
+在「設定 › Slack」連好自己的 Slack App 後，通知會私訊到 Slack（左邊「應用程式」的 HayakuBar），可以直接在 Slack 上處理：
+
+- **建立 App**：按「複製 App 設定」→「開啟 Slack App 管理頁」→ Create New App → From a manifest → 選工作區 → 貼上 → Create。
+  權限只有私訊（`chat:write`、`im:write`），已經開好 Socket Mode 與按鈕互動。再到 Install App 安裝（工作區要管理員核准的話會先送出申請），
+  把 Bot User OAuth Token（`xoxb-`）、App-Level Token（`xapp-`，Basic Information 產生，加 `connections:write`）和自己的成員 ID 貼到設定頁，
+  按「連線並送測試訊息」，兩組金鑰都對、測試訊息送到了才會儲存。
+- **傳什麼**：要動手處理的一律傳——待我審核（✓ 核准、核准並關注、✕ 駁回）、測試結果待復驗（✓ 通過、↩ 退回）、
+  測試結果被退回（▶ 開始修並計時）；其他通知只在**螢幕鎖定**時傳（標為已讀、封存），一次超過 3 則合成一則（全部標為已讀）。
+  每則都有「開啟」直接開網頁。電腦上的提示照樣跳。
+- **要填原因的**：駁回（說明可不填；駁回新增任務的申請會先警告會刪掉那個任務）、退回（一定要填）會在 Slack 跳出表單。
+- **兩邊會跟著變**：在 Slack 處理了，訊息的按鈕換成結果（例「✓ 已核准（10:32，從 Slack）」），電腦上那則提示也會關掉；
+  在 HayakuBar 或網頁先處理了，Slack 那則訊息改成「已在 HayakuBar 或網頁處理」、按鈕拿掉。失敗時按鈕留著，下面寫原因。
+- **不用對外開放的網址**：HayakuBar 用 Slack 的 Socket Mode 主動連到 Slack（斷線自動重連）。所以電腦要開著、HayakuBar 要在跑，
+  Slack 上按的按鈕才會有反應；也只用同步已經抓到的通知判斷，不會多跟 Hayaku 要資料。
+- 傳過的訊息記 7 天，重開程式後按鈕也能用；同一組 App-Level Token 不要同時給兩台電腦的 HayakuBar 用（按鈕會被分給不同台）。
+
 ### 外觀
 
 深色模式跟隨 Windows，或在設定指定淺色／深色；面板高度可固定或跟著內容伸縮。
@@ -233,6 +252,7 @@
 | **上下班** | 依班表自動上下班開關、今天的班表 |
 | **Claude Code** | 自動計時開關、只在上班時間自動計時 |
 | **EIP 請假** | 登入／登出 EIP、上班前與下班時同步請假開關、立即同步、上班前與下班各自最後一次的結果 |
+| **Slack** | 建立 Slack App 的步驟與設定、貼金鑰連線、送測試訊息、中斷連線、把通知傳到 Slack 開關、連線狀態 |
 | **專案** | 主資料夾、各專案停用、自動建立任務、安裝／移除 hooks |
 | **一般** | 外觀、面板高度、快捷鍵、會議／提醒／通知提示、加入會議時暫停其他計時、全螢幕時暫緩提示、下班補登提示、開機自動啟動、只在上班時間同步、同步頻率（預設 30 秒） |
 
@@ -245,6 +265,8 @@
   如果管理員停用了「應用程式透過 MCP 操作」，這個工具就不能用。
 - **EIP 帳密**：EIP 沒有其他登入方式，只能存帳密；登入成功才會儲存，用 Windows DPAPI 加密存在 `%APPDATA%\HayakuBar\eip.bin`，
   只有同一個 Windows 帳號解得開，按「登出」就刪掉。工具只讀 EIP 的假單頁，不會在 EIP 上送出或修改任何東西。
+- **Slack 金鑰**：自己建的 Slack App 的 Bot Token 與 App-Level Token，用 Windows DPAPI 加密存在 `%APPDATA%\HayakuBar\slack.bin`，
+  按「中斷連線」就刪掉。只私訊給設定的成員 ID，也只處理那個人按的按鈕。
 - 本機只開兩個連接埠，都只聽本機 `127.0.0.1`：`47824` 接收 OAuth 登入回呼（登入時才開）、`47823` 接收 Claude Code hooks。
 
 ## 常見問題
@@ -319,6 +341,8 @@ git push origin v1.0.4
 | `%APPDATA%\HayakuBar\auth.bin` | 登入資料（DPAPI 加密） |
 | `%APPDATA%\HayakuBar\eip.bin` | EIP 帳密（DPAPI 加密） |
 | `%APPDATA%\HayakuBar\eip-sync.json` | EIP 請假同步：上次同步的時間與結果、由同步建立的 Hayaku 請假 |
+| `%APPDATA%\HayakuBar\slack.bin` | Slack App 金鑰與成員 ID（DPAPI 加密） |
+| `%APPDATA%\HayakuBar\slack.json` | 傳到 Slack 的訊息對應哪個通知或申請、處理了沒（保留 7 天） |
 | `%APPDATA%\HayakuBar\logs\` | 紀錄，一天一個檔，保留 2 個月 |
 | `%APPDATA%\HayakuBar\shots\` | `--shot` 存的截圖 |
 
@@ -342,6 +366,8 @@ src/HayakuBar
 │             KeyFinder（找任務編號）、TaskTree／MyTaskTree／TaskOrder（任務樹、排序、狀態篩選）、TaskColumns（清單欄位）、ProjectGuess（資料夾對應專案）、SyncPolicy（同步時機）、
 │             FileReader（讀檔案內容的快取與限流）
 ├─ Eip/       EipClient（登入 EIP、讀假單）、EipCredentials（DPAPI）、LeavePlanner（假單換成 Hayaku 請假的規則）、EipSyncState
+├─ Slack/     SlackClient（Web API）、SocketModeClient（WebSocket 收按鈕）、SlackBridge（通知傳出去、按鈕回來）、
+│             SlackMessages（要傳哪些、Block Kit 訊息與表單）、SlackCredentials（DPAPI）、SlackState
 ├─ Claude/    ClaudeMonitor（讀 session jsonl、hook 事件）、SessionDigest（對話與 commit 整理成日誌）、HookInstaller
 ├─ UI/        TaskbarWidget（嵌進 Shell_TrayWnd 的 layered 子視窗）、TaskbarIconScanner（UIA 讀圖示範圍）、
 │             PanelWindow（彈出面板）、DayTimeline（時間軸）、HoverCard、ToastWindow、TaskPickerWindow、
@@ -355,6 +381,11 @@ tests/HayakuBar.Tests   xUnit 單元測試
 ```
 
 ## 版本紀錄
+
+### v1.4.0
+- **Slack 通知**：通知私訊到 Slack，可以直接按已讀、封存、核准、核准並關注、駁回、復驗通過、退回、開始修並計時；
+  要動手處理的一律傳，其他通知只在螢幕鎖定時傳。設定頁附 App 設定（manifest）一鍵複製，用 Socket Mode 連線，不需要對外網址。
+  兩邊狀態會跟著變：Slack 上處理了，電腦上的提示會關掉；在 HayakuBar 或網頁處理了，Slack 訊息的按鈕會拿掉。
 
 ### v1.3.2
 跟上 Hayaku 1.3.2：

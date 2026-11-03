@@ -207,6 +207,7 @@ public partial class SettingsWindow : Window
         QuietWhenBusyBox.IsChecked = c.QuietWhenBusy;
         LoadTaskbar();
         LoadEip();
+        LoadSlack();
         foreach (var r in c.Repos)
             AddRepoItem(r);
 
@@ -237,7 +238,7 @@ public partial class SettingsWindow : Window
 
     // ───────────── 導覽 ─────────────
 
-    /// <summary>切到指定分頁：account、taskbar、schedule、repos、claude、eip、general。</summary>
+    /// <summary>切到指定分頁：account、taskbar、schedule、repos、claude、eip、slack、general。</summary>
     public void ShowPage(string page)
     {
         var target = "Page" + page;
@@ -250,7 +251,7 @@ public partial class SettingsWindow : Window
     {
         if (sender is not RadioButton { Tag: string page })
             return;
-        foreach (var p in new FrameworkElement[] { PageAccount, PageTaskbar, PageSchedule, PageRepos, PageClaude, PageEip, PageGeneral })
+        foreach (var p in new FrameworkElement[] { PageAccount, PageTaskbar, PageSchedule, PageRepos, PageClaude, PageEip, PageSlack, PageGeneral })
             p.Visibility = p.Name == page ? Visibility.Visible : Visibility.Collapsed;
         if (page == nameof(PageGeneral))
             McpStatsText.Text = Mcp.McpStats.Current();

@@ -138,6 +138,6 @@ public sealed partial class TimerEngine
         actions.Add(new ToastAction("查看", () => OpenNotificationAsync(n), Primary: actions.Count == 0));
         var who = n.Actor is { } actor ? $"{actor}：" : "";
         return new ToastRequest($"{n.Label}・{key}", $"{who}{title}", actions, Sticky: sticky || n.IsReopened || n.IsReadyToRetest,
-            Duration: duration, FromBottom: true);
+            Duration: duration, FromBottom: true, Tag: $"n:{n.Id}");
     }
 }

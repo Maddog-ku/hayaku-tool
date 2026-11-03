@@ -10,6 +10,7 @@ using HayakuBar.Config;
 using HayakuBar.Core;
 using HayakuBar.Infra;
 using HayakuBar.Mcp;
+using HayakuBar.Slack;
 using HayakuBar.UI;
 using Microsoft.Win32;
 
@@ -102,6 +103,9 @@ public partial class App : Application
             Exit: () => Shutdown()));
         engine.Notify += message => _toasts.Show(new ToastRequest("HayakuBar", message));
         engine.Toast += _toasts.Show;
+        engine.ToastDismissRequested += _toasts.Dismiss;
+        engine.Slack = new SlackBridge(engine);
+        engine.Slack.Restart();
         _toasts.Anchor = WidgetAnchor;
         _toasts.IsQuiet = () => config.QuietWhenBusy && Native.UserBusy();
         _toasts.DefaultDuration = () => config.NotificationPopupSeconds > 0 ? TimeSpan.FromSeconds(config.NotificationPopupSeconds) : null;
@@ -212,6 +216,7 @@ public partial class App : Application
         _hotkey?.Dispose();
         _widget?.Dispose();
         _hookServer?.Dispose();
+        _engine?.Slack?.Dispose();
         _tray?.Dispose();
         _mutex?.Dispose();
         McpStats.Flush();
@@ -681,6 +686,9 @@ public partial class App : Application
 
     void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {
+        // 鎖定中（離開座位）一般通知也傳到 Slack
+        if (_engine?.Slack is { } slack && e.Reason is SessionSwitchReason.SessionLock or SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)
+            slack.Locked = e.Reason == SessionSwitchReason.SessionLock;
         if (e.Reason == SessionSwitchReason.SessionLock)
             Dispatcher.InvokeAsync(() => Housekeep("鎖定電腦"), DispatcherPriority.ApplicationIdle);
         if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)

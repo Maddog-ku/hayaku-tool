@@ -121,6 +121,9 @@ public sealed class AppConfig
     /// <summary>每天下班時讀 EIP 的假單，把下一個上班日的請假登記到 Hayaku（要先在設定存 EIP 帳密）。</summary>
     public bool EipLeaveSync { get; set; } = true;
 
+    /// <summary>把通知傳到 Slack 私訊（要先在設定連好 Slack App）：要動手處理的一律傳，其他的只在螢幕鎖定時傳。</summary>
+    public bool SlackForward { get; set; } = true;
+
     public List<RepoConfig> Repos { get; set; } = [];
 
     /// <summary>在工作列上的基準位置：Left（最左邊）、BeforeStart（圖示左側）、AfterIcons（圖示右側）、BeforeTray（通知區域左側）。</summary>

@@ -20,6 +20,7 @@ public partial class ToastWindow : Window
     public ToastWindow(ToastRequest request)
     {
         InitializeComponent();
+        Tag = request.Tag;
         TitleText.Text = request.Title;
         MessageText.Text = request.Message;
         MessageText.Visibility = string.IsNullOrWhiteSpace(request.Message) ? Visibility.Collapsed : Visibility.Visible;
@@ -163,6 +164,14 @@ public sealed class ToastManager
 
     readonly List<ToastRequest> _held = [];
     DispatcherTimer? _heldTimer;
+
+    /// <summary>關掉這個標記的提示（在 Slack 上處理掉了）；勿擾中還沒顯示的也拿掉。</summary>
+    public void Dismiss(string tag)
+    {
+        _held.RemoveAll(r => r.Tag == tag);
+        foreach (var t in _open.Where(t => Equals(t.Tag, tag)).ToList())
+            t.Dismiss();
+    }
 
     public void Show(ToastRequest request)
     {

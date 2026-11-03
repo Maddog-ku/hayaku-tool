@@ -9,10 +9,10 @@ public sealed record ToastAction(string Label, Func<Task> Run, bool Primary = fa
 /// <summary>右下角跳出提示。</summary>
 /// <summary>
 /// Duration：停留多久自動收回（null 用預設）；FromBottom：從螢幕下緣滑上來、時間到滑回去（新通知用）；
-/// Important：全螢幕、簡報時也照樣跳出（會議快開始）。
+/// Important：全螢幕、簡報時也照樣跳出（會議快開始）；Tag：標記，在 Slack 上處理了就用它關掉這則提示。
 /// </summary>
 public sealed record ToastRequest(string Title, string Message, IReadOnlyList<ToastAction>? Actions = null, bool Sticky = false,
-    TimeSpan? Duration = null, bool FromBottom = false, bool Important = false);
+    TimeSpan? Duration = null, bool FromBottom = false, bool Important = false, string? Tag = null);
 
 /// <summary>會議、待辦、提醒、通知、工時修改，以及到點跳出的提示。</summary>
 public sealed partial class TimerEngine
@@ -430,7 +430,7 @@ public sealed partial class TimerEngine
                     [
                         new ToastAction("標為已讀", () => MarkNotificationsReadAsync([n.Id]), Primary: true),
                         new ToastAction("查看", () => OpenNotificationAsync(n)),
-                    ], Sticky: seconds == 0, Duration: duration, FromBottom: true));
+                    ], Sticky: seconds == 0, Duration: duration, FromBottom: true, Tag: $"n:{n.Id}"));
             }
         }
     }

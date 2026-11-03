@@ -42,7 +42,7 @@ public sealed partial class TimerEngine
             new ToastAction("核准", () => demo ? Demo() : ReviewAsync(c, approve: true, note: null), Primary: true),
             new ToastAction("駁回", () => demo ? Demo() : Raise(RejectRequested, c)),
             new ToastAction("查看", () => OpenReviews()),
-        ], Sticky: true, FromBottom: true);
+        ], Sticky: true, FromBottom: true, Tag: $"cr:{c.Id}");
 
         Task Demo()
         {
@@ -79,6 +79,12 @@ public sealed partial class TimerEngine
         }
         Log.Info($"已{verb}變更申請 {c.Id}（{c.TypeText} {what}）");
         Toast?.Invoke(new ToastRequest($"已{verb}", $"{c.TypeText}・{what}"));
+        await AfterReviewAsync(c);
+    }
+
+    /// <summary>審核完：把這個任務「有新的變更申請」的通知標為已讀、重抓待審清單。</summary>
+    async Task AfterReviewAsync(ChangeRequest c)
+    {
         var read = Notifications
             .Where(n => n.Unread && n.Type == "CHANGE_REQUESTED" && c.TaskKey is not null
                         && string.Equals(n.TaskKey, c.TaskKey, StringComparison.OrdinalIgnoreCase))

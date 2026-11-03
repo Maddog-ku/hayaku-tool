@@ -129,6 +129,8 @@
                              Content="Claude Code" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="Nav" Tag="PageEip" Checked="Nav_Checked"
                              Content="EIP 請假" />
+                <RadioButton Style="{StaticResource NavItem}" GroupName="Nav" Tag="PageSlack" Checked="Nav_Checked"
+                             Content="Slack" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="Nav" Tag="PageGeneral" Checked="Nav_Checked"
                              Content="一般" />
             </StackPanel>
@@ -434,6 +436,105 @@
                                        Text="同步的時間：有上班的日子，依班表下班時間到或按了下班時；那天電腦沒開到下班的話，下一個上班日補做。請假、放假、週末不會同步，也不會自動跟 Hayaku 要任何資料（按 ⟳ 才會）。Hayaku 那段時間已經有請假（例如你手動登記過）就不重複登記。" />
                             <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
                                        Text="EIP 那邊駁回、抽單或銷假時，只取消當初由同步建立的請假，你手動登記的不會動。同步建立的請假，備註會寫 EIP 單號與假別。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Slack -->
+                <StackPanel x:Name="PageSlack" Visibility="Collapsed">
+                    <TextBlock Text="Slack" Style="{StaticResource PageTitle}" />
+
+                    <!-- 已連線：工作區、傳給誰、送測試訊息、中斷連線 -->
+                    <Border x:Name="SlackConnectedPanel" Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Style="{StaticResource SettingText}">
+                                <TextBlock Text="Slack App" Style="{StaticResource CardTitle}" />
+                                <TextBlock x:Name="SlackAccountText" Style="{StaticResource CardDesc}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Style="{StaticResource Pill}" Padding="10,4">
+                                    <TextBlock Text="✓ 已連線" FontSize="12" Foreground="{DynamicResource RunBrush}" />
+                                </Border>
+                                <Button x:Name="SlackTestButton" Content="送測試訊息" Style="{StaticResource FlatButton}" Margin="8,0,0,0"
+                                        Click="SlackTest_Click" />
+                                <Button Content="中斷連線" Style="{StaticResource FlatButton}" Margin="8,0,0,0" Click="SlackLogout_Click"
+                                        ToolTip="刪掉存在這台電腦的 Slack 金鑰，之後不再傳到 Slack" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="SlackForwardPanel" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Style="{StaticResource SettingText}">
+                                    <TextBlock Text="把通知傳到 Slack" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Style="{StaticResource CardDesc}" TextWrapping="Wrap"
+                                               Text="要你動手處理的一律傳：待我審核（核准、核准並關注、駁回）、測試結果待復驗（通過、退回）、測試結果被退回（開始修並計時）。其他通知只在螢幕鎖定時傳（標為已讀、封存）。電腦上的提示照樣跳。" />
+                                </StackPanel>
+                                <CheckBox x:Name="SlackForwardBox" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="SlackForward_Click" />
+                            </Grid>
+                            <TextBlock x:Name="SlackLiveStatus" FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                       Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 還沒連線：建立 App 的步驟、貼金鑰 -->
+                    <StackPanel x:Name="SlackSetupPanel">
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="1. 在 Slack 建立 App" Style="{StaticResource CardTitle}" />
+                                <TextBlock Style="{StaticResource CardDesc}" TextWrapping="Wrap"
+                                           Text="按「複製 App 設定」，再按「開啟 Slack App 管理頁」→ Create New App → From a manifest → 選公司的工作區 → 貼上 → Create。" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                    <Button Content="複製 App 設定" Style="{StaticResource FlatButton}" Click="SlackCopyManifest_Click"
+                                            ToolTip="App 名稱、私訊權限、Socket Mode 與按鈕互動都已經設好" />
+                                    <Button Content="開啟 Slack App 管理頁" Style="{StaticResource FlatButton}" Margin="8,0,0,0"
+                                            Click="SlackOpenApps_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="2. 貼上金鑰" Style="{StaticResource CardTitle}" />
+                                <TextBlock Style="{StaticResource CardDesc}" TextWrapping="Wrap"
+                                           Text="金鑰用 Windows 加密存在這台電腦，只有你的 Windows 帳號解得開。" />
+                                <TextBlock Text="Bot User OAuth Token（xoxb- 開頭）" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                <PasswordBox x:Name="SlackBotBox" Height="30" KeyDown="SlackBox_KeyDown" />
+                                <TextBlock Style="{StaticResource CardDesc}" FontSize="11.5" TextWrapping="Wrap"
+                                           Text="App 左邊「Install App」→ Install to Workspace（工作區要管理員核准的話會變成送出申請，核准後再回來）→ 複製 Bot User OAuth Token。" />
+                                <TextBlock Text="App-Level Token（xapp- 開頭）" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                <PasswordBox x:Name="SlackAppBox" Height="30" KeyDown="SlackBox_KeyDown" />
+                                <TextBlock Style="{StaticResource CardDesc}" FontSize="11.5" TextWrapping="Wrap"
+                                           Text="「Basic Information」→ App-Level Tokens → Generate Token and Scopes，名稱隨意，加 connections:write → Generate → 複製。用來接收你在 Slack 按的按鈕。" />
+                                <TextBlock Text="你的 Slack 成員 ID（U 開頭）" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                <TextBox x:Name="SlackUserBox" Height="30" KeyDown="SlackBox_KeyDown" />
+                                <TextBlock Style="{StaticResource CardDesc}" FontSize="11.5" TextWrapping="Wrap"
+                                           Text="在 Slack 點自己的頭像 → 個人檔案 → ⋮ → 複製成員 ID。訊息會私訊給這個人。" />
+                                <Button x:Name="SlackConnectButton" Content="連線並送測試訊息" Style="{StaticResource PrimaryButton}"
+                                        HorizontalAlignment="Right" Padding="16,5" Margin="0,12,0,0" Click="SlackConnect_Click"
+                                        ToolTip="檢查兩組金鑰、私訊你一則測試訊息，都成功才會儲存" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock x:Name="SlackStatus" FontSize="12" TextWrapping="Wrap" Margin="2,0,0,10" Visibility="Collapsed" />
+
+                    <Border Style="{StaticResource InfoCard}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0"
+                                       Text="訊息會出現在 Slack 左邊「應用程式」的 HayakuBar 裡。" />
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
+                                       Text="HayakuBar 是用 Slack 的 Socket Mode 主動連到 Slack，不需要對外開放的網址；但電腦要開著、HayakuBar 要在跑，Slack 上按的按鈕才會有反應。" />
+                            <TextBlock Style="{StaticResource CardDesc}" Margin="0,8,0,0"
+                                       Text="只用同步已經抓到的通知判斷，不會多跟 Hayaku 要資料。在 Slack 處理了，電腦上那則提示會關掉；在 HayakuBar 或網頁先處理了，Slack 那則訊息會改成「已在 HayakuBar 或網頁處理」、按鈕拿掉。傳過的訊息保留 7 天，重開程式後按鈕也能用。" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
