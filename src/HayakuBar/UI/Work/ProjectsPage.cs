@@ -413,6 +413,22 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         due.SetResourceReference(TextBlock.ForegroundProperty, overdue ? "ErrorBrush" : "MutedBrush");
         Grid.SetColumn(due, 5);
         grid.Children.Add(due);
+
+        // 右鍵：計時、改狀態、釘選、查看、刪除…
+        grid.Background = System.Windows.Media.Brushes.Transparent;
+        grid.MouseRightButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            var children = _tasks.Count(c => string.Equals(c.Parent, t.Key, StringComparison.OrdinalIgnoreCase));
+            var menu = TaskMenu.Build(_engine, t.Key, open: () => _host.ShowPage("tasks", t.Key), delete: async () =>
+            {
+                if (await DeleteTaskWindow.ConfirmAsync(Window.GetWindow(this), _engine, t.Key, t.Title, children))
+                    await LoadAsync(fresh: true);
+            });
+            menu.PlacementTarget = grid;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+        };
         return grid;
     }
 

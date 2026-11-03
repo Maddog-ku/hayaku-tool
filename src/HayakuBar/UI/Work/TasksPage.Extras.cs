@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
+using System.Windows.Input;
 using HayakuBar.Core;
 using HayakuBar.Infra;
 using HayakuBar.Mcp;
@@ -385,19 +387,59 @@ public partial class TasksPage
         if (_detail is null)
             return;
         var d = _detail;
-        var children = d.Children.Count > 0 ? $"，連同 {d.Children.Count} 個子任務" : "";
-        var ok = MessageBox.Show(Window.GetWindow(this)!,
-            $"刪除 {d.Key} {d.Title}{children}？\n可以從網頁的垃圾桶還原；如果你是執行者，會送出刪除申請給管理者審核。",
-            "刪除任務", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (ok != MessageBoxResult.OK)
+        if (!await DeleteTaskWindow.ConfirmAsync(Window.GetWindow(this), _engine, d.Key, d.Title, d.Children.Count))
             return;
-        string? message = null;
-        if (!await Inputs.Run(DeleteButton, DetailStatus, async () => message = await _engine.Api.DeleteTaskAsync(d.Key, null, CancellationToken.None)))
-            return;
-        Log.Info($"刪除任務 {d.Key}：{message ?? "完成"}");
-        _engine.ShowNotice(message ?? $"已刪除 {d.Key}（可以從網頁的垃圾桶還原）");
         CloseDialog();
-        await _engine.AfterExternalChangeAsync();
         RenderList(keepSelection: false);
+    }
+
+    // ───────────── 清單、樹狀、看板的右鍵選單 ─────────────
+
+    void TaskList_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        var context = (e.OriginalSource as FrameworkElement)?.DataContext ?? (e.OriginalSource as FrameworkContentElement)?.DataContext;
+        if (context is TaskListRowVm row)
+        {
+            e.Handled = true;
+            TaskList.SelectedItem = row;
+            ShowRowMenu(row.Key, row.Title, null, TaskList);
+        }
+    }
+
+    void TreeList_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        var context = (e.OriginalSource as FrameworkElement)?.DataContext ?? (e.OriginalSource as FrameworkContentElement)?.DataContext;
+        if (context is MyTreeTaskVm task)
+        {
+            e.Handled = true;
+            TreeList.SelectedItem = task;
+            ShowRowMenu(task.Key, task.Title, task.Children.Count, TreeList);
+        }
+    }
+
+    void KanbanCard_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is KanbanCardVm card)
+        {
+            e.Handled = true;
+            ShowRowMenu(card.Key, card.Title, null, (FrameworkElement)sender);
+        }
+    }
+
+    /// <summary>任務列的右鍵選單：計時、改狀態、釘選、查看、複製編號、網頁開啟、刪除。</summary>
+    void ShowRowMenu(string key, string title, int? children, FrameworkElement target)
+    {
+        var menu = TaskMenu.Build(_engine, key, open: () => _ = OpenTaskAsync(key),
+            delete: async () =>
+            {
+                if (!await DeleteTaskWindow.ConfirmAsync(Window.GetWindow(this), _engine, key, title, children))
+                    return;
+                if (_detail?.Key == key)
+                    CloseDialog();
+                RenderList(keepSelection: false);
+            });
+        menu.PlacementTarget = target;
+        menu.Placement = PlacementMode.MousePoint;
+        menu.IsOpen = true;
     }
 }

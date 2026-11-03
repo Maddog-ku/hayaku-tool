@@ -91,7 +91,7 @@ public sealed class ReviewsPage : UserControl, IWorkPage
         _summary.Text = mine
             ? items.Count == 0 ? "沒有在等審核的申請。" : $"{items.Count} 筆申請還在等審核，撤回後就不會再送給管理者。"
             : items.Count == 0
-                ? _engine.CanReview ? "沒有要審核的申請 🎉" : "你在各專案都不是管理員或編輯者，沒有要審核的申請。"
+                ? _engine.CanReview ? "沒有要審核的申請 🎉" : "沒有要審核的申請。（一般申請由專案管理員、編輯者審核；測試結果改派執行者的申請，回報的人和測試員也能審核）"
                 : $"{items.Count} 筆申請等你審核（{items.Select(c => c.Project).Distinct().Count()} 個專案）";
 
         foreach (var group in items.GroupBy(c => c.Project))

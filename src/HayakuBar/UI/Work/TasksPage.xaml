@@ -8,6 +8,7 @@
         <DataTemplate x:Key="KanbanCard">
             <Border Background="{Binding CardBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="{Binding CardBorder}"
                     CornerRadius="8" Padding="10,7,6,7" Margin="0,0,0,6" Cursor="Hand" Tag="{Binding}" MouseLeftButtonUp="KanbanCard_Click"
+                    MouseRightButtonUp="KanbanCard_RightClick"
                     ToolTip="{Binding Tip}">
                 <StackPanel>
                     <TextBlock FontSize="10.5" Foreground="{Binding MutedBrush}" TextTrimming="CharacterEllipsis">
@@ -179,10 +180,10 @@
                 </Border>
                 <Grid>
                     <ListBox x:Name="TaskList" BorderThickness="0" Background="Transparent"
-                             PreviewMouseLeftButtonUp="TaskList_Click" KeyDown="TaskList_KeyDown" Padding="4"
+                             PreviewMouseLeftButtonUp="TaskList_Click" MouseRightButtonUp="TaskList_RightClick" KeyDown="TaskList_KeyDown" Padding="4"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" />
                     <ListBox x:Name="TreeList" BorderThickness="0" Background="Transparent" Padding="4" Visibility="Collapsed"
-                             PreviewMouseLeftButtonUp="TreeList_Click" KeyDown="TreeList_KeyDown"
+                             PreviewMouseLeftButtonUp="TreeList_Click" MouseRightButtonUp="TreeList_RightClick" KeyDown="TreeList_KeyDown"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" />
                     <!-- 看板：待處理、進行中、已完成 -->
                     <Grid x:Name="Kanban" Visibility="Collapsed" Margin="0,4,0,0">

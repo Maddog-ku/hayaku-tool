@@ -36,6 +36,9 @@ public sealed class TestsPage : UserControl, IWorkPage
     readonly StackPanel _list = new();
     string _view = "fix";
     List<TestResultRow> _rows = [];
+
+    /// <summary>收起來的段落與分組（視圖|段落|分組）；只記到關掉程式為止。</summary>
+    readonly HashSet<string> _collapsed = [];
     TestOverview? _overview;
     DateTime _loaded = DateTime.MinValue;
     string _loadedKey = "";
@@ -227,7 +230,7 @@ public sealed class TestsPage : UserControl, IWorkPage
             .ToList();
         if (_view == "fix")
         {
-            AddGroups(rows, "");
+            AddGroups(rows, "", "fix");
             _summary.Text = rows.Count == 0 ? (_mine.IsChecked == true ? "沒有你要修的測試結果 🎉" : "沒有要修的測試結果")
                 : $"要修 {rows.Count} 個" + (rows.Count(r => r.Round >= 3) is var hot and > 0 ? $"（第 3 輪起 {hot} 個 🔥）" : "");
             return;
@@ -235,23 +238,42 @@ public sealed class TestsPage : UserControl, IWorkPage
         var retest = rows.Where(r => r.Group == "retest").ToList();
         var toTest = rows.Where(r => r.Group == "toTest").ToList();
         var tests = rows.Where(r => r.Group == "tests").ToList();
-        AddSection($"待復驗（{retest.Count}）", retest, "修好了，等你驗：通過或退回");
-        AddSection($"要測的測試結果（{toTest.Count}）", toTest, "還沒測或測試中的");
-        AddSection($"要測的測試任務（{tests.Count}）", tests, "未開始、測試中的測試任務：測到問題就加入測試結果");
+        AddSection("retest", $"待復驗（{retest.Count}）", retest, "修好了，等你驗：通過或退回");
+        AddSection("toTest", $"要測的測試結果（{toTest.Count}）", toTest, "還沒測或測試中的");
+        AddSection("tests", $"要測的測試任務（{tests.Count}）", tests, "未開始、測試中的測試任務：測到問題就加入測試結果");
         _summary.Text = rows.Count == 0 ? "沒有要測的 🎉" : $"待復驗 {retest.Count}・要測 {toTest.Count}・測試任務 {tests.Count}";
     }
 
-    void AddSection(string title, List<TestResultRow> rows, string hint)
+    void AddSection(string id, string title, List<TestResultRow> rows, string hint)
     {
         if (rows.Count == 0)
             return;
-        _list.Children.Add(new TextBlock { Text = title, Style = (Style)FindResource("GroupLabel"), Margin = new Thickness(0, 10, 0, 2) });
+        var key = $"{_view}|{id}";
+        var open = !_collapsed.Contains(key);
+        var header = new TextBlock { Text = $"{(open ? "▾" : "▸")} {title}", Style = (Style)FindResource("GroupLabel"), Margin = new Thickness(0, 10, 0, 2) };
+        _list.Children.Add(Toggle(header, key));
+        if (!open)
+            return;
         _list.Children.Add(new TextBlock { Text = hint, Foreground = Brushes2.Get("HintBrush"), FontSize = 12, Margin = new Thickness(0, 0, 0, 4) });
-        AddGroups(rows, "    ");
+        AddGroups(rows, "    ", key);
     }
 
-    /// <summary>照選的分組方式（依測試任務、嚴重度、執行者、專案）列出。</summary>
-    void AddGroups(List<TestResultRow> rows, string indent)
+    /// <summary>段落、分組的標題：點一下收合／展開。</summary>
+    FrameworkElement Toggle(TextBlock header, string key)
+    {
+        header.Cursor = System.Windows.Input.Cursors.Hand;
+        header.ToolTip = "點一下收合／展開";
+        header.MouseLeftButtonUp += (_, _) =>
+        {
+            if (!_collapsed.Remove(key))
+                _collapsed.Add(key);
+            Render();
+        };
+        return header;
+    }
+
+    /// <summary>照選的分組方式（依測試任務、嚴重度、執行者、專案）列出；parent 是收合用的段落代號。</summary>
+    void AddGroups(List<TestResultRow> rows, string indent, string parent)
     {
         var grouping = Groupings[Math.Max(0, _group.SelectedIndex)].Key;
         if (grouping.Length == 0 || rows.Count < 2)
@@ -272,11 +294,15 @@ public sealed class TestsPage : UserControl, IWorkPage
             groups = groups.OrderBy(g => SeverityRank(g.First().Severity)).ToList();
         foreach (var g in groups)
         {
-            _list.Children.Add(new TextBlock
+            var key = $"{parent}|{grouping}|{g.Key}";
+            var open = !_collapsed.Contains(key);
+            _list.Children.Add(Toggle(new TextBlock
             {
-                Text = $"{indent}{g.Key}　{g.Count()}", FontWeight = FontWeights.SemiBold, Foreground = Brushes2.Get("MutedBrush"),
+                Text = $"{indent}{(open ? "▾" : "▸")} {g.Key}　{g.Count()}", FontWeight = FontWeights.SemiBold, Foreground = Brushes2.Get("MutedBrush"),
                 Margin = new Thickness(0, 8, 0, 2), FontSize = 12,
-            });
+            }, key));
+            if (!open)
+                continue;
             foreach (var r in Sorted(g))
                 _list.Children.Add(Row(r));
         }

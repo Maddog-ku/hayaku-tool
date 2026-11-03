@@ -309,7 +309,18 @@ public partial class PanelWindow
         Add("💬  任務聊天", () => RequestWorkspace("chat", key));
         Add("☰  查看詳細", () => RequestWorkspace("tasks", key));
         Add("↗  在網頁開啟", () => Web.Open(_engine.TaskUrl(key)));
+        menu.Items.Add(new Separator { Margin = new Thickness(4), Background = Brushes2.Get("LineBrush") });
+        Add("🗑  刪除任務…", () => _ = DeleteTaskAsync(key));
         OpenMenu(menu, anchor, "menu:" + key);
+    }
+
+    async Task DeleteTaskAsync(string key)
+    {
+        var title = _engine.MyTasks.FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))?.Title ?? "";
+        var dialog = new DeleteTaskWindow(_engine, key, title, null);
+        ShowDialogSafe(dialog);
+        if (dialog.Deleted)
+            await _engine.AfterExternalChangeAsync();
     }
 
     async Task ShowStatusMenuAsync(string key, Rect anchor)
