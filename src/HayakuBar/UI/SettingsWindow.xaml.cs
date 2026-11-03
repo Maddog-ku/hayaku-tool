@@ -396,8 +396,16 @@ public partial class SettingsWindow : Window
     {
         var s = _engine.EipSync;
         EipSyncButton.IsEnabled = !_engine.EipSyncing && EipLoggedInPanel.Visibility == Visibility.Visible;
+        static string At(DateTime at) => at.ToString("M/d（ddd）HH:mm", UI.Work.Inputs.Zh);
+        var lines = new List<string>();
+        if (s.MorningAt is { } m)
+            lines.Add($"上班前 {At(m)}：{s.MorningResult}");
+        if (s.AfterWorkAt is { } a)
+            lines.Add($"下班 {At(a)}：{s.AfterWorkResult}");
+        if (s.LastSyncAt is { } last && last > (s.MorningAt ?? DateTime.MinValue) && last > (s.AfterWorkAt ?? DateTime.MinValue))
+            lines.Add($"{(lines.Count > 0 ? "手動" : "上次同步")} {At(last)}：{s.LastResult}");
         EipSyncStatus.Text = _engine.EipSyncing ? "同步中…"
-            : s.LastSyncAt is { } at ? $"上次同步 {at.ToString("M/d（ddd）HH:mm", UI.Work.Inputs.Zh)}：{s.LastResult}"
+            : lines.Count > 0 ? string.Join("\n", lines)
             : s.LastResult.Length > 0 ? s.LastResult
             : "還沒同步過";
         EipSyncStatus.Foreground = Brushes2.Get(s.LastResult.StartsWith("失敗") ? "ErrorBrush" : "MutedBrush");

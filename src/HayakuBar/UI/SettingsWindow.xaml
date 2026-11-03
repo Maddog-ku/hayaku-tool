@@ -411,9 +411,9 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Style="{StaticResource SettingText}">
-                                    <TextBlock Text="下班時同步請假到 Hayaku" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Text="上班前、下班時同步請假到 Hayaku" Style="{StaticResource CardTitle}" />
                                     <TextBlock Style="{StaticResource CardDesc}"
-                                               Text="每天下班時讀一次 EIP 的假單（待審和核准），下一個上班日有請假就登記到 Hayaku；請好幾天的會整段登記。" />
+                                               Text="每天上班前 15 分鐘和下班時各讀一次 EIP 的假單（待審和核准），今天到下一個上班日有請假就登記到 Hayaku；請好幾天的會整段登記。早上臨時請了整天假，就不會自動上班；那天沒開電腦的，下次會補登（最多 7 天）。" />
                                 </StackPanel>
                                 <CheckBox x:Name="EipSyncBox" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="EipSync_Click" />
                             </Grid>

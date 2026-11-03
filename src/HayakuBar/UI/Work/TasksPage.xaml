@@ -18,12 +18,9 @@
                                Visibility="{Binding PathVisibility}" />
                     <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" Foreground="{Binding TextBrush}"
                                TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="36" Margin="0,2,0,5" />
-                    <Grid>
-                        <Border CornerRadius="9" Padding="7,1" Background="{Binding StatusBrush}" BorderBrush="{DynamicResource LineBrush}"
-                                BorderThickness="1" HorizontalAlignment="Left" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource TextBrush}" />
-                        </Border>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- 右邊的到期、計時先佔位置，狀態用剩下的寬度，卡片窄的時候才不會被蓋住 -->
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="{Binding DueText}" Foreground="{Binding DueBrush}" FontSize="10.5" VerticalAlignment="Center"
                                        Margin="0,0,6,0" />
                             <TextBlock Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" FontWeight="SemiBold"
@@ -33,7 +30,13 @@
                                     Style="{StaticResource IconButton}" Foreground="{Binding TimerBrush}" FontSize="10" Padding="5,1"
                                     Visibility="{Binding TimerVisibility}" />
                         </StackPanel>
-                    </Grid>
+                        <Border CornerRadius="9" Padding="7,1" Background="{Binding StatusBrush}" BorderBrush="{DynamicResource LineBrush}"
+                                BorderThickness="1" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,6,0"
+                                ToolTip="{Binding Status}">
+                            <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource TextBrush}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Border>
+                    </DockPanel>
                 </StackPanel>
             </Border>
         </DataTemplate>

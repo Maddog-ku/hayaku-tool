@@ -138,6 +138,36 @@ public class LeavePlannerTests
         Assert.Equal(DateOnly.Parse(day), LeavePlanner.CoveredDay(Work(Thu), clockedOut, DateTime.Parse(now)));
     }
 
+    [Theory]
+    [InlineData("2026-10-29 08:14", "", false, false)]           // 上班前 15 分鐘以前還不做
+    [InlineData("2026-10-29 08:15", "", false, true)]            // 上班前 15 分鐘起
+    [InlineData("2026-10-29 10:00", "2026-10-28", false, true)]  // 開機已經過了上班時間：馬上做
+    [InlineData("2026-10-29 09:00", "2026-10-29", false, false)] // 今天做過了
+    [InlineData("2026-10-29 17:30", "", false, false)]           // 下班了：交給下班那次
+    [InlineData("2026-10-29 10:00", "", true, false)]            // 已經按了下班
+    public void IsMorningDue_上班前15分鐘起一天一次(string now, string morningDay, bool clockedOut, bool due)
+    {
+        Assert.Equal(due, LeavePlanner.IsMorningDue(Work(Thu), clockedOut, DateTime.Parse(now), morningDay));
+    }
+
+    [Fact]
+    public void IsMorningDue_今天不用上班不做()
+    {
+        Assert.False(LeavePlanner.IsMorningDue(OnLeave(Thu), false, new DateTime(2026, 10, 29, 9, 0, 0), ""));
+        Assert.False(LeavePlanner.IsMorningDue(Off(Thu.AddDays(2)), false, new DateTime(2026, 10, 31, 9, 0, 0), ""));
+    }
+
+    [Theory]
+    [InlineData("2026-11-01", "2026-11-02")] // 昨天做過下班那次：不用補
+    [InlineData("2026-11-02", "2026-11-02")]
+    [InlineData("2026-10-29", "2026-10-30")] // 週五沒開電腦：從週五補
+    [InlineData("2026-10-01", "2026-10-26")] // 太久以前：最多往回 7 天
+    [InlineData("", "2026-11-02")]           // 從沒同步過：從今天
+    public void BackfillFrom_上次同步之後漏掉的日子(string last, string from)
+    {
+        Assert.Equal(DateOnly.Parse(from), LeavePlanner.BackfillFrom(last, Mon));
+    }
+
     [Fact]
     public void IsDue_今天不用上班_請假放假週末都不做()
     {

@@ -148,6 +148,36 @@ public static class LeavePlanner
         return now >= date.ToDateTime(today.Working[^1].End);
     }
 
+    /// <summary>上班前那次從第一段上班前多久開始。</summary>
+    public static readonly TimeSpan MorningLead = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// 現在要不要做上班前那次（一天一次，抓早上才在 EIP 臨時請的假）：今天要上班、今天還沒做過、還沒下班，
+    /// 第一段上班前 15 分鐘起（開機已經過了上班時間就馬上做）；下班後交給下班那次。
+    /// </summary>
+    public static bool IsMorningDue(DaySchedule today, bool clockedOut, DateTime now, string morningDay)
+    {
+        var date = DateOnly.FromDateTime(now);
+        if (today.Working.Count == 0 || clockedOut || morningDay == date.ToString("yyyy-MM-dd"))
+            return false;
+        return now >= date.ToDateTime(today.Working[0].Start) - MorningLead && now < date.ToDateTime(today.Working[^1].End);
+    }
+
+    /// <summary>最多往回補幾天。</summary>
+    public const int BackfillDays = 7;
+
+    /// <summary>
+    /// 這次從哪一天開始找要登記的假單：上次自動同步算到的那天（lastSyncDay）的隔天，
+    /// 中間漏掉的日子（例如臨時請整天假、那天電腦沒開）一起補登；最多往回 7 天，從沒同步過就從今天。
+    /// </summary>
+    public static DateOnly BackfillFrom(string lastSyncDay, DateOnly today)
+    {
+        if (!DateOnly.TryParseExact(lastSyncDay, "yyyy-MM-dd", out var last) || last >= today)
+            return today;
+        var from = last.AddDays(1);
+        return from < today.AddDays(-BackfillDays) ? today.AddDays(-BackfillDays) : from;
+    }
+
     /// <summary>
     /// 這次做完算哪一天的（存成 lastSyncDay）：已經下班就是今天；上班前或上班中補做的只算昨天，
     /// 今天下班時照樣再做一次（白天才在 EIP 請的假）。

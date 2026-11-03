@@ -5,7 +5,8 @@ using HayakuBar.Mcp;
 namespace HayakuBar.Core;
 
 /// <summary>
-/// EIP 請假同步：每天下班時讀 EIP 的假單（待審＋核准），把跟「今天到下一個上班日」重疊的請假整張登記到 Hayaku；
+/// EIP 請假同步：每天上班前、下班時各讀一次 EIP 的假單（待審＋核准），把跟「今天到下一個上班日」重疊的請假整張登記到 Hayaku
+/// （上次之後漏掉的日子也補登，最多 7 天）；
 /// 由同步建立的請假，EIP 那邊駁回、抽單、改時間時取消（手動登記的不動）。
 /// </summary>
 /// <summary>EIP 假單加上查詢時的狀態（待審、核准、駁回）。</summary>
@@ -34,22 +35,35 @@ public sealed partial class TimerEngine
 
     /// <summary>
     /// Claude 計時器每次 tick 都會問：有上班的日子下班了、今天還沒做過，就做一次下班後的工作——
-    /// 同步 EIP 請假（有設定時），並記下接下來不用上班的日子。不用上班的日子什麼都不做。
+    /// 同步 EIP 請假（有設定時），並記下接下來不用上班的日子。有開 EIP 同步時，上班前也同步一次。
+    /// 不用上班的日子什麼都不做。
     /// </summary>
     async Task AfterWorkTickAsync()
     {
         var now = DateTime.Now;
         if (!LoggedIn || EipSyncing || now < _eipRetryAt || Schedule is null || Schedule.Date != DateOnly.FromDateTime(now))
             return;
-        if (_config.EipLeaveSync && File.Exists(AppPaths.EipAuth))
+        if (EipSyncEnabled)
         {
-            if (LeavePlanner.IsDue(Schedule, _state.ClockedOut, now, _eipState.LastSyncDay))
+            if (LeavePlanner.IsMorningDue(Schedule, _state.ClockedOut, now, _eipState.MorningDay))
+                await SyncEipLeavesAsync(manual: false, morning: true); // 開機補做下班那次的也一起算
+            else if (LeavePlanner.IsDue(Schedule, _state.ClockedOut, now, _eipState.LastSyncDay))
                 await SyncEipLeavesAsync(manual: false); // 會順便更新不用上班的日子
             return;
         }
         if (LeavePlanner.IsDue(Schedule, _state.ClockedOut, now, _state.OffDaysUpdated))
             await RefreshOffDaysAsync();
     }
+
+    bool EipSyncEnabled => _config.EipLeaveSync && File.Exists(AppPaths.EipAuth);
+
+    /// <summary>
+    /// 今天上班前那次 EIP 同步還沒做完（也還沒失敗）：先不自動上班，
+    /// 免得早上才在 EIP 請了整天假，還先被自動開始計時。同步失敗就照常上班，30 分鐘後再試。
+    /// </summary>
+    bool MorningEipPending(DateTime now) =>
+        EipSyncEnabled && Schedule is { } s && s.Date == DateOnly.FromDateTime(now)
+        && (EipSyncing || (now >= _eipRetryAt && LeavePlanner.IsMorningDue(s, _state.ClockedOut, now, _eipState.MorningDay)));
 
     /// <summary>沒開 EIP 同步時，下班時只讀接下來的班表，記下不用上班的日子。</summary>
     async Task RefreshOffDaysAsync()
@@ -104,14 +118,21 @@ public sealed partial class TimerEngine
     UserInfo? CachedUser() =>
         _state.UserName is { Length: > 0 } name ? new UserInfo(name, _state.UserDisplayName ?? name) : null;
 
-    /// <summary>同步一次，回傳結果說明（設定頁的「立即同步」也用這個）。</summary>
-    public async Task<string> SyncEipLeavesAsync(bool manual)
+    /// <summary>
+    /// 同步一次，回傳結果說明（設定頁的「立即同步」也用這個）。
+    /// morning：上班前那次（記在 MorningDay，跟下班那次分開）；也會照下班那次的規則記 LastSyncDay，開機補做的不會再跑一次。
+    /// </summary>
+    public async Task<string> SyncEipLeavesAsync(bool manual, bool morning = false)
     {
         if (EipSyncing)
             return "同步中…";
         var cred = EipCredentialStore.Load();
         if (cred.IsEmpty)
+        {
+            if (morning)
+                Record(manual, morning, DateTime.Now, "失敗：尚未設定 EIP 帳密", done: true); // 不要讓自動上班一直等
             return "尚未設定 EIP 帳密";
+        }
         if (!LoggedIn)
             return "還沒登入 Hayaku";
 
@@ -121,30 +142,22 @@ public sealed partial class TimerEngine
         string result;
         try
         {
-            var (added, cancelled, skipped) = await SyncEipCoreAsync(cred, now, CancellationToken.None);
-            result = Describe(added, cancelled, skipped);
-            if (!manual) // 手動同步不算：下班時照樣再讀一次（白天之後才請的假）
-                _eipState.LastSyncDay = CoveredDay(now);
-            _eipState.LastSyncAt = now;
-            _eipState.LastResult = result;
-            _eipState.Save();
+            var (added, cancelled, skipped, failed) = await SyncEipCoreAsync(cred, now, CancellationToken.None);
+            result = Describe(added, cancelled, skipped, failed);
+            Record(manual, morning, now, result, done: true);
             _eipRetryAt = DateTime.MinValue;
-            Log.Info($"EIP 請假同步：{result}");
+            Log.Info($"EIP 請假同步{(morning ? "（上班前）" : "")}：{result}");
             if (added.Count + cancelled.Count > 0)
-            {
-                _scheduleFetched = DateTime.MinValue; // 班表的「請假」要跟著更新
-                Toast?.Invoke(new ToastRequest("已同步 EIP 請假", result,
+                _scheduleFetched = DateTime.MinValue; // 班表的「請假」要跟著更新（今天整天請假就不會自動上班）
+            if (added.Count + cancelled.Count + failed.Count > 0)
+                Toast?.Invoke(new ToastRequest(failed.Count > 0 ? "EIP 請假有登記失敗的" : "已同步 EIP 請假", result,
                     [new ToastAction("查看請假", () => { WorkspaceRequested?.Invoke("leaves", null); return Task.CompletedTask; })]));
-            }
         }
         catch (EipLoginException ex)
         {
             // 帳密錯誤：今天不再自動重試，等使用者到設定更新
             result = $"{ex.Message}，請到設定更新";
-            if (!manual)
-                _eipState.LastSyncDay = CoveredDay(now);
-            _eipState.LastResult = $"失敗：{result}";
-            _eipState.Save();
+            Record(manual, morning, now, $"失敗：{result}", done: true);
             Log.Info($"EIP 請假同步失敗：{ex.Message}");
             if (!manual)
                 Toast?.Invoke(new ToastRequest("EIP 請假同步失敗", result));
@@ -152,8 +165,7 @@ public sealed partial class TimerEngine
         catch (Exception ex)
         {
             result = ex is HttpRequestException or TaskCanceledException ? $"連不上 EIP：{ex.Message}" : ex.Message;
-            _eipState.LastResult = $"失敗：{result}";
-            _eipState.Save();
+            Record(manual, morning, now, $"失敗：{result}", done: false);
             _eipRetryAt = now + EipRetryDelay;
             Log.Error("EIP 請假同步失敗", ex);
         }
@@ -165,7 +177,25 @@ public sealed partial class TimerEngine
         return result;
     }
 
-    static string Describe(List<string> added, List<string> cancelled, List<string> skipped)
+    /// <summary>記下這次的結果；done：今天這一次算做完了（失敗要重試的不算）。手動同步不算：上班前、下班時照樣再讀。</summary>
+    void Record(bool manual, bool morning, DateTime now, string result, bool done)
+    {
+        if (done && !manual)
+        {
+            _eipState.LastSyncDay = CoveredDay(now);
+            if (morning)
+                _eipState.MorningDay = DateOnly.FromDateTime(now).ToString("yyyy-MM-dd");
+        }
+        if (!manual && morning)
+            (_eipState.MorningAt, _eipState.MorningResult) = (now, result);
+        else if (!manual)
+            (_eipState.AfterWorkAt, _eipState.AfterWorkResult) = (now, result);
+        _eipState.LastSyncAt = now;
+        _eipState.LastResult = result;
+        _eipState.Save();
+    }
+
+    static string Describe(List<string> added, List<string> cancelled, List<string> skipped, List<string> failed)
     {
         var parts = new List<string>();
         if (added.Count > 0)
@@ -174,21 +204,27 @@ public sealed partial class TimerEngine
             parts.Add("取消 " + string.Join("、", cancelled));
         if (skipped.Count > 0)
             parts.Add("Hayaku 已經有請假、略過 " + string.Join("、", skipped));
+        if (failed.Count > 0)
+            parts.Add("登記失敗，請到網頁登記 " + string.Join("、", failed));
         return parts.Count > 0 ? string.Join("；", parts) : "沒有要同步的請假";
     }
 
-    async Task<(List<string> Added, List<string> Cancelled, List<string> Skipped)> SyncEipCoreAsync(
+    async Task<(List<string> Added, List<string> Cancelled, List<string> Skipped, List<string> Failed)> SyncEipCoreAsync(
         EipCredentials cred, DateTime now, CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(now);
         var days = await _api.GetScheduleRangeAsync(today, today.AddDays(EipScheduleDays), ct);
         UpdateOffDays(days, today); // EIP 連不上也先記下來
         var next = LeavePlanner.NextWorkday(days, today) ?? today.AddDays(1);
-        var windowFrom = today.ToDateTime(TimeOnly.MinValue);
+        // 上次自動同步之後漏掉的日子（例如臨時請整天假、那天電腦沒開）一起補登，要用那幾天的班表
+        var back = LeavePlanner.BackfillFrom(_eipState.LastSyncDay, today);
+        if (back < today)
+            days = (await _api.GetScheduleRangeAsync(back, today.AddDays(-1), ct)).Concat(days).ToList();
+        var windowFrom = back.ToDateTime(TimeOnly.MinValue);
         var windowTo = next.AddDays(1).ToDateTime(TimeOnly.MinValue);
 
         // EIP：待審＋核准；年份涵蓋這次的範圍和之前同步過、還沒結束的假單
-        var years = _eipState.Leaves.Select(l => l.Start.Year).Append(today.Year).Append(next.Year).ToHashSet();
+        var years = _eipState.Leaves.Select(l => l.Start.Year).Append(back.Year).Append(today.Year).Append(next.Year).ToHashSet();
         var rows = new List<EipLeave>();
         await _eipGate.WaitAsync(ct);
         try
@@ -210,17 +246,21 @@ public sealed partial class TimerEngine
         var added = new List<string>();
         var cancelled = new List<string>();
         var skipped = new List<string>();
+        var failed = new List<string>();
         var dirty = false;
 
-        // 1. 同步建立的：已經結束的不用再管；EIP 駁回、抽單、改了時間的取消
+        // 1. 同步建立的：這次範圍以前就結束的不用再管；已經過去、還在範圍內的留著（免得重複登記），不回頭取消；
+        //    EIP 駁回、抽單、改了時間的取消
         foreach (var rec in _eipState.Leaves.ToList())
         {
-            if (rec.End <= now)
+            if (rec.End <= windowFrom)
             {
                 _eipState.Leaves.Remove(rec);
                 dirty = true;
                 continue;
             }
+            if (rec.End <= now)
+                continue;
             if (byNo.TryGetValue(rec.No, out var l) && l.Start == rec.Start && l.End == rec.End)
                 continue;
             await CancelSyncedAsync(rec, ct);
@@ -230,9 +270,9 @@ public sealed partial class TimerEngine
                 cancelled.Add(rec.Summary); // 改時間的會在下面重新登記，不用列成取消
         }
 
-        // 2. 跟「今天到下一個上班日」重疊、還沒登記的假單：整張登記
+        // 2. 跟「補登的日子（通常沒有）＋今天到下一個上班日」重疊、還沒登記的假單：整張登記（已經開始、已經過去的也登記）
         var targets = leaves
-            .Where(l => l.End > windowFrom && l.Start < windowTo && l.End > now)
+            .Where(l => l.End > windowFrom && l.Start < windowTo)
             .Where(l => _eipState.Leaves.All(r => r.No != l.No))
             .ToList();
         if (targets.Count > 0)
@@ -274,12 +314,17 @@ public sealed partial class TimerEngine
                         _eipState.Save();
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     if (rec.HayakuIds.Count == 0)
                         _eipState.Leaves.Remove(rec); // 一筆都沒登記成功：下次再試
                     _eipState.Save();
-                    throw;
+                    if (ex is not McpException || leave.Start >= now)
+                        throw;
+                    // 已經開始、已經過去的假單 Hayaku 不收（不確定會不會）：記下來告訴使用者，其他照常同步，不整次重試
+                    Log.Error($"EIP {leave.No} 登記到 Hayaku 失敗", ex);
+                    failed.Add($"{summary}（{ex.Message}）");
+                    continue;
                 }
                 added.Add(summary);
                 if (rec.HayakuIds.Count < pieces.Count)
@@ -299,7 +344,7 @@ public sealed partial class TimerEngine
                 Log.Error("重新讀取班表失敗", ex);
             }
         }
-        return (added, cancelled, skipped);
+        return (added, cancelled, skipped, failed);
     }
 
     static DateOnly Min(DateOnly a, DateOnly b) => a < b ? a : b;

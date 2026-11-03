@@ -71,7 +71,7 @@ public partial class TasksPage
                            "<TextBlock Text=\"{Binding Context}\" FontSize=\"11\" Foreground=\"{DynamicResource MutedBrush}\" " +
                            "TextTrimming=\"CharacterEllipsis\" Margin=\"0,2,0,0\" Visibility=\"{Binding ContextVisibility}\" /></StackPanel>",
                 "project" => $"<ContentControl Grid.Column=\"{col}\" {cell} Content=\"{{Binding ProjectBadge}}\" Focusable=\"False\" ToolTip=\"{{Binding ProjectText}}\" />",
-                "status" => $"<Border Grid.Column=\"{col}\" {cell} Style=\"{{StaticResource Pill}}\" HorizontalAlignment=\"Left\" Visibility=\"{{Binding StatusVisibility}}\">" +
+                "status" => $"<Border Grid.Column=\"{col}\" {cell} Style=\"{{StaticResource Pill}}\" HorizontalAlignment=\"Left\" Visibility=\"{{Binding StatusVisibility}}\" ToolTip=\"{{Binding Status}}\">" +
                             "<TextBlock Text=\"{Binding Status}\" FontSize=\"11\" TextTrimming=\"CharacterEllipsis\" /></Border>",
                 "priority" => $"<TextBlock Grid.Column=\"{col}\" {cell} Text=\"{{Binding PriorityText}}\" FontSize=\"12\" />",
                 "start" => $"<TextBlock Grid.Column=\"{col}\" {cell} Text=\"{{Binding StartText}}\" Foreground=\"{{Binding StartBrush}}\" FontSize=\"12\" />",

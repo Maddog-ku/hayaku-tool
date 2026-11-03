@@ -491,7 +491,8 @@ public sealed partial class TimerEngine
         var day = now.Date;
         var bounds = Boundaries(segs, day);
         var due = bounds.Where(b => b.At <= now && !_state.HandledBoundaries.Contains(b.Id)).ToList();
-        if (due.Count > 0)
+        // 上班前那次 EIP 同步還沒做完：先等（同步完登記了請假會重抓班表）
+        if (due.Count > 0 && !MorningEipPending(now))
         {
             // 睡眠或剛開機時可能一次錯過好幾個時間點，只執行最後一個
             foreach (var b in due)

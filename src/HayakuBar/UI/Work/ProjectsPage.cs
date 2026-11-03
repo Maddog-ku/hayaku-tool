@@ -389,7 +389,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         Grid.SetColumn(name, 2);
         grid.Children.Add(name);
 
-        var status = new TextBlock { Text = t.Status, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        var status = new TextBlock { Text = t.Status, ToolTip = t.Status, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         status.SetResourceReference(TextBlock.ForegroundProperty, t.StatusCategory == "IN_PROGRESS" ? "AccentBrush" : "MutedBrush");
         Grid.SetColumn(status, 3);
         grid.Children.Add(status);

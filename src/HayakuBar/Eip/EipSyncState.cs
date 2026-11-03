@@ -26,6 +26,15 @@ public sealed class EipSyncState
     /// <summary>上次同步的結果（設定頁顯示）。</summary>
     public string LastResult { get; set; } = "";
 
+    /// <summary>上班前那次做過的日期（yyyy-MM-dd），一天一次。</summary>
+    public string MorningDay { get; set; } = "";
+    public DateTime? MorningAt { get; set; }
+    public string MorningResult { get; set; } = "";
+
+    /// <summary>下班那次（含開機補做）最後一次的時間與結果。</summary>
+    public DateTime? AfterWorkAt { get; set; }
+    public string AfterWorkResult { get; set; } = "";
+
     public List<SyncedLeave> Leaves { get; set; } = [];
 
     public bool IsSynced(string hayakuId) => Leaves.Any(l => l.HayakuIds.Contains(hayakuId));
