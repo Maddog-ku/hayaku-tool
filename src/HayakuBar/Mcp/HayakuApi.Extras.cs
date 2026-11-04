@@ -179,13 +179,15 @@ public sealed partial class HayakuApi
 
     /// <summary>
     /// 我的討論（tab=discussions）：團隊空間的評論、聊天討論串與 @ 我，同一段討論一組（Ids 是那段的全部通知、Users 是說過話的人）。
-    /// unresolvedOnly：只留沒解決的評論串（聊天照樣列）。
+    /// unresolvedOnly：只留沒解決的評論串（聊天照樣列）；source：space＝空間與文件的評論、chat＝聊天，null 是全部。
     /// </summary>
-    public async Task<List<NotificationItem>> ListDiscussionsAsync(bool unresolvedOnly, CancellationToken ct)
+    public async Task<List<NotificationItem>> ListDiscussionsAsync(bool unresolvedOnly, string? source, CancellationToken ct)
     {
         var args = new Dictionary<string, object?> { ["tab"] = "discussions" };
         if (unresolvedOnly)
             args["unresolvedOnly"] = true;
+        if (source is not null)
+            args["source"] = source;
         return ParseNotifications(await Mcp.CallToolAsync("list_notifications", args, ct));
     }
 

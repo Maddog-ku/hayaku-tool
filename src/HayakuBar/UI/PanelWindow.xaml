@@ -539,11 +539,17 @@
                                 </StackPanel>
                             </Grid>
                             <WrapPanel x:Name="NotifyFilterPanel" Margin="0,0,0,6" />
-                            <StackPanel x:Name="DiscussionFilterPanel" Orientation="Horizontal" Margin="2,0,0,6" Visibility="Collapsed">
+                            <WrapPanel x:Name="DiscussionFilterPanel" Margin="2,0,0,6" Visibility="Collapsed">
+                                <RadioButton Style="{StaticResource ChipToggle}" GroupName="DiscussionSource" Tag="" Content="全部" IsChecked="True"
+                                             Checked="DiscussionSource_Checked" VerticalAlignment="Center" />
+                                <RadioButton Style="{StaticResource ChipToggle}" GroupName="DiscussionSource" Tag="space" Content="空間評論"
+                                             Checked="DiscussionSource_Checked" VerticalAlignment="Center" ToolTip="團隊空間與文件的評論" />
+                                <RadioButton Style="{StaticResource ChipToggle}" GroupName="DiscussionSource" Tag="chat" Content="聊天"
+                                             Checked="DiscussionSource_Checked" VerticalAlignment="Center" Margin="0,0,14,0" />
                                 <CheckBox x:Name="DiscussionUnresolved" Content="只看未解決" Click="DiscussionFilter_Click" Margin="0,0,14,0"
                                           ToolTip="只留還沒解決的評論串（聊天照樣列）" />
-                                <CheckBox x:Name="DiscussionUnread" Content="只看未讀" Click="DiscussionFilter_Click" />
-                            </StackPanel>
+                                <CheckBox x:Name="DiscussionUnread" Content="只看未讀" Click="DiscussionFilter_Click" VerticalAlignment="Center" />
+                            </WrapPanel>
                             <ItemsControl x:Name="NotificationList" ItemTemplate="{StaticResource NotificationRowTemplate}" />
                             <TextBlock x:Name="NotificationEmpty" Text="沒有通知" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0" />
                         </StackPanel>

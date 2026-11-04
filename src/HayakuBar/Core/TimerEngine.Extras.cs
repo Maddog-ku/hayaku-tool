@@ -46,15 +46,19 @@ public sealed partial class TimerEngine
     /// <summary>我的討論（通知的討論分頁：空間評論、聊天討論串、@ 我，一段討論一組）；只有打開那個分頁才讀，不輪詢。</summary>
     public IReadOnlyList<NotificationItem> Discussions { get; private set; } = [];
     DateTime _discussionsFetched = DateTime.MinValue;
-    bool _discussionsUnresolved;
+    string _discussionsQuery = "";
 
-    /// <summary>讀我的討論；一分鐘內、條件一樣就不重讀（force 例外）。失敗丟例外給呼叫端顯示。</summary>
-    public async Task LoadDiscussionsAsync(bool unresolvedOnly, bool force)
+    /// <summary>
+    /// 讀我的討論；source：space（空間評論）、chat（聊天），null 是全部。一分鐘內、條件一樣就不重讀（force 例外）。
+    /// 失敗丟例外給呼叫端顯示。
+    /// </summary>
+    public async Task LoadDiscussionsAsync(bool unresolvedOnly, string? source, bool force)
     {
-        if (!force && unresolvedOnly == _discussionsUnresolved && DateTime.Now - _discussionsFetched < TimeSpan.FromMinutes(1))
+        var query = $"{unresolvedOnly}|{source}";
+        if (!force && query == _discussionsQuery && DateTime.Now - _discussionsFetched < TimeSpan.FromMinutes(1))
             return;
-        Discussions = await _api.ListDiscussionsAsync(unresolvedOnly, CancellationToken.None);
-        _discussionsUnresolved = unresolvedOnly;
+        Discussions = await _api.ListDiscussionsAsync(unresolvedOnly, source, CancellationToken.None);
+        _discussionsQuery = query;
         _discussionsFetched = DateTime.Now;
         Raise();
     }

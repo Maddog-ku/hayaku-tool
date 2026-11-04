@@ -72,6 +72,8 @@ public partial class PanelWindow
     /// <summary>討論分頁（另外讀）的狀態：讀取中、讀取失敗的訊息。</summary>
     bool _discussionsLoading;
     string? _discussionsError;
+    /// <summary>討論的來源：space（空間評論）、chat（聊天），null 是全部（跟網頁一樣是伺服器篩的）。</summary>
+    string? _discussionSource;
 
     static readonly HashSet<string> MentionTypes =
         ["MENTIONED", "DOC_MENTIONED", "THREAD_REPLY", "CHANNEL_MESSAGE", "COMMENT_ON_MY_TASK", "CHAT_REACTION"];
@@ -425,7 +427,7 @@ public partial class PanelWindow
         RenderNotifications();
         try
         {
-            await _engine.LoadDiscussionsAsync(DiscussionUnresolved.IsChecked == true, force);
+            await _engine.LoadDiscussionsAsync(DiscussionUnresolved.IsChecked == true, _discussionSource, force);
         }
         catch (Exception ex)
         {
@@ -434,6 +436,15 @@ public partial class PanelWindow
         }
         _discussionsLoading = false;
         RenderNotifications();
+    }
+
+    async void DiscussionSource_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { Tag: string source } || DiscussionUnresolved is null)
+            return;
+        _discussionSource = source.Length > 0 ? source : null;
+        if (_notifyFilter == "discussions")
+            await LoadDiscussionsAsync(force: false);
     }
 
     async void DiscussionFilter_Click(object sender, RoutedEventArgs e)
