@@ -49,10 +49,27 @@ public static class TaskKinds
     public static readonly IReadOnlyList<string> ResultStatuses = ["未開始", "測試中", "待修復", "修復中", "待復驗", "已完成", "不處理"];
 
     /// <summary>
-    /// 測試結果狀態 → 分組：pass（已完成）、closed（不處理）、fixing（待修復、修復中）、retest（待復驗）、testing（未開始、測試中）。
-    /// 認不得的狀態用狀態類別判斷。
+    /// 專案自訂的測試子狀態名稱 → 所屬階段（例 待更新測試機 → 修復中、待更新正式機 → 待復驗）。
+    /// 讀到專案設定或測試總覽時記下；只有狀態名稱、沒有 testStage 的回應（我的任務、任務列表）靠它分對組。
     /// </summary>
-    public static string Bucket(string status, string? category = null) => status switch
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> KnownStages = new();
+
+    public static void LearnStages(IEnumerable<TestSubStatus> subStatuses)
+    {
+        foreach (var s in subStatuses)
+            if (s.Name != s.Stage)
+                KnownStages[s.Name] = s.Stage;
+    }
+
+    /// <summary>狀態所屬的測試階段（子狀態換成階段名稱）；stage 有給就用它。</summary>
+    public static string StageOf(string status, string? stage = null) =>
+        stage is { Length: > 0 } ? stage : KnownStages.TryGetValue(status, out var known) ? known : status;
+
+    /// <summary>
+    /// 測試結果狀態 → 分組：pass（已完成）、closed（不處理）、fixing（待修復、修復中）、retest（待復驗）、testing（未開始、測試中）。
+    /// stage：回應的 testStage（子狀態所屬的階段，例 待上正式機 屬於待復驗）；沒有時查記下的子狀態，再認不得用狀態類別判斷。
+    /// </summary>
+    public static string Bucket(string status, string? category = null, string? stage = null) => StageOf(status, stage) switch
     {
         "已完成" or "通過" => "pass",
         "不處理" => "closed",
@@ -77,8 +94,18 @@ public static class TaskKinds
     };
 }
 
-/// <summary>測試相關欄位：類型、分類、嚴重度、修復輪數（退回一次加一輪）、回報的人。</summary>
-public readonly record struct TestInfo(TaskKind Kind, string? Category, string? Severity, int Round, string? Reporter)
+/// <summary>
+/// 專案的測試子狀態（get_project 的 testSubStatuses）：Stage 是所屬階段（修復中、待復驗、已完成），同一階段照順序；
+/// BatchLabel 有值的可以批次推到下一步（畫面上是〔已{BatchLabel}〕，例 已更新到測試機）。
+/// </summary>
+public sealed record TestSubStatus(string Stage, string Name, string? BatchLabel, string? Color, int? Count = null, int? OldestDays = null)
+{
+    /// <summary>批次按鈕的文字，例「已更新到測試機」。</summary>
+    public string? BatchText => BatchLabel is { Length: > 0 } b ? (b.StartsWith('已') ? b : "已" + b) : null;
+}
+
+/// <summary>測試相關欄位：類型、分類、嚴重度、修復輪數（退回一次加一輪）、回報的人、所屬階段（testStage，子狀態才跟狀態不同）。</summary>
+public readonly record struct TestInfo(TaskKind Kind, string? Category, string? Severity, int Round, string? Reporter, string? Stage = null)
 {
     /// <summary>第 3 輪起要醒目標示（網頁同一套）。</summary>
     public bool Hot => Round >= 3;
@@ -103,7 +130,12 @@ public sealed record TestResultRow(
     string? TestTask,
     string? TestTaskTitle,
     bool Stale,
-    string Group);
+    string Group,
+    string? Stage = null)
+{
+    /// <summary>所屬階段（子狀態換成階段名稱）。</summary>
+    public string StageName => TaskKinds.StageOf(Status, Stage);
+}
 
 /// <summary>測試總覽的一個測試任務：底下的測試結果各狀態數量。</summary>
 public sealed record TestTaskProgress(string Key, string Title, string Project, int Total, int Passed, int Fixing, int Testing, int Retest);
@@ -123,7 +155,9 @@ public sealed record TestOverview(
     int Stale,
     IReadOnlyList<(string Severity, int Count)> BySeverity,
     IReadOnlyList<TestTaskProgress> Tests,
-    IReadOnlyList<TestResultRow> StaleItems);
+    IReadOnlyList<TestResultRow> StaleItems,
+    int PendingRelease = 0,
+    IReadOnlyList<TestSubStatus>? SubStatuses = null);
 
 /// <summary>read_file 的結果：圖片（Image 有值）或文字（Text，太長分段：NextOffset 不是 null 就還有）。</summary>
 public sealed record FileContent(string Id, string? Name, string? MimeType, byte[]? Image, string? Text, int? NextOffset, string? Note);
@@ -173,6 +207,33 @@ public sealed partial class HayakuApi
         if (!pass && due is { } d)
             args["plannedEnd"] = Iso(d);
         return Message(await Mcp.CallToolAsync("retest_test_result", args, ct));
+    }
+
+    /// <summary>
+    /// 批次把測試結果推到下一個子狀態（例 已更新到測試機：待更新測試機 → 待復驗）。from：子狀態名稱或批次按鈕文字；
+    /// tasks 為 null 是那個子狀態的全部；comment（更新說明，例版本號）變成每筆的留言。專案管理員、編輯者、測試員能用。
+    /// </summary>
+    public async Task<string?> AdvanceTestResultsAsync(string project, string from, IReadOnlyList<string>? tasks, string? comment,
+        CancellationToken ct)
+    {
+        var args = new Dictionary<string, object?> { ["project"] = project, ["from"] = from };
+        if (tasks is { Count: > 0 })
+            args["tasks"] = tasks;
+        if (!string.IsNullOrWhiteSpace(comment))
+            args["comment"] = comment.Trim();
+        return Message(await Mcp.CallToolAsync("advance_test_results", args, ct));
+    }
+
+    /// <summary>testSubStatuses（get_project）或 subStatuses（測試總覽）；順便記下子狀態屬於哪個階段。</summary>
+    internal static List<TestSubStatus> ParseSubStatuses(JsonElement r, params string[] names)
+    {
+        var list = Items(r, names)
+            .Where(s => Str(s, "name") is not null && Str(s, "stage") is not null)
+            .Select(s => new TestSubStatus(Str(s, "stage")!, Str(s, "name")!, Str(s, "batchLabel"), Str(s, "color"),
+                Number(s, "count"), Number(s, "oldestDays")))
+            .ToList();
+        TaskKinds.LearnStages(list);
+        return list;
     }
 
     /// <summary>需修復（fix）或需測試（test）的列表；project 為 null 是全部專案，mine 只看跟我有關的。</summary>
@@ -238,11 +299,13 @@ public sealed partial class HayakuApi
             testTask,
             testTitle,
             Bool(t, "stale") || Bool(t, "isStale") || Bool(t, "overdue"),
-            group);
+            group,
+            info.Stage);
     }
 
     internal static TestOverview ParseTestOverview(JsonElement r)
     {
+        var subStatuses = ParseSubStatuses(r, "subStatuses");
         var cards = Obj(r, "cards");
         var open = Obj(cards, "open");
         var retest = Obj(cards, "retest");
@@ -286,7 +349,8 @@ public sealed partial class HayakuApi
             Number(closed, "done") ?? 0, Number(closed, "wontfix", "wontFix") ?? 0,
             avgRound, Number(avg, "round3Plus") ?? 0,
             Number(cards, "stale") ?? Number(stale, "total") ?? 0,
-            severities, tests, staleItems);
+            severities, tests, staleItems,
+            Number(closed, "pendingRelease") ?? 0, subStatuses);
     }
 
     /// <summary>
@@ -336,7 +400,8 @@ public sealed partial class HayakuApi
                     reporter = person.DisplayName;
                     break;
                 }
-        return new TestInfo(kind, Field("category", "testCategory"), Field("severity"), Int("round", "fixRound", "rounds") ?? 0, reporter);
+        return new TestInfo(kind, Field("category", "testCategory"), Field("severity"), Int("round", "fixRound", "rounds") ?? 0, reporter,
+            Field("testStage", "stage"));
     }
 
     // ───────────── 讀檔案內容 ─────────────

@@ -10,7 +10,9 @@ namespace HayakuBar.UI.Work;
 /// <summary>
 /// 團隊空間：選空間 → 左邊頁面樹（可全文搜尋）→ 右邊看那頁的 Markdown；可以新增頁、在頁面最後附加內容、
 /// 編輯（改名、整頁換內容）、移到別的上層、刪除（連子頁，30 天內空間管理員可以在網頁還原）。
-/// 檔案庫頁列出資料夾與檔案，點檔案拿下載連結（1 小時有效）用瀏覽器開。
+/// 資料夾（Hayaku 1.4 起取代檔案庫，舊的檔案庫自動變成同名資料夾）列出子資料夾、文件、白板與檔案：
+/// 點兩下檔案直接看內容，〔下載〕拿下載連結（1 小時有效）用瀏覽器開；可以在資料夾裡新增文件、子資料夾。
+/// 搜尋也會找到檔名符合的檔案，點了打開所在的資料夾和預覽。上傳、打包 zip 下載請到網頁。
 /// 第一次切到這頁才讀；頁面樹、頁面內容快取到按重新整理或換空間。
 /// </summary>
 public sealed class SpacesPage : UserControl, IWorkPage
@@ -37,9 +39,10 @@ public sealed class SpacesPage : UserControl, IWorkPage
     readonly Button _composeButton;
     readonly Dictionary<string, List<SpaceNode>> _trees = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, SpacePageContent> _pages = [];
-    readonly Stack<(string? FolderId, string Name)> _folders = new();
     List<SpaceInfo> _spaces = [];
     readonly Button _newTop;
+    /// <summary>只有文件能用的按鈕（附加內容、編輯）；資料夾沒有內文，打開資料夾時藏起來。</summary>
+    readonly Button[] _docOnly;
 
     /// <summary>選著的空間；專案封存了是唯讀（不能新增頁、附加內容）。</summary>
     SpaceInfo? CurrentSpace => _spaces.FirstOrDefault(s => s.Key == SpaceKey);
@@ -61,7 +64,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
             if (!_building)
                 await LoadTreeAsync(refresh: false);
         };
-        _search = PageParts.Input(this, "🔍 搜尋這個空間的頁名與內容（Enter）");
+        _search = PageParts.Input(this, "🔍 搜尋這個空間的頁名、內容與檔名（Enter）");
         _search.Width = 300;
         _search.Margin = new Thickness(0);
         _search.KeyDown += async (_, e) =>
@@ -90,9 +93,8 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _up = PageParts.Button(this, "↑ 上一層");
         _up.Click += async (_, _) =>
         {
-            if (_folders.Count > 0)
-                _folders.Pop();
-            await LoadFilesAsync();
+            if (ParentFolder() is { } parent)
+                await OpenAsync(parent);
         };
         _fileList.MouseDoubleClick += async (_, _) => await OpenFileAsync(download: false);
         _fileList.KeyDown += async (_, e) =>
@@ -103,7 +105,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
         var download = PageParts.Button(this, "⬇ 下載選取的檔案");
         download.ToolTip = "用瀏覽器下載原檔（連結 1 小時有效）";
         download.Click += async (_, _) => await OpenFileAsync(download: true);
-        var fileHint = PageParts.Muted("點兩下資料夾進去、點兩下檔案直接看內容（圖片、PDF、Word、Excel、文字檔）。上傳、刪除請到網頁。", 11);
+        var fileHint = PageParts.Muted("點兩下資料夾進去、點兩下文件打開、點兩下檔案直接看內容（圖片、PDF、Word、Excel、文字檔）。上傳、刪除檔案、打包 zip 下載請到網頁。", 11);
         fileHint.Margin = new Thickness(0, 0, 0, 6);
         _files.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6), Children = { _up, download } });
         _files.Children.Add(fileHint);
@@ -111,6 +113,9 @@ public sealed class SpacesPage : UserControl, IWorkPage
 
         var child = PageParts.Button(this, "＋ 新增子頁");
         child.Click += (_, _) => Compose(ComposeMode.Child);
+        var folder = PageParts.Button(this, "＋ 資料夾");
+        folder.ToolTip = "在這裡新增一個資料夾（可以放文件、白板、子資料夾和檔案）";
+        folder.Click += (_, _) => Compose(ComposeMode.Folder);
         var append = PageParts.Button(this, "附加內容");
         append.Click += (_, _) => Compose(ComposeMode.Append);
         var edit = PageParts.Button(this, "✎ 編輯");
@@ -120,7 +125,9 @@ public sealed class SpacesPage : UserControl, IWorkPage
         move.Click += async (_, _) => await MoveAsync();
         var delete = PageParts.Button(this, "刪除…");
         delete.Click += async (_, _) => await DeleteAsync();
+        _docOnly = [append, edit];
         _actions.Children.Add(child);
+        _actions.Children.Add(folder);
         _actions.Children.Add(append);
         _actions.Children.Add(edit);
         _actions.Children.Add(move);
@@ -144,11 +151,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
 
         var newTop = _newTop = PageParts.Button(this, "＋ 新頁", primary: true);
         newTop.ToolTip = "在這個空間的最上層新增一頁";
-        newTop.Click += (_, _) =>
-        {
-            _node = _node is { IsFiles: true } ? null : _node;
-            Compose(ComposeMode.Child, topLevel: true);
-        };
+        newTop.Click += (_, _) => Compose(ComposeMode.Child, topLevel: true);
         var reload = PageParts.Button(this, "⟳ 重新整理");
         reload.Click += async (_, _) => await LoadSpacesAsync();
         var web = PageParts.Button(this, "在網頁開啟 ↗");
@@ -275,7 +278,12 @@ public sealed class SpacesPage : UserControl, IWorkPage
         {
             var item = new TreeViewItem
             {
-                Header = new TextBlock { Text = (n.IsFiles ? "🗂 " : "") + n.Title, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 2) },
+                Header = new TextBlock
+                {
+                    Text = n.Icon + n.Title + (n is { IsFolder: true, FileCount: > 0 } ? $"（{n.FileCount}）" : ""),
+                    TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 2),
+                    ToolTip = n.IsFolder && n.FileCount is { } count ? $"資料夾・直接放在裡面的檔案 {count} 個" : null,
+                },
                 Tag = n, IsExpanded = depth == 0,
             };
             foreach (var c in byParent[n.Id])
@@ -315,8 +323,10 @@ public sealed class SpacesPage : UserControl, IWorkPage
             var hits = await _engine.Api.SearchSpacesAsync(q, SpaceKey, CancellationToken.None);
             if (version != _version)
                 return;
-            _hits.ItemsSource = hits.Select(h => PageParts.Row(h.Title, h.Snippet, h)).ToList();
-            _leftMessage.Text = hits.Count == 0 ? $"找不到「{q}」（Esc 回到頁面樹）" : $"「{q}」找到 {hits.Count} 頁（Esc 回到頁面樹）";
+            _hits.ItemsSource = hits.Select(h => PageParts.Row((h.IsFile ? "📄 " : "") + h.Title, h.Snippet, h)).ToList();
+            var files = hits.Count(h => h.IsFile);
+            _leftMessage.Text = hits.Count == 0 ? $"找不到「{q}」（Esc 回到頁面樹）"
+                : $"「{q}」找到 {hits.Count - files} 頁" + (files > 0 ? $"、{files} 個檔案" : "") + "（Esc 回到頁面樹）";
         }
         catch (Exception ex)
         {
@@ -328,14 +338,25 @@ public sealed class SpacesPage : UserControl, IWorkPage
         }
     }
 
-    Task OpenHitAsync(KnowledgeHit hit)
+    /// <summary>頁：打開那頁；檔案：打開所在的資料夾，再開預覽。</summary>
+    async Task OpenHitAsync(KnowledgeHit hit)
     {
         var space = hit.Space ?? SpaceKey;
         if (space is null)
-            return Task.CompletedTask;
-        var node = SpaceKey is { } current && _trees.TryGetValue(current, out var nodes) ? nodes.FirstOrDefault(n => n.Id == hit.Id) : null;
-        return OpenAsync(node ?? new SpaceNode(hit.Id, hit.Title, null, null, null), space);
+            return;
+        var id = hit.FolderId ?? hit.Id;
+        var node = Node(id) ?? (hit.IsFile ? new SpaceNode(id, "資料夾", null, "FOLDER", null) : new SpaceNode(hit.Id, hit.Title, null, null, null));
+        await OpenAsync(node, space);
+        if (hit.IsFile)
+            FilePreviewWindow.Show(_engine, hit.Id, hit.Title, Window.GetWindow(this));
     }
+
+    /// <summary>目前空間頁面樹裡的一頁（沒讀過樹、或不在樹上是 null）。</summary>
+    SpaceNode? Node(string? id) =>
+        id is not null && SpaceKey is { } space && _trees.TryGetValue(space, out var nodes) ? nodes.FirstOrDefault(n => n.Id == id) : null;
+
+    /// <summary>打開的資料夾的上層資料夾（〔上一層〕用）。</summary>
+    SpaceNode? ParentFolder() => Node(_node?.ParentId) is { IsFolder: true } parent ? parent : null;
 
     async Task OpenAsync(SpaceNode node, string? space = null)
     {
@@ -345,9 +366,8 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _node = node;
         _composer.Visibility = Visibility.Collapsed;
         _title.Text = node.Title;
-        if (node.IsFiles)
+        if (node.IsFolder)
         {
-            _folders.Clear();
             await LoadFilesAsync();
             return;
         }
@@ -395,9 +415,17 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _content.Visibility = _content.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         _rightMessage.Text = "這頁還沒有內容";
         _rightMessage.Visibility = _content.Text.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
-        _actions.Visibility = Writable ? Visibility.Visible : Visibility.Collapsed;
+        ShowActions(folder: false);
         if (!Writable)
             _meta.Text += (_meta.Text.Length > 0 ? "・" : "") + "專案已封存，只能看";
+    }
+
+    /// <summary>頁面的按鈕：資料夾沒有內文，不能附加內容、編輯。</summary>
+    void ShowActions(bool folder)
+    {
+        foreach (var b in _docOnly)
+            b.Visibility = folder ? Visibility.Collapsed : Visibility.Visible;
+        _actions.Visibility = Writable ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void ShowEmpty()
@@ -412,46 +440,65 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _rightMessage.Visibility = Visibility.Visible;
     }
 
-    // ───────────── 檔案庫 ─────────────
+    // ───────────── 資料夾 ─────────────
 
     async Task LoadFilesAsync()
     {
-        if (_node is not { IsFiles: true } node || SpaceKey is not { } space)
+        if (_node is not { IsFolder: true } node || SpaceKey is not { } space)
             return;
         var version = ++_version;
-        var folderId = _folders.Count > 0 ? _folders.Peek().FolderId : null;
         _content.Visibility = Visibility.Collapsed;
-        _actions.Visibility = Visibility.Collapsed;
         _files.Visibility = Visibility.Visible;
-        _up.Visibility = _folders.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        _meta.Text = _folders.Count > 0 ? "檔案庫 › " + string.Join(" › ", _folders.Reverse().Select(f => f.Name)) : "檔案庫";
+        ShowActions(folder: true);
+        _up.Visibility = ParentFolder() is not null ? Visibility.Visible : Visibility.Collapsed;
+        _meta.Text = string.Join(" › ", FolderPath(node)) + (Writable ? "" : "・專案已封存，只能看");
         _fileList.ItemsSource = null;
         _rightMessage.Text = "讀取中…";
         _rightMessage.Visibility = Visibility.Visible;
         try
         {
-            var files = await _engine.Api.ListSpaceFilesAsync(space, node.Id, folderId, CancellationToken.None);
+            var files = await _engine.Api.ListSpaceFilesAsync(space, node.Id, CancellationToken.None);
             if (version != _version || _node?.Id != node.Id)
                 return;
-            _fileList.ItemsSource = files.Select(f => PageParts.Row((f.IsFolder ? "📁 " : "📄 ") + f.Name, FileMeta(f), f)).ToList();
-            _rightMessage.Text = files.Count == 0 ? "這裡沒有檔案" : "";
+            _fileList.ItemsSource = files.Select(f => PageParts.Row(FileIcon(f) + f.Name, FileMeta(f), f)).ToList();
+            _rightMessage.Text = files.Count == 0 ? "這個資料夾是空的" : "";
             _rightMessage.Visibility = files.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex)
         {
             if (version != _version)
                 return;
-            Log.Error($"讀取檔案庫 {node.Id} 失敗", ex);
-            _rightMessage.Text = $"讀不到檔案：{ex.Message}";
+            Log.Error($"讀取資料夾 {node.Id} 失敗", ex);
+            _rightMessage.Text = $"讀不到資料夾：{ex.Message}";
         }
     }
 
+    /// <summary>資料夾在空間裡的路徑（頁面樹上的上層名稱）。</summary>
+    List<string> FolderPath(SpaceNode node)
+    {
+        var path = new List<string> { node.Title };
+        var seen = new HashSet<string> { node.Id };
+        for (var p = Node(node.ParentId); p is not null && seen.Add(p.Id); p = Node(p.ParentId))
+            path.Insert(0, p.Title);
+        return path;
+    }
+
+    static string FileIcon(SpaceFile f) => f.IsFolder ? "📁 " : f.Kind switch
+    {
+        null => "📄 ",
+        "BOARD" => "🖍 ",
+        "CHANNEL" => "# ",
+        "FORUM" => "💬 ",
+        _ => "📝 ",
+    };
+
     static string FileMeta(SpaceFile f) => string.Join("・", new[]
     {
-        PageParts.Size(f.Size), f.Uploader ?? "", f.At is { } at ? Inputs.Ago(at) : "",
+        f.IsFolder ? "資料夾" : f.Kind switch { null => "", "BOARD" => "白板", "CHANNEL" => "頻道", "FORUM" => "論壇", _ => "文件" },
+        PageParts.Size(f.Size), f.Uploader ?? "", f.At is { } at ? Inputs.Ago(at) : "", f.Path ?? "",
     }.Where(s => s.Length > 0));
 
-    /// <summary>資料夾：進去；檔案：直接看內容（read_file），download 才拿下載連結用瀏覽器下載。</summary>
+    /// <summary>子資料夾、文件：打開；檔案：直接看內容（read_file），download 才拿下載連結用瀏覽器下載。</summary>
     async Task OpenFileAsync(bool download)
     {
         if (_fileList.SelectedItem is not ListBoxItem { Tag: SpaceFile file })
@@ -460,12 +507,14 @@ public sealed class SpacesPage : UserControl, IWorkPage
                 Inputs.Show(_status, "先在清單選一個檔案");
             return;
         }
-        if (file.IsFolder)
+        if (file.IsFolder || file.IsPage)
         {
             if (download)
+            {
+                Inputs.Show(_status, file.IsFolder ? "資料夾要打包下載請到網頁" : "這是頁面，不是檔案");
                 return;
-            _folders.Push((file.Id, file.Name));
-            await LoadFilesAsync();
+            }
+            await OpenAsync(Node(file.Id) ?? new SpaceNode(file.Id, file.Name, _node?.Id, file.IsFolder ? "FOLDER" : file.Kind, file.At));
             return;
         }
         if (!download)
@@ -485,7 +534,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
 
     // ───────────── 新增頁、附加內容、編輯 ─────────────
 
-    enum ComposeMode { Child, Append, Edit }
+    enum ComposeMode { Child, Folder, Append, Edit }
 
     void Compose(ComposeMode mode, bool topLevel = false)
     {
@@ -501,9 +550,11 @@ public sealed class SpacesPage : UserControl, IWorkPage
         {
             ComposeMode.Append => $"附加到「{_node?.Title}」最後",
             ComposeMode.Edit => $"編輯「{_node?.Title}」",
+            ComposeMode.Folder => _node is null ? "在最上層新增資料夾" : $"在「{_node.Title}」底下新增資料夾",
             _ => _node is null ? "在最上層新增一頁" : $"在「{_node.Title}」底下新增一頁",
         };
         _composeTitle.Visibility = mode == ComposeMode.Append ? Visibility.Collapsed : Visibility.Visible;
+        _composeBody.Visibility = mode == ComposeMode.Folder ? Visibility.Collapsed : Visibility.Visible;
         _composeBody.Tag = mode switch
         {
             ComposeMode.Append => "要加在這頁最後的內容（Markdown，不會取代原本的內容）",
@@ -549,6 +600,10 @@ public sealed class SpacesPage : UserControl, IWorkPage
                 ok = await Inputs.Run(_composeButton, _status, () => _engine.Api.CreateSpacePageAsync(space, parent?.Id, title, body, CancellationToken.None),
                     $"已新增「{title}」");
                 break;
+            case ComposeMode.Folder:
+                ok = await Inputs.Run(_composeButton, _status,
+                    () => _engine.Api.CreateSpacePageAsync(space, parent?.Id, title, "", CancellationToken.None, folder: true), $"已新增資料夾「{title}」");
+                break;
             case ComposeMode.Append:
                 ok = await Inputs.Run(_composeButton, _status, () => _engine.Api.AppendSpacePageAsync(space, parent!.Id, body, CancellationToken.None),
                     "已附加到這頁");
@@ -573,9 +628,12 @@ public sealed class SpacesPage : UserControl, IWorkPage
         _composeTitle.Text = _composeBody.Text = "";
         _composer.Visibility = Visibility.Collapsed;
         var message = _status.Text;
-        if (mode == ComposeMode.Child || mode == ComposeMode.Edit && title != parent?.Title)
+        var created = mode is ComposeMode.Child or ComposeMode.Folder;
+        if (created || mode == ComposeMode.Edit && title != parent?.Title)
             await LoadTreeAsync(refresh: true);
-        if (mode != ComposeMode.Child && parent is not null)
+        if (created && parent is { IsFolder: true })
+            await OpenAsync(parent); // 資料夾裡新增的，重讀資料夾的清單
+        else if (!created && parent is not null)
         {
             _pages.Remove(parent.Id);
             await OpenAsync(parent with { Title = mode == ComposeMode.Edit ? title : parent.Title });
@@ -602,7 +660,7 @@ public sealed class SpacesPage : UserControl, IWorkPage
         var byId = nodes.ToDictionary(n => n.Id);
         int Depth(SpaceNode n) => n.ParentId is { } p && byId.TryGetValue(p, out var parent) ? Depth(parent) + 1 : 0;
         var choices = new List<(string? Id, string Text)> { (null, "（最上層）") };
-        choices.AddRange(nodes.Where(n => !blocked.Contains(n.Id) && !n.IsFiles)
+        choices.AddRange(nodes.Where(n => !blocked.Contains(n.Id) && n.Kind?.ToUpperInvariant() is not ("CHANNEL" or "FORUM"))
             .Select(n => ((string?)n.Id, new string(' ', Depth(n) * 3) + n.Title)));
         var current = node.ParentId is { } cp && byId.ContainsKey(cp) ? cp : null;
         var picker = new SpaceMoveWindow(node.Title, choices, current) { Owner = Window.GetWindow(this) };
@@ -622,9 +680,12 @@ public sealed class SpacesPage : UserControl, IWorkPage
         if (SpaceKey is not { } space || _node is not { } node)
             return;
         var children = _trees.TryGetValue(space, out var nodes) ? nodes.Count(n => n.ParentId == node.Id) : 0;
+        var files = node.IsFolder ? (Node(node.Id) ?? node).FileCount : 0;
         var ok = MessageBox.Show(Window.GetWindow(this),
-            $"刪除「{node.Title}」？" + (children > 0 ? "底下的子頁會一起刪除。" : "") + "\n30 天內空間管理員可以在網頁還原。",
-            "刪除頁面", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            $"刪除「{node.Title}」？" + (children > 0 ? "底下的子頁會一起刪除。" : "")
+            + (node.IsFolder ? files is > 0 ? $"資料夾裡的 {files} 個檔案也會一起刪除。" : "資料夾裡的檔案也會一起刪除。" : "")
+            + "\n30 天內空間管理員可以在網頁還原。",
+            node.IsFolder ? "刪除資料夾" : "刪除頁面", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (ok != MessageBoxResult.OK)
             return;
         if (await Inputs.Run(null, _status, () => _engine.Api.DeleteSpacePageAsync(space, node.Id, CancellationToken.None), $"已刪除「{node.Title}」"))

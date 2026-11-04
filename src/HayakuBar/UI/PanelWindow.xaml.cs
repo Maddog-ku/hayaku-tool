@@ -329,9 +329,13 @@ public partial class PanelWindow : Window
 
     void RenderNotifications()
     {
-        var rows = FilteredNotifications().Take(30).Select(n => new NotificationRowVm { Item = n }).ToList();
+        var discussions = _notifyFilter == "discussions";
+        var rows = FilteredNotifications().Take(30).Select(n => new NotificationRowVm { Item = n, Discussion = discussions }).ToList();
         NotificationList.ItemsSource = rows;
-        NotificationEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        DiscussionFilterPanel.Visibility = discussions ? Visibility.Visible : Visibility.Collapsed;
+        NotificationEmpty.Text = !discussions ? "沒有通知"
+            : _discussionsError ?? (_discussionsLoading && rows.Count == 0 ? "讀取中…" : "沒有討論");
+        NotificationEmpty.Visibility = rows.Count == 0 || discussions && _discussionsError is not null ? Visibility.Visible : Visibility.Collapsed;
         var unread = _engine.UnreadCount;
         UnreadText.Text = unread > 0 ? $"{unread} 則未讀" : "都已讀";
         MarkAllButton.IsEnabled = unread > 0;
@@ -377,6 +381,8 @@ public partial class PanelWindow : Window
         TabToday.Visibility = tab == "Today" ? Visibility.Visible : Visibility.Collapsed;
         TabNotify.Visibility = tab == "Notify" ? Visibility.Visible : Visibility.Collapsed;
         StartPopup.IsOpen = false;
+        if (tab == "Notify" && _notifyFilter == "discussions")
+            _ = LoadDiscussionsAsync(force: false);
     }
 
     // ───────────── 計時 ─────────────

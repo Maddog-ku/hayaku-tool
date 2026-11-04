@@ -3,25 +3,35 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="clr-namespace:HayakuBar.UI">
     <DockPanel Margin="24,18,24,16">
-        <TextBlock DockPanel.Dock="Top" Text="請假" Style="{StaticResource PageTitle}" />
+        <TextBlock DockPanel.Dock="Top" Text="請假與出差" Style="{StaticResource PageTitle}" />
 
         <!-- 登記 -->
         <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,14">
             <StackPanel>
                 <Grid Margin="0,0,0,10">
-                    <TextBlock Text="登記請假" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <TextBlock Text="只登記、不簽核；登記後當天不用上班，自動上下班也會跳過" Style="{StaticResource CardDesc}"
+                    <TextBlock x:Name="FormTitle" Text="登記請假" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="FormDesc" Text="只登記、不簽核；登記後當天不用上班，自動上下班也會跳過" Style="{StaticResource CardDesc}"
                                HorizontalAlignment="Right" Margin="0" />
                 </Grid>
-                <Border Style="{StaticResource SegmentTrack}" Margin="0,0,0,10">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="SpanDay" Style="{StaticResource Segment}" GroupName="Span" Tag="DAY" Content="整天" IsChecked="True"
-                                     Checked="Span_Checked" />
-                        <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_AM" Content="上午" Checked="Span_Checked" />
-                        <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_PM" Content="下午" Checked="Span_Checked" />
-                        <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="RANGE" Content="指定時段" Checked="Span_Checked" />
-                    </StackPanel>
-                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <Border Style="{StaticResource SegmentTrack}" Margin="0,0,10,0">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveKind" Tag="LEAVE" Content="請假" IsChecked="True"
+                                         Checked="Kind_Checked" />
+                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveKind" Tag="TRIP" Content="✈ 出差" Checked="Kind_Checked"
+                                         ToolTip="出差照常算上班時數、不扣應出勤" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource SegmentTrack}">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="SpanDay" Style="{StaticResource Segment}" GroupName="Span" Tag="DAY" Content="整天" IsChecked="True"
+                                         Checked="Span_Checked" />
+                            <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_AM" Content="上午" Checked="Span_Checked" />
+                            <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_PM" Content="下午" Checked="Span_Checked" />
+                            <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="RANGE" Content="指定時段" Checked="Span_Checked" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="280" />
@@ -98,7 +108,7 @@
                                     </StackPanel>
                                     <TextBlock Grid.Column="2" Text="{Binding Lost}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
                                                Margin="12,0" />
-                                    <Button Grid.Column="3" Content="取消請假" Style="{StaticResource IconButton}" Tag="{Binding}" Click="Cancel_Click"
+                                    <Button Grid.Column="3" Content="{Binding CancelText}" Style="{StaticResource IconButton}" Tag="{Binding}" Click="Cancel_Click"
                                             Visibility="{Binding CancelVisibility}" VerticalAlignment="Center" />
                                 </Grid>
                             </Border>

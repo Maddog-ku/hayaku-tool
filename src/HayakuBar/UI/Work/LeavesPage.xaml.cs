@@ -15,17 +15,21 @@ public sealed class LeaveRowVm
     public bool FromEip { get; init; }
     public string Name => Item.User.DisplayName + (Mine ? "（我）" : "");
     public string Initial => Item.User.DisplayName.Length > 0 ? Item.User.DisplayName[..1] : "?";
-    public string Period => Item.Period + (FromEip ? "　· 從 EIP 同步" : "");
-    public string Lost => Item.LostText;
+    public string Period => (Item.IsTrip ? "✈ 出差・" : "") + Item.Period + (FromEip ? "　· 從 EIP 同步" : "");
+
+    /// <summary>出差照常算上班，不顯示少掉的時數。</summary>
+    public string Lost => Item.IsTrip ? "" : Item.LostText;
+    public string CancelText => Item.IsTrip ? "取消出差" : "取消請假";
     public Visibility CancelVisibility => Mine && Item.EndAt > DateTimeOffset.Now ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// <summary>請假：列出期間內誰請假、登記自己的請假、取消。</summary>
+/// <summary>請假與出差：列出期間內誰請假、出差，登記自己的請假或出差、取消。出差照常算上班時數。</summary>
 public partial class LeavesPage : UserControl, IWorkPage
 {
     readonly TimerEngine _engine;
     string _range = "2w";
     string _span = "DAY";
+    bool _trip;
     int _version;
 
     public LeavesPage(TimerEngine engine)
@@ -68,7 +72,7 @@ public partial class LeavesPage : UserControl, IWorkPage
                 .Where(r => MineOnly.IsChecked != true || r.Mine)
                 .ToList();
             LeaveList.ItemsSource = rows;
-            EmptyText.Text = MineOnly.IsChecked == true ? "這段期間你沒有請假" : "這段期間沒有人請假";
+            EmptyText.Text = MineOnly.IsChecked == true ? "這段期間你沒有請假或出差" : "這段期間沒有人請假或出差";
             EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex)
@@ -91,6 +95,15 @@ public partial class LeavesPage : UserControl, IWorkPage
     }
 
     async void MineOnly_Click(object sender, RoutedEventArgs e) => await LoadAsync();
+
+    void Kind_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { Tag: string kind } || FormTitle is null)
+            return;
+        _trip = kind == "TRIP";
+        FormTitle.Text = _trip ? "登記出差" : "登記請假";
+        FormDesc.Text = _trip ? "只登記、不簽核；出差照常算上班時數、不扣應出勤" : "只登記、不簽核；登記後當天不用上班，自動上下班也會跳過";
+    }
 
     void Span_Checked(object sender, RoutedEventArgs e)
     {
@@ -139,7 +152,10 @@ public partial class LeavesPage : UserControl, IWorkPage
         }
         if (NoteInput.Text.Trim().Length > 0)
             args["note"] = NoteInput.Text.Trim();
-        var ok = MessageBox.Show(Window.GetWindow(this)!, $"登記請假：{summary}？", "登記請假", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        var what = _trip ? "出差" : "請假";
+        if (_trip)
+            args["kind"] = "TRIP";
+        var ok = MessageBox.Show(Window.GetWindow(this)!, $"登記{what}：{summary}？", $"登記{what}", MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (ok != MessageBoxResult.OK)
             return;
         if (!await Inputs.Run(AddButton, FormStatus, () => _engine.Api.AddLeaveAsync(args, CancellationToken.None), $"已登記：{summary}"))
@@ -153,10 +169,10 @@ public partial class LeavesPage : UserControl, IWorkPage
     {
         if ((sender as Button)?.Tag is not LeaveRowVm row)
             return;
-        var ok = MessageBox.Show(Window.GetWindow(this)!, $"取消請假：{row.Period}？", "取消請假", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        var ok = MessageBox.Show(Window.GetWindow(this)!, $"{row.CancelText}：{row.Period}？", row.CancelText, MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (ok != MessageBoxResult.OK)
             return;
-        if (await Inputs.Run((Button)sender, ListStatus, () => _engine.Api.CancelLeaveAsync(row.Item.Id, CancellationToken.None), "已取消請假"))
+        if (await Inputs.Run((Button)sender, ListStatus, () => _engine.Api.CancelLeaveAsync(row.Item.Id, CancellationToken.None), $"已{row.CancelText}"))
         {
             await _engine.AfterExternalChangeAsync();
             await LoadAsync();

@@ -15,24 +15,51 @@ public sealed record Notebook(IReadOnlyList<NoteFolder> Folders, IReadOnlyList<N
 public sealed record NoteContent(string Id, string Title, string Markdown, IReadOnlyList<string> TaskCodes,
     IReadOnlyList<(string Text, bool Done)> Todos);
 
-/// <summary>筆記本、團隊空間的搜尋結果；Space 只有團隊空間才有。</summary>
-public sealed record KnowledgeHit(string Id, string Title, string? Space, string? Snippet);
+/// <summary>
+/// 筆記本、團隊空間的搜尋結果；Space 只有團隊空間才有。
+/// FolderId 有值是資料夾裡的檔案（search_spaces 的 files：Id 是檔案 id，Snippet 是所在路徑）。
+/// </summary>
+public sealed record KnowledgeHit(string Id, string Title, string? Space, string? Snippet, string? FolderId = null)
+{
+    public bool IsFile => FolderId is not null;
+}
 
 /// <summary>團隊空間（list_spaces）；Project：所屬專案的代碼（專案裡開的空間），Archived：專案封存了、只能看。</summary>
 public sealed record SpaceInfo(string Key, string Name, string? Role, int? PageCount, string? Project = null, bool Archived = false);
 
-/// <summary>空間頁面樹的一個節點（get_space_tree）；Kind：一般頁、檔案庫（FILES）…</summary>
-public sealed record SpaceNode(string Id, string Title, string? ParentId, string? Kind, DateTimeOffset? UpdatedAt)
+/// <summary>
+/// 空間頁面樹的一個節點（get_space_tree）；Kind：DOC 文件、BOARD 白板、FOLDER 資料夾、CHANNEL 頻道、FORUM 論壇
+/// （Hayaku 1.4 以前的檔案庫是 FILES，已經轉成資料夾、id 不變）。FileCount：資料夾直接放在裡面的檔案數。
+/// </summary>
+public sealed record SpaceNode(string Id, string Title, string? ParentId, string? Kind, DateTimeOffset? UpdatedAt, int? FileCount = null)
 {
-    public bool IsFiles => string.Equals(Kind, "FILES", StringComparison.OrdinalIgnoreCase);
+    public bool IsFolder => Kind?.ToUpperInvariant() is "FOLDER" or "FILES";
+
+    /// <summary>頁面樹上的圖示：資料夾、白板、頻道、論壇；文件不加。</summary>
+    public string Icon => Kind?.ToUpperInvariant() switch
+    {
+        "FOLDER" or "FILES" => "📁 ",
+        "BOARD" => "🖍 ",
+        "CHANNEL" => "# ",
+        "FORUM" => "💬 ",
+        _ => "",
+    };
 }
 
 /// <summary>空間的一頁（get_space_page）；Path：上層的頁名。</summary>
 public sealed record SpacePageContent(string Id, string Title, string Markdown, string? Owner, DateTimeOffset? UpdatedAt,
     IReadOnlyList<string> Path);
 
-/// <summary>檔案庫的資料夾或檔案（list_space_files）。</summary>
-public sealed record SpaceFile(string Id, string Name, bool IsFolder, long? Size, string? Uploader, DateTimeOffset? At);
+/// <summary>
+/// 資料夾裡的一個東西（list_space_files）：上傳的檔案，或子頁（Kind：FOLDER 子資料夾、DOC 文件、BOARD 白板…）。
+/// Path：遞迴列出時的所在路徑。
+/// </summary>
+public sealed record SpaceFile(string Id, string Name, bool IsFolder, long? Size, string? Uploader, DateTimeOffset? At,
+    string? Kind = null, string? Path = null)
+{
+    /// <summary>子頁（不是上傳的檔案）。</summary>
+    public bool IsPage => Kind is not null;
+}
 
 /// <summary>投票的一個選項；Voters 匿名時是空的，Mine：我投了這個。</summary>
 public sealed record PollOption(string Label, int? Votes, IReadOnlyList<string> Voters, bool Mine);
@@ -119,13 +146,22 @@ public sealed partial class HayakuApi
             args["space"] = space;
         if (project is not null)
             args["project"] = project;
-        return ParseHits(await Mcp.CallToolAsync("search_spaces", args, ct));
+        var r = await Mcp.CallToolAsync("search_spaces", args, ct);
+        return ParseHits(r).Concat(ParseFileHits(r)).ToList();
     }
 
-    /// <summary>新增一頁（parentId 為 null 放最上層）；回傳新頁的 id（回應裡找不到就是 null）。</summary>
-    public async Task<string?> CreateSpacePageAsync(string space, string? parentId, string title, string markdown, CancellationToken ct)
+    /// <summary>
+    /// 新增一頁（parentId 為 null 放最上層；上層可以是文件、白板或資料夾）；folder＝建資料夾（沒有內文）。
+    /// 回傳新頁的 id（回應裡找不到就是 null）。
+    /// </summary>
+    public async Task<string?> CreateSpacePageAsync(string space, string? parentId, string title, string markdown, CancellationToken ct,
+        bool folder = false)
     {
-        var args = new Dictionary<string, object?> { ["space"] = space, ["title"] = title, ["markdown"] = markdown };
+        var args = new Dictionary<string, object?> { ["space"] = space, ["title"] = title };
+        if (folder)
+            args["kind"] = "FOLDER";
+        else
+            args["markdown"] = markdown;
         if (parentId is not null)
             args["parentId"] = parentId;
         return NewId(await Mcp.CallToolAsync("create_space_page", args, ct));
@@ -153,14 +189,9 @@ public sealed partial class HayakuApi
     public Task DeleteSpacePageAsync(string space, string pageId, CancellationToken ct) =>
         Mcp.CallToolAsync("delete_space_page", new { space, pageId }, ct);
 
-    /// <summary>檔案庫頁（kind 是 FILES）裡的資料夾與檔案；folderId 看某個資料夾。</summary>
-    public async Task<List<SpaceFile>> ListSpaceFilesAsync(string space, string pageId, string? folderId, CancellationToken ct)
-    {
-        var args = new Dictionary<string, object?> { ["spaceKey"] = space, ["pageId"] = pageId };
-        if (folderId is not null)
-            args["folderId"] = folderId;
-        return ParseSpaceFiles(await Mcp.CallToolAsync("list_space_files", args, ct));
-    }
+    /// <summary>資料夾頁（kind 是 FOLDER，舊的檔案庫也是）裡的子頁與上傳的檔案。</summary>
+    public async Task<List<SpaceFile>> ListSpaceFilesAsync(string space, string folder, CancellationToken ct) =>
+        ParseSpaceFiles(await Mcp.CallToolAsync("list_space_files", new { spaceKey = space, folder }, ct));
 
     /// <summary>下載連結（1 小時有效，只有本人能用）。</summary>
     public async Task<string?> SpaceFileLinkAsync(string fileId, CancellationToken ct)
@@ -190,7 +221,7 @@ public sealed partial class HayakuApi
                 if (FirstStr(n, "id", "pageId") is not { } id)
                     continue;
                 list.Add(new SpaceNode(id, FirstStr(n, "title", "name") ?? "（未命名）", FirstStr(n, "parentId") ?? parent,
-                    FirstStr(n, "kind", "type"), FirstDate(n, "updatedAt", "editedAt")));
+                    FirstStr(n, "kind", "type"), FirstDate(n, "updatedAt", "editedAt"), Number(n, "fileCount", "files")));
                 Walk(Items(n, "children"), id);
             }
         }
@@ -213,18 +244,50 @@ public sealed partial class HayakuApi
             FirstStr(page, "markdown", "content", "body") ?? "", owner, FirstDate(page, "updatedAt", "editedAt"), path);
     }
 
+    /// <summary>
+    /// 資料夾裡的子頁（pages／children；舊的檔案庫回 folders）與檔案（files）；子頁沒寫種類的當資料夾。
+    /// 實際回應還沒有樣本（帳號看不到任何空間），照工具說明寬鬆讀。
+    /// </summary>
     internal static List<SpaceFile> ParseSpaceFiles(JsonElement r)
     {
-        var folders = Items(r, "folders")
-            .Where(f => FirstStr(f, "id") is not null)
-            .Select(f => new SpaceFile(FirstStr(f, "id")!, FirstStr(f, "name", "title") ?? "（未命名資料夾）", true, null, null,
-                FirstDate(f, "updatedAt", "createdAt")));
+        var pages = new[] { "pages", "children", "subpages", "folders" }
+            .SelectMany(name => Items(r, name))
+            .Concat(Items(r, "files", "items").Where(f => FirstStr(f, "kind") is not null)) // 子頁和檔案混在同一個陣列時，有 kind 的是子頁
+            .Where(f => FirstStr(f, "id", "pageId") is not null)
+            .Select(f =>
+            {
+                var kind = (FirstStr(f, "kind", "type") ?? "FOLDER").ToUpperInvariant();
+                var folder = kind is "FOLDER" or "FILES";
+                return new SpaceFile(FirstStr(f, "id", "pageId")!, FirstStr(f, "title", "name") ?? (folder ? "（未命名資料夾）" : "（未命名）"), folder,
+                    null, null, FirstDate(f, "updatedAt", "createdAt"), kind, PathText(f));
+            });
         var files = Items(r, "files", "items")
-            .Where(f => FirstStr(f, "id", "fileId") is not null)
+            .Where(f => FirstStr(f, "id", "fileId") is not null && FirstStr(f, "kind") is null)
             .Select(f => new SpaceFile(FirstStr(f, "id", "fileId")!, FirstStr(f, "name", "fileName", "title") ?? "（未命名）", false,
-                Number(f, "size", "bytes"), PersonName(f, "uploader", "uploadedBy", "createdBy"), FirstDate(f, "createdAt", "uploadedAt", "updatedAt")));
-        return folders.Concat(files).ToList();
+                Number(f, "size", "bytes"), PersonName(f, "uploader", "uploadedBy", "createdBy"), FirstDate(f, "createdAt", "uploadedAt", "updatedAt"),
+                Path: PathText(f)));
+        return pages.DistinctBy(p => p.Id).OrderByDescending(p => p.IsFolder).Concat(files).ToList();
     }
+
+    /// <summary>所在路徑：字串，或頁名陣列（字串或 { title }）。</summary>
+    static string? PathText(JsonElement f)
+    {
+        if (FirstStr(f, "path", "folderPath") is { } path)
+            return path;
+        var parts = Items(f, "path")
+            .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : FirstStr(x, "title", "name"))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+        return parts.Count > 0 ? string.Join(" › ", parts) : null;
+    }
+
+    /// <summary>search_spaces 的 files：資料夾裡檔名符合的檔案（帶所在資料夾 folderId 與路徑 path）。</summary>
+    internal static List<KnowledgeHit> ParseFileHits(JsonElement r) =>
+        Items(r, "files")
+            .Where(f => FirstStr(f, "id", "fileId") is not null && FirstStr(f, "folderId", "pageId", "folder") is not null)
+            .Select(f => new KnowledgeHit(FirstStr(f, "id", "fileId")!, FirstStr(f, "name", "fileName", "title") ?? "（未命名）",
+                FirstStr(f, "space", "spaceKey"), PathText(f), FirstStr(f, "folderId", "pageId", "folder")))
+            .ToList();
 
     // ───────────── 論壇 ─────────────
 

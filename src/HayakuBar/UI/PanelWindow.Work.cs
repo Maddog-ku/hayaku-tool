@@ -66,8 +66,12 @@ public partial class PanelWindow
 {
     static readonly (string Key, string Label)[] NotifyFilters =
     [
-        ("all", "全部"), ("mention", "@提及"), ("assigned", "指派給我"), ("reminder", "提醒"), ("system", "系統"),
+        ("all", "全部"), ("mention", "@提及"), ("discussions", "討論"), ("assigned", "指派給我"), ("reminder", "提醒"), ("system", "系統"),
     ];
+
+    /// <summary>討論分頁（另外讀）的狀態：讀取中、讀取失敗的訊息。</summary>
+    bool _discussionsLoading;
+    string? _discussionsError;
 
     static readonly HashSet<string> MentionTypes =
         ["MENTIONED", "DOC_MENTIONED", "THREAD_REPLY", "CHANNEL_MESSAGE", "COMMENT_ON_MY_TASK", "CHAT_REACTION"];
@@ -113,7 +117,11 @@ public partial class PanelWindow
             {
                 _notifyFilter = key;
                 RenderNotifications();
+                if (key == "discussions")
+                    _ = LoadDiscussionsAsync(force: false);
             };
+            if (key == "discussions")
+                chip.ToolTip = "團隊空間的評論和聊天裡 @ 你的、你負責的頁、你參與的討論串，同一段討論一列";
             _notifyFilters[key] = chip;
             NotifyFilterPanel.Children.Add(chip);
         }
@@ -396,10 +404,44 @@ public partial class PanelWindow
         {
             if (key == "all")
                 continue;
-            var unread = _engine.Notifications.Count(n => n.Unread && CategoryOf(n) == key);
+            var unread = key == "discussions"
+                ? _engine.Discussions.Count(n => n.Unread)
+                : _engine.Notifications.Count(n => n.Unread && CategoryOf(n) == key);
             _notifyFilters[key].Content = unread > 0 ? $"{label} {unread}" : label;
         }
-        return _notifyFilter == "all" ? _engine.Notifications : _engine.Notifications.Where(n => CategoryOf(n) == _notifyFilter);
+        return _notifyFilter switch
+        {
+            "all" => _engine.Notifications,
+            "discussions" => _engine.Discussions.Where(n => DiscussionUnread.IsChecked != true || n.Unread),
+            _ => _engine.Notifications.Where(n => CategoryOf(n) == _notifyFilter),
+        };
+    }
+
+    /// <summary>討論分頁：點了才讀（一分鐘內不重讀），不加輪詢。</summary>
+    async Task LoadDiscussionsAsync(bool force)
+    {
+        _discussionsLoading = true;
+        _discussionsError = null;
+        RenderNotifications();
+        try
+        {
+            await _engine.LoadDiscussionsAsync(DiscussionUnresolved.IsChecked == true, force);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("讀取我的討論失敗", ex);
+            _discussionsError = $"讀不到討論：{ex.Message}";
+        }
+        _discussionsLoading = false;
+        RenderNotifications();
+    }
+
+    async void DiscussionFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender == DiscussionUnresolved)
+            await LoadDiscussionsAsync(force: false); // 未解決是伺服器篩的，要重讀
+        else
+            RenderNotifications();
     }
 
     void NotificationSnooze_Click(object sender, RoutedEventArgs e)

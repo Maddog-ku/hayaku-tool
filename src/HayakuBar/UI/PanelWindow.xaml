@@ -539,6 +539,11 @@
                                 </StackPanel>
                             </Grid>
                             <WrapPanel x:Name="NotifyFilterPanel" Margin="0,0,0,6" />
+                            <StackPanel x:Name="DiscussionFilterPanel" Orientation="Horizontal" Margin="2,0,0,6" Visibility="Collapsed">
+                                <CheckBox x:Name="DiscussionUnresolved" Content="只看未解決" Click="DiscussionFilter_Click" Margin="0,0,14,0"
+                                          ToolTip="只留還沒解決的評論串（聊天照樣列）" />
+                                <CheckBox x:Name="DiscussionUnread" Content="只看未讀" Click="DiscussionFilter_Click" />
+                            </StackPanel>
                             <ItemsControl x:Name="NotificationList" ItemTemplate="{StaticResource NotificationRowTemplate}" />
                             <TextBlock x:Name="NotificationEmpty" Text="沒有通知" Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0" />
                         </StackPanel>

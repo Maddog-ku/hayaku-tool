@@ -283,7 +283,7 @@ public sealed partial class TimerEngine
                 days = days.Concat(await _api.GetScheduleRangeAsync(today.AddDays(EipScheduleDays + 1),
                     Min(to, today.AddDays(EipScheduleDays * 2)), ct)).ToList();
             var working = LeavePlanner.Working(days);
-            var mine = await _api.ListLeavesAsync(from, to, ct, "me");
+            var mine = await _api.ListLeavesAsync(from, to, ct, "me", kind: "LEAVE"); // 出差不算，免得跟出差時段重疊的假被當成登記過
 
             foreach (var leave in targets)
             {
@@ -352,7 +352,7 @@ public sealed partial class TimerEngine
     /// <summary>add_leave 沒回 id 時，從自己的請假裡找時間對得上、還沒記下的那筆。</summary>
     async Task<string?> FindLeaveIdAsync(LeavePiece piece, SyncedLeave rec, CancellationToken ct)
     {
-        var mine = await _api.ListLeavesAsync(piece.Date, DateOnly.FromDateTime(piece.To.AddTicks(-1)), ct, "me");
+        var mine = await _api.ListLeavesAsync(piece.Date, DateOnly.FromDateTime(piece.To.AddTicks(-1)), ct, "me", kind: "LEAVE");
         return mine.FirstOrDefault(m =>
             Math.Abs((m.StartAt.LocalDateTime - piece.From).TotalMinutes) < 1
             && Math.Abs((m.EndAt.LocalDateTime - piece.To).TotalMinutes) < 1

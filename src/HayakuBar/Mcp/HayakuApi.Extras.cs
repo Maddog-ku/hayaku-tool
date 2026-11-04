@@ -36,8 +36,15 @@ public sealed record NotificationItem(
     DateTimeOffset CreatedAt,
     bool Unread,
     int Count,
-    int? Feedback = null)
+    int? Feedback = null,
+    IReadOnlyList<string>? Ids = null,
+    IReadOnlyList<string>? Users = null,
+    bool? Resolved = null,
+    string? Quote = null)
 {
+    /// <summary>同一組的全部通知 id（討論分頁一段討論一組；收件匣只有自己）。</summary>
+    public IReadOnlyList<string> AllIds => Ids is { Count: > 0 } ids ? ids : [Id];
+
     /// <summary>測試結果的通知（被退回、進待復驗…）：代碼裡有 TEST，或標籤是測試結果。</summary>
     public bool IsTestResult => Type.Contains("TEST", StringComparison.OrdinalIgnoreCase);
 
@@ -170,6 +177,18 @@ public sealed partial class HayakuApi
         return ParseNotifications(r);
     }
 
+    /// <summary>
+    /// 我的討論（tab=discussions）：團隊空間的評論、聊天討論串與 @ 我，同一段討論一組（Ids 是那段的全部通知、Users 是說過話的人）。
+    /// unresolvedOnly：只留沒解決的評論串（聊天照樣列）。
+    /// </summary>
+    public async Task<List<NotificationItem>> ListDiscussionsAsync(bool unresolvedOnly, CancellationToken ct)
+    {
+        var args = new Dictionary<string, object?> { ["tab"] = "discussions" };
+        if (unresolvedOnly)
+            args["unresolvedOnly"] = true;
+        return ParseNotifications(await Mcp.CallToolAsync("list_notifications", args, ct));
+    }
+
     public Task MarkNotificationsReadAsync(IReadOnlyCollection<string>? ids, CancellationToken ct) =>
         ids is { Count: > 0 }
             ? Mcp.CallToolAsync("mark_notifications_read", new { ids }, ct)
@@ -231,7 +250,14 @@ public sealed partial class HayakuApi
                 Date(n, "createdAt") ?? DateTimeOffset.Now,
                 unreadCount > 0 || (n.TryGetProperty("readAt", out var readAt) && readAt.ValueKind == JsonValueKind.Null),
                 count,
-                feedback));
+                feedback,
+                // 討論分頁才有：ids、users、resolved、quote（評論串引用的原文）或 rootExcerpt
+                Items(group, "ids").Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList(),
+                Items(group, "users").Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : FirstStr(x, "displayName", "username"))
+                    .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).ToList(),
+                group.TryGetProperty("resolved", out var resolved) && resolved.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? resolved.ValueKind == JsonValueKind.True : null,
+                FirstStr(group, "quote", "rootExcerpt") ?? (payload.ValueKind == JsonValueKind.Object ? Str(payload, "excerpt") : null)));
         }
         return list;
     }

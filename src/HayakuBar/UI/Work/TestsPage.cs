@@ -12,7 +12,8 @@ namespace HayakuBar.UI.Work;
 /// 測試：網頁的三種測試視圖。
 /// 需修復（工程師看自己要修的：開始修、送復驗，直接改期限與預估工時）、
 /// 需測試（QA 看要驗的：通過、退回；要測的測試任務可以加入測試結果）、
-/// 測試總覽（管理者看整體：數字、嚴重度分布、各測試任務進度、逾時清單）。
+/// 測試總覽（管理者看整體：數字、嚴重度分布、各測試任務進度、子狀態、逾時清單）。
+/// 專案有測試子狀態（例 待更新測試機、待上正式機）時：修好了先到下一個子狀態，列表上方有批次按鈕〔已更新到測試機〕〔已更新到正式機〕。
 /// 打開這頁才讀；收到測試結果的新通知時（通知本來就在輪詢）才自動重讀，不另外輪詢。
 /// </summary>
 public sealed class TestsPage : UserControl, IWorkPage
@@ -34,6 +35,8 @@ public sealed class TestsPage : UserControl, IWorkPage
     readonly TextBlock _summary = new() { Margin = new Thickness(0, 0, 0, 8) };
     readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
     readonly StackPanel _list = new();
+    /// <summary>批次推到下一步的按鈕列（例〔已更新到測試機（3）〕）。</summary>
+    readonly WrapPanel _batch = new() { Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed };
     string _view = "fix";
     List<TestResultRow> _rows = [];
 
@@ -108,7 +111,7 @@ public sealed class TestsPage : UserControl, IWorkPage
         var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8), Children = { _project, _period, _filter, _severity, _group, _mine, _hot } };
 
         var dock = new DockPanel { Margin = new Thickness(24, 18, 24, 16) };
-        foreach (var top in new UIElement[] { title, filters, _summary, _status })
+        foreach (var top in new UIElement[] { title, filters, _summary, _status, _batch })
         {
             DockPanel.SetDock(top, Dock.Top);
             dock.Children.Add(top);
@@ -193,6 +196,8 @@ public sealed class TestsPage : UserControl, IWorkPage
             else
             {
                 var rows = await _engine.Api.ListTestResultsAsync(_view, SelectedProject, mine, CancellationToken.None);
+                // 子狀態（修好了到哪、批次按鈕）看專案設定；每個專案只讀一次
+                await _engine.LoadProjectsOfAsync(rows.Select(r => r.Key));
                 if (version != _version)
                     return;
                 _rows = rows;
@@ -216,6 +221,8 @@ public sealed class TestsPage : UserControl, IWorkPage
     void Render()
     {
         _list.Children.Clear();
+        _batch.Children.Clear();
+        _batch.Visibility = Visibility.Collapsed;
         if (_view == "overview")
         {
             RenderOverview();
@@ -228,6 +235,7 @@ public sealed class TestsPage : UserControl, IWorkPage
             .Where(r => severity is null || r.Severity == severity || r.Kind == TaskKind.Test)
             .Where(r => _hot.IsChecked != true || r.Round >= 3)
             .ToList();
+        RenderBatch(rows);
         if (_view == "fix")
         {
             AddGroups(rows, "", "fix");
@@ -357,12 +365,10 @@ public sealed class TestsPage : UserControl, IWorkPage
         {
             actions.Children.Add(DueBox(r));
             actions.Children.Add(EstimateBox(r));
-            if (r.Status == TimerEngine.StatusFixing)
-            {
-                var submit = Small("✓ 送復驗", "PrimaryButton", "修好了，請回報的人驗");
-                submit.Click += async (_, _) => await RunAsync(submit, () => _engine.SubmitRetestAsync(r.Key));
-                actions.Children.Add(submit);
-            }
+            if (_engine.BatchStep(r.Key, r.Status) is { } step)
+                actions.Children.Add(AdvanceButton(r, step));
+            else if (r.Status == TimerEngine.StatusFixing || r.StageName == TimerEngine.StatusFixing && r.Status != "待修復")
+                actions.Children.Add(SubmitButton(r));
             else
             {
                 var fix = Small("🔧 開始修", "PrimaryButton", "狀態改成修復中，可以順手填預估工時");
@@ -372,11 +378,16 @@ public sealed class TestsPage : UserControl, IWorkPage
         }
         else
         {
-            var pass = Small("✓ 通過", "PrimaryButton", "復驗通過，結案");
-            pass.Click += async (_, _) => await RunAsync(pass, () => _engine.RetestAsync(r.Key, pass: true, null));
+            if (_engine.BatchStep(r.Key, r.Status) is { } step)
+                actions.Children.Add(AdvanceButton(r, step));
+            else
+            {
+                var pass = Small("✓ 通過", "PrimaryButton", PassTip(r.Key, r.Status));
+                pass.Click += async (_, _) => await RunAsync(pass, () => _engine.RetestAsync(r.Key, pass: true, null));
+                actions.Children.Add(pass);
+            }
             var reopen = Small("↩ 退回", "FlatButton", "還有問題，退回給工程師（輪數 +1）");
             reopen.Click += (_, _) => OpenDialog("reopen", r);
-            actions.Children.Add(pass);
             actions.Children.Add(reopen);
         }
         Grid.SetColumn(actions, 1);
@@ -386,6 +397,68 @@ public sealed class TestsPage : UserControl, IWorkPage
             Child = grid, Padding = new Thickness(8, 4, 8, 4), CornerRadius = new CornerRadius(6),
             Background = Brushes2.Get(r.Round >= 3 ? "SubtleBrush" : "BgBrush"),
         };
+    }
+
+    /// <summary>修好了：專案在修復中後面還有子狀態就是〔修好了，待更新〕（改到下一個子狀態），沒有就是〔送復驗〕。</summary>
+    Button SubmitButton(TestResultRow r)
+    {
+        var next = _engine.FixDoneStep(r.Key, r.Status);
+        var submit = next is null
+            ? Small("✓ 送復驗", "PrimaryButton", "修好了，請回報的人驗")
+            : Small("✓ 修好了，待更新", "PrimaryButton", $"改成{next.Name}" + (next.BatchText is { } b ? $"，{b}後再送復驗" : ""));
+        submit.Click += async (_, _) => await RunAsync(submit, () => _engine.SubmitRetestAsync(r.Key, r.Status));
+        return submit;
+    }
+
+    /// <summary>單筆推到下一步（例 待更新測試機 →〔已更新到測試機〕）。</summary>
+    Button AdvanceButton(TestResultRow r, TestSubStatus step)
+    {
+        var button = Small($"⇢ {step.BatchText}", "PrimaryButton", $"{step.Name}：更新好了就推到下一步");
+        button.Click += (_, _) => OpenAdvance(KeyFinder.ProjectOf(r.Key), step, [r.Key]);
+        return button;
+    }
+
+    /// <summary>通過的說明：待復驗後面還有子狀態（例 待上正式機）時是到下一個、還不算完成。</summary>
+    string PassTip(string key, string status) =>
+        _engine.PassStep(key, status) is { } next ? $"復驗通過，改成{next.Name}（還不算完成）" : "復驗通過，結案";
+
+    /// <summary>
+    /// 列表上方的批次按鈕：畫面上有可以批次推的子狀態（例 待更新測試機）時，每個專案、每個子狀態一顆，
+    /// 推的是畫面上列出來的那幾筆。
+    /// </summary>
+    void RenderBatch(List<TestResultRow> rows)
+    {
+        var groups = rows
+            .Where(r => r.Kind == TaskKind.TestResult)
+            .Select(r => (Row: r, Step: _engine.BatchStep(r.Key, r.Status)))
+            .Where(x => x.Step is not null)
+            .GroupBy(x => (Project: KeyFinder.ProjectOf(x.Row.Key), x.Step!.Name))
+            .ToList();
+        if (groups.Count == 0)
+            return;
+        var multiProject = groups.Select(g => g.Key.Project).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+        foreach (var g in groups)
+        {
+            var step = g.First().Step!;
+            var keys = g.Select(x => x.Row.Key).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var text = $"⇢ {step.BatchText}（{keys.Count}）" + (multiProject ? $"　{g.Key.Project}" : "");
+            var button = Small(text, "FlatButton", $"把 {g.Key.Project} 列出來的「{step.Name}」一次推到下一步，可以填更新說明（例版本號）");
+            button.Margin = new Thickness(0, 0, 6, 4);
+            button.Click += (_, _) => OpenAdvance(g.Key.Project, step, keys);
+            _batch.Children.Add(button);
+        }
+        _batch.Visibility = Visibility.Visible;
+    }
+
+    void OpenAdvance(string project, TestSubStatus step, IReadOnlyList<string>? keys)
+    {
+        var window = new AdvanceTestsWindow(_engine, project, step, keys) { Owner = Window.GetWindow(this) };
+        window.Done += async message =>
+        {
+            Inputs.Show(_status, message, error: false);
+            await LoadAsync(force: true);
+        };
+        window.Show();
     }
 
     /// <summary>需修復視圖直接改期限：打完按 Enter 或離開就存。</summary>
@@ -514,6 +587,8 @@ public sealed class TestsPage : UserControl, IWorkPage
         Card("待復驗", o.Retest.ToString(), o.OldestRetestDays is { } days ? $"最久等了 {days} 天" : null);
         Card("新增", o.Created.ToString());
         Card("結案", (o.Done + o.WontFix).ToString(), $"完成 {o.Done}・不處理 {o.WontFix}");
+        if (o.PendingRelease > 0 || o.SubStatuses is { Count: > 0 })
+            Card("待上線", o.PendingRelease.ToString(), "QA 通過、等部署");
         Card("平均輪數", o.AvgRound is { } avg ? avg.ToString("0.#", CultureInfo.InvariantCulture) : "—", $"第 3 輪起 {o.Round3Plus}", o.Round3Plus > 0);
         Card("逾時未處理", o.Stale.ToString(), null, o.Stale > 0);
         _list.Children.Add(cards);
@@ -524,6 +599,9 @@ public sealed class TestsPage : UserControl, IWorkPage
                 Text = "嚴重度　" + string.Join("　", o.BySeverity.Select(s => $"{s.Severity} {s.Count}")),
                 Foreground = Brushes2.Get("MutedBrush"), Margin = new Thickness(0, 0, 0, 8),
             });
+
+        if (o.SubStatuses is { Count: > 0 } subs)
+            RenderSubStatuses(subs);
 
         _list.Children.Add(new TextBlock { Text = $"各測試任務（{o.Tests.Count}）", Style = (Style)FindResource("GroupLabel"), Margin = new Thickness(0, 6, 0, 4) });
         if (o.Tests.Count == 0)
@@ -563,6 +641,34 @@ public sealed class TestsPage : UserControl, IWorkPage
             _list.Children.Add(new TextBlock { Text = $"逾時未處理（{o.StaleItems.Count}）", Style = (Style)FindResource("GroupLabel"), Margin = new Thickness(0, 12, 0, 4) });
             foreach (var r in Sorted(o.StaleItems))
                 _list.Children.Add(Row(r with { Stale = true }));
+        }
+    }
+
+    /// <summary>
+    /// 測試總覽的子狀態：各階段底下每個子狀態幾筆、最久幾天；選了專案時，可以批次推的子狀態有按鈕（推那個子狀態的全部）。
+    /// </summary>
+    void RenderSubStatuses(IReadOnlyList<TestSubStatus> subs)
+    {
+        _list.Children.Add(new TextBlock { Text = "子狀態", Style = (Style)FindResource("GroupLabel"), Margin = new Thickness(0, 6, 0, 4) });
+        foreach (var stage in subs.GroupBy(s => s.Stage))
+        {
+            var line = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+            line.Children.Add(new TextBlock { Text = stage.Key, Width = 64, Foreground = Brushes2.Get("MutedBrush"), VerticalAlignment = VerticalAlignment.Center });
+            foreach (var s in stage)
+            {
+                var text = $"{s.Name} {s.Count ?? 0}" + (s.OldestDays is { } days && s.Count > 0 ? $"（最久 {days} 天）" : "");
+                line.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+                if (s.BatchText is not null && s.Count > 0 && SelectedProject is { } project)
+                {
+                    var button = Small($"⇢ {s.BatchText}", "FlatButton", $"把 {project} 所有「{s.Name}」推到下一步");
+                    button.Margin = new Thickness(0, 0, 14, 0);
+                    button.Click += (_, _) => OpenAdvance(project, s, null);
+                    line.Children.Add(button);
+                }
+                else
+                    line.Children.Add(new TextBlock { Text = "・", Foreground = Brushes2.Get("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            }
+            _list.Children.Add(line);
         }
     }
 }

@@ -185,9 +185,12 @@ public sealed class ReminderRowVm
 public sealed class NotificationRowVm
 {
     public required Mcp.NotificationItem Item { get; init; }
-    public string Label => Item.Label;
+
+    /// <summary>討論分頁的列：多顯示引用的原文、說過話的人、解決了沒。</summary>
+    public bool Discussion { get; init; }
+    public string Label => Item.Label + (Discussion && Item.Resolved == true ? "・已解決" : "");
     public string CountText => Item.Count > 1 ? $"（{Item.Count}）" : "";
-    public string Text => Item.Text;
+    public string Text => Discussion && Item.Quote is { Length: > 0 } quote && quote != Item.Text ? $"{Item.Text}\n「{quote}」".TrimStart() : Item.Text;
     public Visibility UnreadVisibility => Item.Unread ? Visibility.Visible : Visibility.Collapsed;
     public Brush TextBrush => Brushes2.Get(Item.Unread ? "TextBrush" : "MutedBrush");
 
@@ -198,6 +201,8 @@ public sealed class NotificationRowVm
             var span = DateTimeOffset.Now - Item.CreatedAt;
             var ago = span.TotalMinutes < 1 ? "剛剛" : span.TotalHours < 1 ? $"{(int)span.TotalMinutes} 分鐘前" :
                 span.TotalDays < 1 ? $"{(int)span.TotalHours} 小時前" : $"{(int)span.TotalDays} 天前";
+            if (Discussion && Item.Users is { Count: > 1 } users)
+                return $"{string.Join("、", users.Take(4))}{(users.Count > 4 ? " 等" : "")} · {ago}";
             return Item.Actor is { } actor ? $"{actor} · {ago}" : ago;
         }
     }

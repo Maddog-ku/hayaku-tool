@@ -43,6 +43,22 @@ public sealed partial class TimerEngine
     public IReadOnlyList<NotificationItem> Notifications { get; private set; } = [];
     public int UnreadCount => Notifications.Count(n => n.Unread);
 
+    /// <summary>我的討論（通知的討論分頁：空間評論、聊天討論串、@ 我，一段討論一組）；只有打開那個分頁才讀，不輪詢。</summary>
+    public IReadOnlyList<NotificationItem> Discussions { get; private set; } = [];
+    DateTime _discussionsFetched = DateTime.MinValue;
+    bool _discussionsUnresolved;
+
+    /// <summary>讀我的討論；一分鐘內、條件一樣就不重讀（force 例外）。失敗丟例外給呼叫端顯示。</summary>
+    public async Task LoadDiscussionsAsync(bool unresolvedOnly, bool force)
+    {
+        if (!force && unresolvedOnly == _discussionsUnresolved && DateTime.Now - _discussionsFetched < TimeSpan.FromMinutes(1))
+            return;
+        Discussions = await _api.ListDiscussionsAsync(unresolvedOnly, CancellationToken.None);
+        _discussionsUnresolved = unresolvedOnly;
+        _discussionsFetched = DateTime.Now;
+        Raise();
+    }
+
     /// <summary>跳出提示（右下角）。</summary>
     public event Action<ToastRequest>? Toast;
 
@@ -72,7 +88,7 @@ public sealed partial class TimerEngine
         else
             await Open(NotificationUrl(n));
         if (n.Unread)
-            await MarkNotificationsReadAsync([n.Id]);
+            await MarkNotificationsReadAsync(n.AllIds);
     }
 
     /// <summary>通知對應到工作台的哪一頁（與參數）；沒有對應的頁回 (null, null)，開網頁。</summary>
@@ -293,6 +309,9 @@ public sealed partial class TimerEngine
         await _api.MarkNotificationsReadAsync(ids, ct);
         Notifications = Notifications
             .Select(n => ids is null || ids.Contains(n.Id) ? n with { Unread = false } : n)
+            .ToList();
+        Discussions = Discussions
+            .Select(n => ids is null || n.AllIds.Any(ids.Contains) ? n with { Unread = false } : n)
             .ToList();
     });
 

@@ -84,7 +84,9 @@ public sealed record ProjectInfo(string Key, string Name, string Role, string? I
     public override string ToString() => Name;
 }
 
-public sealed record ProjectDetail(string Key, string Name, IReadOnlyList<PersonRef> Members, IReadOnlyList<StatusOption> Statuses);
+/// <summary>專案的成員、狀態清單；TestSubStatuses：測試結果的子狀態（沒設定是空的）。</summary>
+public sealed record ProjectDetail(string Key, string Name, IReadOnlyList<PersonRef> Members, IReadOnlyList<StatusOption> Statuses,
+    IReadOnlyList<TestSubStatus>? TestSubStatuses = null);
 
 public sealed record SearchHit(string Key, string Title, string Project);
 
@@ -97,7 +99,13 @@ public sealed record ReminderFull(
     bool Paused,
     bool Editable);
 
-public sealed record LeaveItem(string Id, PersonRef User, string Period, DateTimeOffset StartAt, DateTimeOffset EndAt, string LostText);
+/// <summary>請假或出差（list_leaves）；Kind：「請假」「出差」（或 LEAVE、TRIP），舊的回應沒有。</summary>
+public sealed record LeaveItem(string Id, PersonRef User, string Period, DateTimeOffset StartAt, DateTimeOffset EndAt, string LostText,
+    string? Kind = null)
+{
+    /// <summary>出差：照常算上班時數。</summary>
+    public bool IsTrip => Kind is { } k && (k.Contains("出差") || k.Equals("TRIP", StringComparison.OrdinalIgnoreCase));
+}
 
 public sealed record TeamTiming(string Task, string Title, string Project, DateTimeOffset? Since, bool CanOpen);
 
@@ -379,7 +387,7 @@ public sealed partial class HayakuApi
             .Select(s => new StatusOption(Str(s, "name")!, Str(s, "category") ?? "",
                 s.TryGetProperty("isDefault", out var d) && d.ValueKind == JsonValueKind.True))
             .ToList();
-        return new ProjectDetail(Str(r, "key") ?? project, Str(r, "name") ?? project, members, statuses);
+        return new ProjectDetail(Str(r, "key") ?? project, Str(r, "name") ?? project, members, statuses, ParseSubStatuses(r, "testSubStatuses"));
     }
 
     // ───────────── 提醒 ─────────────
@@ -456,10 +464,16 @@ public sealed partial class HayakuApi
 
     // ───────────── 請假與團隊 ─────────────
 
-    /// <summary>user：帳號、顯示名稱或 "me"；null 列出看得到的所有人。</summary>
-    public async Task<List<LeaveItem>> ListLeavesAsync(DateOnly from, DateOnly to, CancellationToken ct, string? user = null)
+    /// <summary>
+    /// 請假與出差；user：帳號、顯示名稱或 "me"，null 列出看得到的所有人。kind：LEAVE 只看請假、TRIP 只看出差，null 都列。
+    /// </summary>
+    public async Task<List<LeaveItem>> ListLeavesAsync(DateOnly from, DateOnly to, CancellationToken ct, string? user = null, string? kind = null)
     {
-        object args = user is null ? new { from = Iso(from), to = Iso(to) } : new { from = Iso(from), to = Iso(to), user };
+        var args = new Dictionary<string, object?> { ["from"] = Iso(from), ["to"] = Iso(to) };
+        if (user is not null)
+            args["user"] = user;
+        if (kind is not null)
+            args["kind"] = kind;
         return ParseLeaves(await Mcp.CallToolAsync("list_leaves", args, ct));
     }
 
@@ -472,7 +486,7 @@ public sealed partial class HayakuApi
                 continue;
             var user = l.TryGetProperty("user", out var u) ? Person(u) : null;
             var lost = l.TryGetProperty("lost", out var lo) && lo.ValueKind == JsonValueKind.Object ? Str(lo, "display") ?? "" : "";
-            list.Add(new LeaveItem(id, user ?? new PersonRef("", ""), Str(l, "period") ?? "", start, end, lost));
+            list.Add(new LeaveItem(id, user ?? new PersonRef("", ""), Str(l, "period") ?? "", start, end, lost, Str(l, "kind")));
         }
         return list.OrderBy(l => l.StartAt).ToList();
     }

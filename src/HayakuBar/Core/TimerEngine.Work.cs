@@ -134,15 +134,17 @@ public sealed partial class TimerEngine
 
     public Task ArchiveNotificationAsync(NotificationItem n) => Guarded(async ct =>
     {
-        await _api.ArchiveNotificationsAsync([n.Id], ct);
+        await _api.ArchiveNotificationsAsync(n.AllIds.ToList(), ct);
         Notifications = Notifications.Where(x => x.Id != n.Id).ToList();
+        Discussions = Discussions.Where(x => x.Id != n.Id).ToList();
     });
 
     /// <summary>preset：1h、next_workday、next_week。</summary>
     public Task SnoozeNotificationAsync(NotificationItem n, string preset) => Guarded(async ct =>
     {
-        await _api.SnoozeNotificationsAsync([n.Id], preset, ct);
+        await _api.SnoozeNotificationsAsync(n.AllIds.ToList(), preset, ct);
         Notifications = Notifications.Where(x => x.Id != n.Id).ToList();
+        Discussions = Discussions.Where(x => x.Id != n.Id).ToList();
     });
 
     /// <summary>

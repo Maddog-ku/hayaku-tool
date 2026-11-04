@@ -15,7 +15,7 @@ public class KnowledgeTests
             """));
         Assert.Equal(["a", "b", "c", "d"], nodes.Select(n => n.Id));
         Assert.Equal("a", nodes[1].ParentId);
-        Assert.True(nodes[2].IsFiles);
+        Assert.True(nodes[2].IsFolder); // 舊的檔案庫（FILES）當資料夾
         Assert.Null(nodes[3].ParentId);
     }
 

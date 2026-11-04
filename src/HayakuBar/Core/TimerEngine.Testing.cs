@@ -57,18 +57,74 @@ public sealed partial class TimerEngine
         return message is { Length: > 0 } ? message : startTimer ? $"{key} 開始修，已開始計時" : $"{key} 開始修";
     }
 
-    /// <summary>修好了，送復驗（狀態改成待復驗，等回報的人驗）。</summary>
-    public async Task<string> SubmitRetestAsync(string key)
+    /// <summary>專案的測試子狀態（讀過的專案才有，不會打 Hayaku；沒設定子狀態是空的）。</summary>
+    public IReadOnlyList<TestSubStatus> CachedSubStatuses(string taskKey) =>
+        TryGetCachedProject(KeyFinder.ProjectOf(taskKey))?.TestSubStatuses ?? [];
+
+    /// <summary>
+    /// 修好了之後要到哪個狀態：修復中這一段還有下一個子狀態（例 待更新測試機）就到那個，沒有就是待復驗。
+    /// 專案還沒讀過時當作沒有子狀態。
+    /// </summary>
+    public TestSubStatus? FixDoneStep(string taskKey, string status)
     {
-        var message = await _api.UpdateTaskAsync(key, new Dictionary<string, object?> { ["status"] = StatusRetest }, CancellationToken.None);
-        if (RunningKeys().Contains(key))
-            await PauseTaskAsync(key);
-        Log.Info($"測試結果 {key} 送復驗");
-        await AfterTestChangeAsync(key);
-        return message is { Length: > 0 } ? message : $"{key} 已送復驗";
+        var subs = CachedSubStatuses(taskKey).Where(s => s.Stage == StatusFixing).ToList();
+        var i = subs.FindIndex(s => s.Name == status);
+        return i >= 0 && i + 1 < subs.Count ? subs[i + 1] : null;
     }
 
-    /// <summary>復驗：通過（已完成）或退回（待修復，輪數 +1，說明變成一則留言）。</summary>
+    /// <summary>復驗通過後要到的子狀態：待復驗這一段還有下一個（例 待上正式機）就是那個，沒有（直接完成）是 null。</summary>
+    public TestSubStatus? PassStep(string taskKey, string status)
+    {
+        var subs = CachedSubStatuses(taskKey).Where(s => s.Stage == StatusRetest).ToList();
+        var i = subs.FindIndex(s => s.Name == status);
+        return i >= 0 && i + 1 < subs.Count ? subs[i + 1] : null;
+    }
+
+    /// <summary>這個狀態可以批次推到下一步（例 待更新測試機〔已更新到測試機〕）就回傳那個子狀態。</summary>
+    public TestSubStatus? BatchStep(string taskKey, string status) =>
+        CachedSubStatuses(taskKey).FirstOrDefault(s => s.Name == status && s.BatchText is not null);
+
+    /// <summary>
+    /// 修好了：專案在修復中後面還有子狀態（例 待更新測試機）就改到那個，等更新完測試機再批次送復驗；
+    /// 沒有就直接送復驗（待復驗，等回報的人驗）。status：目前的狀態。
+    /// </summary>
+    public async Task<string> SubmitRetestAsync(string key, string? status = null)
+    {
+        var next = status is null ? null : FixDoneStep(key, status);
+        var target = next?.Name ?? StatusRetest;
+        var message = await _api.UpdateTaskAsync(key, new Dictionary<string, object?> { ["status"] = target }, CancellationToken.None);
+        if (RunningKeys().Contains(key))
+            await PauseTaskAsync(key);
+        Log.Info(next is null ? $"測試結果 {key} 送復驗" : $"測試結果 {key} 修好了，改成{target}");
+        await AfterTestChangeAsync(key);
+        return message is { Length: > 0 } ? message : next is null ? $"{key} 已送復驗" : $"{key} 修好了，改成{target}";
+    }
+
+    /// <summary>
+    /// 批次推到下一步（例 已更新到測試機：待更新測試機 → 待復驗，通知回報的人復驗）。
+    /// tasks 為 null 是專案裡那個子狀態的全部；comment 是更新說明（例版本號）。
+    /// </summary>
+    public async Task<string> AdvanceTestResultsAsync(string project, TestSubStatus from, IReadOnlyList<string>? tasks, string? comment)
+    {
+        var message = await _api.AdvanceTestResultsAsync(project, from.Name, tasks, comment, CancellationToken.None);
+        Log.Info($"{project} 測試結果批次{from.BatchText}（{(tasks is null ? "全部" : string.Join("、", tasks))}）");
+        foreach (var key in tasks ?? [])
+        {
+            var read = Notifications
+                .Where(n => n.Unread && n.IsTestResult && string.Equals(n.TaskKey, key, StringComparison.OrdinalIgnoreCase))
+                .Select(n => n.Id)
+                .ToList();
+            if (read.Count > 0)
+                await MarkNotificationsReadAsync(read);
+        }
+        await AfterExternalChangeAsync();
+        return message is { Length: > 0 } ? message
+            : tasks is { Count: 1 } ? $"{tasks[0]} {from.BatchText}" : $"{from.Name}的測試結果{from.BatchText}";
+    }
+
+    /// <summary>
+    /// 復驗：通過（已完成；待復驗後面還有子狀態時是到下一個，例 待上正式機）或退回（待修復，輪數 +1，說明變成一則留言）。
+    /// </summary>
     public async Task<string> RetestAsync(string key, bool pass, string? comment)
     {
         var message = await _api.RetestAsync(key, pass, comment, null, null, CancellationToken.None);

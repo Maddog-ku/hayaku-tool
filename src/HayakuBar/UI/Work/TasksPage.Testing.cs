@@ -47,7 +47,11 @@ public partial class TasksPage
         TestPanel.Visibility = d.Kind == TaskKind.Normal ? Visibility.Collapsed : Visibility.Visible;
         ChildrenHeader.Text = d.Kind == TaskKind.Test ? $"測試結果（{d.Children.Count}）" : "子任務";
         if (d.Kind == TaskKind.TestResult)
+        {
             RenderResultPanel(d);
+            if (_engine.TryGetCachedProject(KeyFinder.ProjectOf(d.Key)) is null)
+                _ = LoadSubStatusesAsync(d);
+        }
         else if (d.Kind == TaskKind.Test)
             RenderTestTaskPanel(d);
         RenderChildren(d);
@@ -93,15 +97,30 @@ public partial class TasksPage
             buttons.Children.Add(b);
             return b;
         }
-        var bucket = TaskKinds.Bucket(d.Status, d.StatusCategory);
+        var bucket = TaskKinds.Bucket(d.Status, d.StatusCategory, info.Stage);
+        var stage = TaskKinds.StageOf(d.Status, info.Stage);
         var canRetest = _engine.CanRetest(d.Key, reporter);
-        if (d.Status == "待修復" || bucket == "fixing" && d.Status != TimerEngine.StatusFixing)
+        // 子狀態（例 待更新測試機、待上正式機）：更新好了推到下一步，不是開始修或通過
+        var batch = _engine.BatchStep(d.Key, d.Status);
+        if (batch is not null)
+            Add($"⇢ {batch.BatchText}", $"{batch.Name}：更新好了就推到下一步，可以填更新說明（例版本號）", () => OpenAdvanceDialog(d, batch), primary: true);
+        else if (d.Status == "待修復" || stage == "待修復")
             Add("🔧 開始修", "狀態改成修復中，可以順手填預估工時", () => OpenTestDialog("fix", d), primary: true);
-        if (d.Status == TimerEngine.StatusFixing)
-            Add("✓ 送復驗", "修好了，請回報的人驗", () => RunTestAsync(() => _engine.SubmitRetestAsync(d.Key), d.Key), primary: true);
+        else if (stage == TimerEngine.StatusFixing)
+        {
+            if (_engine.FixDoneStep(d.Key, d.Status) is { } next)
+                Add("✓ 修好了，待更新", $"改成{next.Name}" + (next.BatchText is { } b ? $"，{b}後再送復驗" : ""),
+                    () => RunTestAsync(() => _engine.SubmitRetestAsync(d.Key, d.Status), d.Key), primary: true);
+            else
+                Add("✓ 送復驗", "修好了，請回報的人驗", () => RunTestAsync(() => _engine.SubmitRetestAsync(d.Key, d.Status), d.Key), primary: true);
+        }
+        else if (bucket == "fixing" && d.Status != TimerEngine.StatusFixing)
+            Add("🔧 開始修", "狀態改成修復中，可以順手填預估工時", () => OpenTestDialog("fix", d), primary: true);
         if (canRetest && bucket is "retest" or "testing")
         {
-            Add("✓ 通過", "復驗通過，結案（已完成）", () => RunTestAsync(() => _engine.RetestAsync(d.Key, pass: true, null), d.Key), primary: true);
+            if (batch is null)
+                Add("✓ 通過", _engine.PassStep(d.Key, d.Status) is { } next ? $"復驗通過，改成{next.Name}（還不算完成）" : "復驗通過，結案（已完成）",
+                    () => RunTestAsync(() => _engine.RetestAsync(d.Key, pass: true, null), d.Key), primary: true);
             Add("↩ 退回", "還有問題，退回給工程師再修（輪數 +1）", () => OpenTestDialog("reopen", d));
         }
         if (canRetest && bucket is not ("pass" or "closed"))
@@ -115,6 +134,27 @@ public partial class TasksPage
             TestPanel.Children.Add(buttons);
         else if (!canRetest && bucket == "retest")
             TestPanel.Children.Add(Muted("等回報的人（或專案管理員）復驗。"));
+    }
+
+    Task OpenAdvanceDialog(TaskDetail d, TestSubStatus step)
+    {
+        var window = new AdvanceTestsWindow(_engine, KeyFinder.ProjectOf(d.Key), step, [d.Key]) { Owner = Window.GetWindow(this) };
+        window.Done += async message =>
+        {
+            Inputs.Show(DetailStatus, message, error: false);
+            await RefreshDetailQuietlyAsync(d.Key);
+        };
+        window.Show();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>測試結果的按鈕要看專案的子狀態：專案還沒讀過就讀一次（每個專案只讀一次），讀到後重畫這一塊。</summary>
+    async Task LoadSubStatusesAsync(TaskDetail d)
+    {
+        if (!await _engine.LoadProjectsOfAsync([d.Key]) || _detail?.Key != d.Key || _engine.CachedSubStatuses(d.Key).Count == 0)
+            return;
+        TestPanel.Children.Clear();
+        RenderResultPanel(d);
     }
 
     Task OpenTestDialog(string action, TaskDetail d)

@@ -265,7 +265,7 @@ public partial class SettingsWindow : Window
         if (_engine.LoggedIn && user is not null)
         {
             AccountName.Text = user.DisplayName;
-            AccountDetail.Text = $"{user.Username} · 已連線";
+            AccountDetail.Text = $"{user.Username} · 已連線" + (user.HayakuVersion is { } hv ? $" · Hayaku {hv}" : "");
             AvatarText.Text = user.DisplayName.Length > 0 ? user.DisplayName[..1] : "?";
             NavUserText.Text = user.DisplayName;
         }

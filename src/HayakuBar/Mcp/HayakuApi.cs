@@ -27,7 +27,8 @@ public sealed record DaySchedule(
 
 public sealed record TaskItem(string Key, string Title, string Project, string Status);
 
-public sealed record UserInfo(string Username, string DisplayName);
+/// <summary>目前的使用者；HayakuVersion：Hayaku 伺服器的版本（whoami 的 appVersion，舊版沒有）。</summary>
+public sealed record UserInfo(string Username, string DisplayName, string? HayakuVersion = null);
 
 /// <summary>把需要的 Hayaku MCP 工具包成強型別方法。</summary>
 public sealed partial class HayakuApi(McpClient mcp)
@@ -40,7 +41,7 @@ public sealed partial class HayakuApi(McpClient mcp)
     {
         var r = await mcp.CallToolAsync("whoami", null, ct);
         var username = Str(r, "username") ?? "";
-        return new UserInfo(username, Str(r, "displayName") is { Length: > 0 } d ? d : username);
+        return new UserInfo(username, Str(r, "displayName") is { Length: > 0 } d ? d : username, Str(r, "appVersion"));
     }
 
     public async Task<DaySchedule> GetScheduleAsync(DateOnly day, CancellationToken ct)
