@@ -92,8 +92,10 @@
                                VerticalAlignment="Center" FontSize="11" />
                     <TextBlock Grid.Column="1" Text="{Binding Key}" FontWeight="SemiBold" Margin="0,0,6,0"
                                VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis"
-                               Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center">
+                        <Run Text="{Binding ParentPrefix, Mode=OneWay}" FontSize="11" Foreground="{DynamicResource MutedBrush}" /><Run
+                            Text="{Binding Title, Mode=OneWay}" />
+                    </TextBlock>
                     <Border x:Name="StatusPill" Grid.Column="3" Style="{StaticResource StatusPill}" Margin="6,0,0,0" Tag="{Binding}"
                             Visibility="{Binding StatusVisibility}" MouseLeftButtonUp="StatusPill_Click">
                         <TextBlock Text="{Binding Status}" FontSize="10.5" Foreground="{DynamicResource MutedBrush}" />

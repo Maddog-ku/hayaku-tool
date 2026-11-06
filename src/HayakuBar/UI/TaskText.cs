@@ -35,12 +35,17 @@ public static class KeyCopy
         _ => false,
     };
 
-    public static void Copy(TimerEngine engine, string key)
+    public static void Copy(TimerEngine engine, string key) => Copy(engine, key, $"已複製 {key}");
+
+    /// <summary>複製任務在網頁上的連結（跟〔在網頁開啟〕同一個網址）。</summary>
+    public static void CopyLink(TimerEngine engine, string key) => Copy(engine, engine.TaskUrl(key), $"已複製 {key} 的連結");
+
+    static void Copy(TimerEngine engine, string text, string notice)
     {
         try
         {
-            Clipboard.SetText(key);
-            engine.ShowNotice($"已複製 {key}");
+            Clipboard.SetText(text);
+            engine.ShowNotice(notice);
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or System.Runtime.InteropServices.ExternalException)
         {

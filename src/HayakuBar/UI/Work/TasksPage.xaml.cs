@@ -938,7 +938,8 @@ public partial class TasksPage : UserControl, IWorkPage
         CategoryBox.IsChecked = d.IsCategory;
         RenderTesting(d);
         NoteText.Text = d.Note ?? "";
-        NoteSection.Visibility = string.IsNullOrWhiteSpace(d.Note) ? Visibility.Collapsed : Visibility.Visible;
+        NoteBorder.Visibility = string.IsNullOrWhiteSpace(d.Note) ? Visibility.Collapsed : Visibility.Visible;
+        ResetNoteAppend(d);
         ResetExtras(d);
         RenderTimerButton();
         _loadingDetail = false;

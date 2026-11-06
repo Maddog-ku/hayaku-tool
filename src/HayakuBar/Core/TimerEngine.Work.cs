@@ -46,6 +46,11 @@ public sealed partial class TimerEngine
         TaskLists.Values.SelectMany(l => l).FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))?.Status
         ?? MyTasks.FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))?.Status;
 
+    /// <summary>直接上層任務的名稱（從我的任務清單的 path 找，不打 Hayaku；最上層或不在清單裡回 null）。</summary>
+    public string? ParentTitleOf(string key) =>
+        TaskLists.Values.SelectMany(l => l).FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))
+            ?.Ancestors is [.., var parent] && parent.Title.Length > 0 ? parent.Title : null;
+
     /// <summary>今天到期（預計結束是今天、還沒完成）。</summary>
     public int DueTodayCount
     {

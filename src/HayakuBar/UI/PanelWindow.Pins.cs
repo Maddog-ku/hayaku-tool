@@ -193,6 +193,7 @@ public partial class PanelWindow
                 Add("▶  同時計時（不暫停其他的）", () => _ = RunPinAsync(vm, keepOthers: true), vm.Item.CanTime);
             }
             Add("☰  查看詳細", () => RequestWorkspace("tasks", vm.Key));
+            Add("🔗  複製連結", () => KeyCopy.CopyLink(_engine, vm.Key));
             Add("↗  在網頁開啟", () => Web.Open(_engine.TaskUrl(vm.Key)));
         }
         menu.Items.Add(new Separator { Margin = new Thickness(4), Background = Brushes2.Get("LineBrush") });

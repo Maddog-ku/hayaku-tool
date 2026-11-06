@@ -68,6 +68,15 @@
                     <Button x:Name="AddButton" Grid.Column="6" Content="登記" Style="{StaticResource PrimaryButton}" Padding="18,6"
                             VerticalAlignment="Bottom" Click="Add_Click" />
                 </Grid>
+                <!-- 出差：工時寫到哪個任務（出差時段過了 Hayaku 自動寫） -->
+                <StackPanel x:Name="TripTaskPanel" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
+                    <TextBlock Text="工時寫到" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock x:Name="TripTaskText" Text="還沒選任務" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
+                               MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                    <Button Content="選任務…" Style="{StaticResource FlatButton}" Margin="10,0,0,0" Click="PickTripTask_Click"
+                            ToolTip="出差時段過了，Hayaku 會自動把工時寫到這個任務；未來的出差等當天過了出差時段才寫" />
+                </StackPanel>
+
                 <TextBlock x:Name="FormStatus" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
             </StackPanel>
         </Border>

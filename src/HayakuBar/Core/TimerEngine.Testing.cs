@@ -63,26 +63,24 @@ public sealed partial class TimerEngine
 
     /// <summary>
     /// 修好了之後要到哪個狀態：修復中這一段還有下一個子狀態（例 待更新測試機）就到那個，沒有就是待復驗。
-    /// 專案還沒讀過時當作沒有子狀態。
+    /// 內建的修復中固定是這一段的第一列。專案還沒讀過時當作沒有子狀態。
     /// </summary>
-    public TestSubStatus? FixDoneStep(string taskKey, string status)
-    {
-        var subs = CachedSubStatuses(taskKey).Where(s => s.Stage == StatusFixing).ToList();
-        var i = subs.FindIndex(s => s.Name == status);
-        return i >= 0 && i + 1 < subs.Count ? subs[i + 1] : null;
-    }
+    public TestSubStatus? FixDoneStep(string taskKey, string status) =>
+        TaskKinds.NextInStage(CachedSubStatuses(taskKey), StatusFixing, status);
 
-    /// <summary>復驗通過後要到的子狀態：待復驗這一段還有下一個（例 待上正式機）就是那個，沒有（直接完成）是 null。</summary>
-    public TestSubStatus? PassStep(string taskKey, string status)
-    {
-        var subs = CachedSubStatuses(taskKey).Where(s => s.Stage == StatusRetest).ToList();
-        var i = subs.FindIndex(s => s.Name == status);
-        return i >= 0 && i + 1 < subs.Count ? subs[i + 1] : null;
-    }
+    /// <summary>
+    /// 復驗通過後要到的子狀態：待復驗這一段還有下一個（例 待上正式機）就是那個，沒有（直接完成）是 null。
+    /// 內建的待復驗固定是這一段的第一列。
+    /// </summary>
+    public TestSubStatus? PassStep(string taskKey, string status) =>
+        TaskKinds.NextInStage(CachedSubStatuses(taskKey), StatusRetest, status);
 
-    /// <summary>這個狀態可以批次推到下一步（例 待更新測試機〔已更新到測試機〕）就回傳那個子狀態。</summary>
+    /// <summary>
+    /// 這個狀態可以批次推到下一步（例 待更新測試機〔已更新到測試機〕）就回傳那個子狀態；
+    /// 內建狀態（修復中、待復驗、已完成）不能批次推（待復驗要一筆一筆復驗）。
+    /// </summary>
     public TestSubStatus? BatchStep(string taskKey, string status) =>
-        CachedSubStatuses(taskKey).FirstOrDefault(s => s.Name == status && s.BatchText is not null);
+        CachedSubStatuses(taskKey).FirstOrDefault(s => s.Name == status && s.Name != s.Stage && s.BatchText is not null);
 
     /// <summary>
     /// 修好了：專案在修復中後面還有子狀態（例 待更新測試機）就改到那個，等更新完測試機再批次送復驗；

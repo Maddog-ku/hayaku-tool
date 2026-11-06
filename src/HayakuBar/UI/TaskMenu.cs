@@ -32,6 +32,7 @@ public static class TaskMenu
         Separator();
         Add("☰  查看詳細", open);
         Add("⧉  複製編號", () => KeyCopy.Copy(engine, key));
+        Add("🔗  複製連結", () => KeyCopy.CopyLink(engine, key));
         Add("↗  在網頁開啟", () => Web.Open(engine.TaskUrl(key)));
         Separator();
         Add("🗑  刪除任務…", () => _ = delete());

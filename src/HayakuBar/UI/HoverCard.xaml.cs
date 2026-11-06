@@ -55,6 +55,7 @@ public partial class HoverCard : Window
                 Title = x.Group.Last().Title,
                 Running = x.Running,
                 IsClaude = engine.IsClaudeOwned(x.Group.Key),
+                ParentTitle = engine.ParentTitleOf(x.Group.Key),
                 Elapsed = WorkMath.Clock(x.Minutes),
             })
             .ToList();

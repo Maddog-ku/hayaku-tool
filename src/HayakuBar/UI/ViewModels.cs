@@ -18,6 +18,10 @@ public sealed class TaskRowVm : INotifyPropertyChanged
     public bool Running { get; init; }
     public bool IsClaude { get; init; }
 
+    /// <summary>上層任務名稱，同名的子任務才分得出來（跟網頁右上角的計時清單一樣）；最上層或查不到時是 null。</summary>
+    public string? ParentTitle { get; init; }
+    public string ParentPrefix => ParentTitle is { Length: > 0 } p ? p + " › " : "";
+
     /// <summary>任務目前的狀態；不在我的任務清單裡（查不到）時不顯示。</summary>
     public string? Status { get; init; }
     public Visibility StatusVisibility => string.IsNullOrEmpty(Status) ? Visibility.Collapsed : Visibility.Visible;

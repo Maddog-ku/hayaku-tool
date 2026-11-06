@@ -61,6 +61,20 @@ public static class TaskKinds
                 KnownStages[s.Name] = s.Stage;
     }
 
+    /// <summary>
+    /// 同一段裡 status 的下一個子狀態：內建狀態（修復中、待復驗、已完成）固定是每段第一列，後面接專案自訂的子狀態
+    /// （Hayaku 1.4.2 起，不用再自己建同名的狀態；回應有沒有列出內建那一列、或舊專案自己建了同名的都一樣）。
+    /// status 不在這一段或已經是最後一個是 null。
+    /// </summary>
+    public static TestSubStatus? NextInStage(IEnumerable<TestSubStatus> subStatuses, string stage, string status)
+    {
+        var custom = subStatuses.Where(s => s.Stage == stage && s.Name != stage).ToList();
+        var i = status == stage ? -1 : custom.FindIndex(s => s.Name == status);
+        if (i < 0 && status != stage)
+            return null;
+        return i + 1 < custom.Count ? custom[i + 1] : null;
+    }
+
     /// <summary>狀態所屬的測試階段（子狀態換成階段名稱）；stage 有給就用它。</summary>
     public static string StageOf(string status, string? stage = null) =>
         stage is { Length: > 0 } ? stage : KnownStages.TryGetValue(status, out var known) ? known : status;

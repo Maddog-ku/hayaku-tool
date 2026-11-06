@@ -375,10 +375,16 @@
                                 </StackPanel>
 
                                 <StackPanel x:Name="NoteSection">
-                                    <TextBlock Text="備註" Style="{StaticResource GroupLabel}" Margin="0,10,0,4" />
-                                    <Border Background="{DynamicResource SubtleBrush}" CornerRadius="6" Padding="10,8">
+                                    <Grid Margin="0,10,0,4">
+                                        <TextBlock Text="備註" Style="{StaticResource GroupLabel}" Margin="0" VerticalAlignment="Center" />
+                                        <Button x:Name="NoteAppendToggle" Content="＋ 補一段" Style="{StaticResource FlatButton}" Padding="8,2"
+                                                HorizontalAlignment="Right" Click="NoteAppendToggle_Click"
+                                                ToolTip="在任務內容最後補一段（Markdown），原本的圖片、附件、表格都不動" />
+                                    </Grid>
+                                    <Border x:Name="NoteBorder" Background="{DynamicResource SubtleBrush}" CornerRadius="6" Padding="10,8">
                                         <TextBox x:Name="NoteText" Style="{StaticResource PlainText}" MaxHeight="220" VerticalScrollBarVisibility="Auto" />
                                     </Border>
+                                    <StackPanel x:Name="NoteAppendPanel" Margin="0,6,0,0" Visibility="Collapsed" />
                                 </StackPanel>
 
                                 <!-- 相依、附件、文件、異動紀錄：平常收起，展開才讀（省請求） -->

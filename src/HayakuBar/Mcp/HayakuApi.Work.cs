@@ -278,6 +278,13 @@ public sealed partial class HayakuApi
         return Message(r);
     }
 
+    /// <summary>
+    /// 在任務內容（第一份文件）最後補一段 Markdown，原本的圖片、附件、表格都不動（append_to_task_note）。
+    /// 回傳伺服器的說明文字。
+    /// </summary>
+    public async Task<string?> AppendTaskNoteAsync(string task, string markdown, CancellationToken ct) =>
+        Message(await Mcp.CallToolAsync("append_to_task_note", new { task, markdown }, ct));
+
     public async Task<string> CreateTaskAsync(IDictionary<string, object?> fields, CancellationToken ct)
     {
         var r = await Mcp.CallToolAsync("create_task", fields, ct);

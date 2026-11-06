@@ -30,6 +30,7 @@ public partial class LeavesPage : UserControl, IWorkPage
     string _range = "2w";
     string _span = "DAY";
     bool _trip;
+    string? _tripTask;
     int _version;
 
     public LeavesPage(TimerEngine engine)
@@ -102,7 +103,23 @@ public partial class LeavesPage : UserControl, IWorkPage
             return;
         _trip = kind == "TRIP";
         FormTitle.Text = _trip ? "登記出差" : "登記請假";
-        FormDesc.Text = _trip ? "只登記、不簽核；出差照常算上班時數、不扣應出勤" : "只登記、不簽核；登記後當天不用上班，自動上下班也會跳過";
+        FormDesc.Text = _trip ? "只登記、不簽核；出差照常算上班時數、不扣應出勤，時段過了自動寫工時到選的任務" : "只登記、不簽核；登記後當天不用上班，自動上下班也會跳過";
+        TripTaskPanel.Visibility = _trip ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>出差的工時寫到哪個任務（add_leave 的 task，出差必填）。</summary>
+    void PickTripTask_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new TaskPickerWindow(_engine.MyTasks, "出差的工時要寫到哪個任務？（也可以直接輸入編號）", multiSelect: false)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        if (picker.ShowDialog() != true || picker.SelectedKeys.Count == 0)
+            return;
+        _tripTask = picker.SelectedKeys[0];
+        var title = _engine.MyTasks.FirstOrDefault(t => string.Equals(t.Key, _tripTask, StringComparison.OrdinalIgnoreCase))?.Title;
+        TripTaskText.Text = title is null ? _tripTask : $"{_tripTask} {title}";
+        TripTaskText.Foreground = Brushes2.Get("TextBrush");
     }
 
     void Span_Checked(object sender, RoutedEventArgs e)
@@ -154,7 +171,16 @@ public partial class LeavesPage : UserControl, IWorkPage
             args["note"] = NoteInput.Text.Trim();
         var what = _trip ? "出差" : "請假";
         if (_trip)
+        {
+            if (_tripTask is null)
+            {
+                Inputs.Show(FormStatus, "出差要選一個任務，出差時段的工時會寫到那裡");
+                return;
+            }
             args["kind"] = "TRIP";
+            args["task"] = _tripTask;
+            summary += $"（工時寫到 {_tripTask}）";
+        }
         var ok = MessageBox.Show(Window.GetWindow(this)!, $"登記{what}：{summary}？", $"登記{what}", MessageBoxButton.OKCancel, MessageBoxImage.Question);
         if (ok != MessageBoxResult.OK)
             return;

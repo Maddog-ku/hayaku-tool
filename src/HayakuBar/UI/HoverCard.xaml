@@ -27,7 +27,8 @@
                             <TextBlock Text="{Binding Icon}" Foreground="{Binding IconBrush}" FontSize="10" VerticalAlignment="Center" />
                             <TextBlock Grid.Column="1" TextTrimming="CharacterEllipsis" Margin="0,0,10,0">
                                 <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
-                                <Run Text="{Binding Title, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
+                                <Run Text="{Binding ParentPrefix, Mode=OneWay}" FontSize="11" Foreground="{DynamicResource MutedBrush}" /><Run
+                                    Text="{Binding Title, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" />
                             </TextBlock>
                             <TextBlock Grid.Column="2" Text="{Binding Elapsed}" FontFamily="{StaticResource MonoFont}" />
                         </Grid>
