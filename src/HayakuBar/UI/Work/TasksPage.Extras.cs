@@ -437,7 +437,8 @@ public partial class TasksPage
                 if (_detail?.Key == key)
                     CloseDialog();
                 RenderList(keepSelection: false);
-            });
+            },
+            templateApplied: () => _detail?.Key == key ? OpenTaskAsync(key) : Task.CompletedTask); // 詳細開著就重讀，子任務才看得到
         menu.PlacementTarget = target;
         menu.Placement = PlacementMode.MousePoint;
         menu.IsOpen = true;

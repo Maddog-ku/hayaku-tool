@@ -72,7 +72,7 @@ public sealed partial class HayakuApi
     public async Task<List<PinItem>> ListPinsAsync(CancellationToken ct) =>
         ParsePins(await Mcp.CallToolAsync("list_pins", null, ct));
 
-    /// <summary>釘到托盤（加在最後，最多 10 個）；回傳釘選後的整份清單。</summary>
+    /// <summary>釘到托盤（加在最後，最多 20 個，Hayaku 1.5.0 前是 10 個）；回傳釘選後的整份清單。</summary>
     public async Task<List<PinItem>> PinTaskAsync(string task, CancellationToken ct) =>
         ParsePins(await Mcp.CallToolAsync("pin_task", new { task }, ct));
 

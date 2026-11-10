@@ -35,7 +35,7 @@ public sealed class WorkloadPage : UserControl, IWorkPage
         _monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
 
         var modes = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var (key, label, tip) in new[] { ("actual", "實際計時", "實際計時（同時計時只算一次，含補登、會議）"), ("planned", "預計", "任務的預計工時照每天的容量比例分配") })
+        foreach (var (key, label, tip) in new[] { ("actual", "實際計時", "實際計時（同時計時只算一次，含補登、會議）"), ("planned", "預計", "任務的預計工時照每天的容量（應出勤扣請假、出差）比例分配，參加的會議也算進去") })
         {
             var b = new RadioButton { Style = (Style)FindResource("Segment"), GroupName = "WorkloadMode", Content = label, ToolTip = tip, IsChecked = key == _mode };
             b.Checked += async (_, _) =>

@@ -33,6 +33,10 @@ public static class TaskTree
         return Prune(roots, includeDone, q);
     }
 
+    /// <summary>已逾期：預計結束已過、還沒完成或不處理（分類不算，跟網頁一樣）。</summary>
+    public static bool IsOverdue(ProjectTask t, DateOnly today) =>
+        t.StatusCategory is not ("DONE" or "CANCELLED") && !t.IsCategory && t.PlannedEnd is { } end && end < today;
+
     static List<TaskTreeNode> Prune(List<TaskTreeNode> nodes, bool includeDone, string q)
     {
         var kept = new List<TaskTreeNode>();

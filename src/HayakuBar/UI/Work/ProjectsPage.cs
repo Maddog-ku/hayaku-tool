@@ -9,7 +9,7 @@ namespace HayakuBar.UI.Work;
 
 /// <summary>
 /// 專案：任一個專案的全部任務（不只指派給我的），樹狀顯示；可套用專案存好的視圖、篩選、只看我的、只看沒有子任務的，
-/// 勾選多個一次改狀態、優先級或類型。點編號複製編號，點名稱在「我的任務」的詳細打開。
+/// 只顯示已逾期，勾選多個一次改狀態、優先級、類型或套用子任務範本。點編號複製編號，點名稱在「我的任務」的詳細打開。
 /// 跟網頁一樣不列測試結果，測試任務後面標底下測試結果的數量（全部、通過、修復中、測試中）。
 /// 任務樹與「建立任務」小視窗共用快取（10 分鐘內不重抓，按重新整理才重讀）；視圖的篩選能在本機套用就不另外打請求。
 /// </summary>
@@ -25,7 +25,8 @@ public sealed class ProjectsPage : UserControl, IWorkPage
     readonly TextBox _filter = new() { Width = 200, Margin = new Thickness(0, 0, 10, 0) };
     readonly CheckBox _hideDone = new() { Content = "不顯示完成及不處理", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
     readonly CheckBox _mine = new() { Content = "只看我的", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-    readonly CheckBox _leafOnly = new() { Content = "只顯示沒有子任務的", VerticalAlignment = VerticalAlignment.Center };
+    readonly CheckBox _leafOnly = new() { Content = "只顯示沒有子任務的", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+    readonly CheckBox _overdueOnly = new() { Content = "只顯示已逾期", VerticalAlignment = VerticalAlignment.Center, ToolTip = "預計結束已過、還沒完成的任務" };
     readonly TextBlock _summary = new() { Margin = new Thickness(0, 0, 0, 8) };
     readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
     readonly Border _batch;
@@ -73,6 +74,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         _mine.Click += (_, _) => Render();
         _type.SelectionChanged += (_, _) => Render();
         _leafOnly.Click += (_, _) => Render();
+        _overdueOnly.Click += (_, _) => Render();
 
         var create = Button("＋ 新增任務", "FlatButton");
         create.Click += (_, _) => _host.ShowPage("tasks", "new");
@@ -101,7 +103,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         title.Children.Add(actions);
         title.Children.Add(new TextBlock { Text = "專案", Style = (Style)FindResource("PageTitle"), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center });
 
-        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8), Children = { _project, _view, _filter, _type, _hideDone, _mine, _leafOnly } };
+        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8), Children = { _project, _view, _filter, _type, _hideDone, _mine, _leafOnly, _overdueOnly } };
 
         var applyStatus = Button("改狀態", "PrimaryButton");
         applyStatus.Click += async (_, _) =>
@@ -122,6 +124,19 @@ public sealed class ProjectsPage : UserControl, IWorkPage
             if (_batchType.SelectedItem is string type)
                 await BatchAsync(applyType, "type", type, $"類型改成「{type}」");
         };
+        var applyTemplate = Button("套用範本…", "FlatButton");
+        applyTemplate.ToolTip = "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
+        applyTemplate.Click += async (_, _) =>
+        {
+            if (SelectedProject is not { } key || _selected.Count == 0)
+                return;
+            var dialog = new ApplyTemplateWindow(_engine, key, _selected.ToList()) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+            if (!dialog.Applied)
+                return;
+            _selected.Clear();
+            await LoadAsync(fresh: true);
+        };
         var clear = Button("取消選取", "FlatButton");
         clear.Click += (_, _) =>
         {
@@ -131,7 +146,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         _batch = new Border
         {
             Style = (Style)FindResource("Card"), Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed,
-            Child = new WrapPanel { Children = { _batchText, _batchStatus, applyStatus, _batchPriority, applyPriority, _batchType, applyType, clear } },
+            Child = new WrapPanel { Children = { _batchText, _batchStatus, applyStatus, _batchPriority, applyPriority, _batchType, applyType, applyTemplate, clear } },
         };
 
         var dock = new DockPanel { Margin = new Thickness(24, 18, 24, 16) };
@@ -273,6 +288,9 @@ public sealed class ProjectsPage : UserControl, IWorkPage
             shown = shown.Where(t => t.Kind == TaskKind.Test);
         if (_mine.IsChecked == true && me is not null)
             shown = shown.Where(t => t.Assignees?.Contains(me, StringComparer.OrdinalIgnoreCase) == true);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (_overdueOnly.IsChecked == true)
+            shown = shown.Where(t => TaskTree.IsOverdue(t, today)); // 上層沒逾期的，逾期的子任務放到最上層
         var includeDone = _hideDone.IsChecked != true;
         var filter = _filter.Text.Trim();
         var count = 0;
@@ -415,7 +433,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
         Grid.SetColumn(assignees, 4);
         grid.Children.Add(assignees);
 
-        var overdue = !done && !t.IsCategory && t.PlannedEnd is { } end && end < DateOnly.FromDateTime(DateTime.Today);
+        var overdue = TaskTree.IsOverdue(t, DateOnly.FromDateTime(DateTime.Today));
         var due = new TextBlock
         {
             Text = t.PlannedEnd is { } e ? $"{e:M/d}" : "", FontSize = 12, HorizontalAlignment = HorizontalAlignment.Right,
@@ -435,7 +453,7 @@ public sealed class ProjectsPage : UserControl, IWorkPage
             {
                 if (await DeleteTaskWindow.ConfirmAsync(Window.GetWindow(this), _engine, t.Key, t.Title, children))
                     await LoadAsync(fresh: true);
-            });
+            }, templateApplied: () => LoadAsync(fresh: true));
             menu.PlacementTarget = grid;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
             menu.IsOpen = true;

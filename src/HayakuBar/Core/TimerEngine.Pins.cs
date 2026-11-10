@@ -7,7 +7,7 @@ namespace HayakuBar.Core;
 public sealed partial class TimerEngine
 {
     /// <summary>托盤最多釘幾個（Hayaku 的上限）。</summary>
-    public const int MaxPins = 10;
+    public const int MaxPins = 20;
 
     static readonly TimeSpan ReviewsInterval = TimeSpan.FromMinutes(10);
     DateTime _reviewsFetched = DateTime.MinValue;

@@ -11,7 +11,8 @@ public static class TaskMenu
 {
     /// <param name="open">查看詳細。</param>
     /// <param name="delete">刪除任務（呼叫端問過再刪、更新畫面）。</param>
-    public static ContextMenu Build(TimerEngine engine, string key, Action open, Func<Task> delete)
+    /// <param name="templateApplied">套用子任務範本之後（呼叫端更新畫面）。</param>
+    public static ContextMenu Build(TimerEngine engine, string key, Action open, Func<Task> delete, Func<Task>? templateApplied = null)
     {
         var running = engine.RunningKeys().Contains(key);
         var menu = new ContextMenu();
@@ -35,6 +36,13 @@ public static class TaskMenu
         Add("🔗  複製連結", () => KeyCopy.CopyLink(engine, key));
         Add("↗  在網頁開啟", () => Web.Open(engine.TaskUrl(key)));
         Separator();
+        Add("📋  套用子任務範本…", async () =>
+        {
+            var dialog = new ApplyTemplateWindow(engine, KeyFinder.ProjectOf(key), [key]);
+            dialog.ShowDialog();
+            if (dialog.Applied && templateApplied is not null)
+                await templateApplied();
+        });
         Add("🗑  刪除任務…", () => _ = delete());
         return menu;
     }
