@@ -31,9 +31,9 @@
                                             <Border Background="Transparent" Cursor="{Binding Cursor}" Tag="{Binding}"
                                                     MouseLeftButtonUp="Timing_Click" Padding="0,2">
                                                 <TextBlock TextTrimming="CharacterEllipsis" ToolTip="{Binding Tip}">
-                                                    <Run Text="●" Foreground="{DynamicResource RunBrush}" FontSize="9" />
+                                                    <Run Text="●" Foreground="{Binding DotBrush, Mode=OneWay}" FontSize="9" />
                                                     <Run Text="{Binding Key, Mode=OneWay}" FontWeight="SemiBold" />
-                                                    <Run Text="{Binding Title, Mode=OneWay}" />
+                                                    <Run Text="{Binding ParentPrefix, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /><Run Text="{Binding Title, Mode=OneWay}" />
                                                     <Run Text="{Binding Since, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" FontSize="11" />
                                                 </TextBlock>
                                             </Border>

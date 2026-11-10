@@ -10,16 +10,22 @@ namespace HayakuBar.Core;
 /// </summary>
 public static class MyTaskTabs
 {
+    static bool InProgress(TaskSummary t) => t.StatusCategory == "IN_PROGRESS" || t.Timing;
+
     public static Dictionary<string, IReadOnlyList<TaskSummary>> Split(IReadOnlyList<TaskSummary> open, DateOnly today)
     {
         static bool NotStarted(TaskSummary t) => t.StatusCategory == "TODO" && !t.Timing;
         return new()
         {
-            ["in_progress"] = open.Where(t => t.StatusCategory == "IN_PROGRESS" || t.Timing).ToList(),
+            ["in_progress"] = open.Where(InProgress).ToList(),
             ["test"] = open.Where(t => t.Kind != TaskKind.Normal).ToList(),
             ["not_started"] = open.Where(NotStarted).ToList(),
             ["overdue"] = open.Where(t => t.PlannedEnd is { } end && end < today).ToList(),
             ["should_start"] = open.Where(t => NotStarted(t) && t.PlannedStart is { } start && start <= today).ToList(),
         };
     }
+
+    /// <summary>「全部」分頁（Hayaku 1.5.1）：所有還沒完成的任務，進行中的排前面，其餘照清單原本的順序。</summary>
+    public static IReadOnlyList<TaskSummary> All(IReadOnlyList<TaskSummary> open) =>
+        open.Where(InProgress).Concat(open.Where(t => !InProgress(t))).ToList();
 }

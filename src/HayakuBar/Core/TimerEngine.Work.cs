@@ -30,13 +30,15 @@ public sealed partial class TimerEngine
     /// <summary>直接用 Hayaku API（工作台的查詢與表單用；錯誤由呼叫端處理）。</summary>
     public HayakuApi Api => _api;
 
-    /// <summary>畫面上的分頁：「全部」（各分頁合起來、去掉重複）＋ my_tasks 的分頁。</summary>
+    /// <summary>畫面上的分頁：「全部」（所有還沒完成的，進行中排前面）＋ my_tasks 的分頁。</summary>
     public static readonly IReadOnlyList<(string Tab, string Label)> TaskViewTabs = [(AllTab, "全部"), .. TaskTabs];
 
     public const string AllTab = "all";
 
+    IReadOnlyList<TaskSummary> _allTasks = [];
+
     public IReadOnlyList<TaskSummary> TaskList(string tab) => tab == AllTab
-        ? TaskTabs.SelectMany(t => TaskLists.GetValueOrDefault(t.Tab) ?? []).DistinctBy(t => t.Key, StringComparer.OrdinalIgnoreCase).ToList()
+        ? _allTasks
         : TaskLists.GetValueOrDefault(tab) ?? [];
 
     public int OverdueCount => TaskList("overdue").Count;
@@ -50,6 +52,26 @@ public sealed partial class TimerEngine
     public string? ParentTitleOf(string key) =>
         TaskLists.Values.SelectMany(l => l).FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase))
             ?.Ancestors is [.., var parent] && parent.Title.Length > 0 ? parent.Title : null;
+
+    /// <summary>別人任務的上層名稱（團隊頁用 get_task 補讀的）；null＝最上層。同一個任務這次執行只讀一次。</summary>
+    readonly Dictionary<string, string?> _parentTitles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>上層任務名稱，不打 Hayaku：我的任務清單或之前補讀過的。known=false 表示還不知道（要 LoadParentTitleAsync）。</summary>
+    public string? KnownParentTitle(string key, out bool known)
+    {
+        known = true;
+        if (TaskLists.Values.SelectMany(l => l).Any(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase)))
+            return ParentTitleOf(key);
+        known = _parentTitles.TryGetValue(key, out var title);
+        return title;
+    }
+
+    /// <summary>用 get_task 補讀上層任務名稱並記起來；讀失敗不記，下次打開再試。</summary>
+    public async Task LoadParentTitleAsync(string key, CancellationToken ct)
+    {
+        var d = await _api.GetTaskAsync(key, ct);
+        _parentTitles[key] = d.Path is [.., var parent] && parent.Title.Length > 0 ? parent.Title : null;
+    }
 
     /// <summary>今天到期（預計結束是今天、還沒完成）。</summary>
     public int DueTodayCount
@@ -87,6 +109,7 @@ public sealed partial class TimerEngine
             return;
         }
         TaskLists = MyTaskTabs.Split(open, DateOnly.FromDateTime(DateTime.Today));
+        _allTasks = MyTaskTabs.All(open);
         MyTasks = open.Select(t => new TaskItem(t.Key, t.Title, t.Project, t.Status)).ToList();
         foreach (var t in open)
             _knownProjects.Add(KeyFinder.ProjectOf(t.Key));
