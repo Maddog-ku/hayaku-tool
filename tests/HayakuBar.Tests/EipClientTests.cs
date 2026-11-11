@@ -39,6 +39,30 @@ public class EipClientTests
         Assert.False(EipClient.IsLoginForm("<input type='text' name='password_hint'>"));
     }
 
+    // 2026-11-11 session 失效時 leave_list.php 回的整頁內容
+    const string PleaseLoginPage =
+        "<script>\n            alert('請登入');\n" +
+        "            location.href='/plug/home/php/login.php?get_url=L3BsdWcvYWJzZW50TmV4dC9waHAvbGVhdmVfbGlzdC5waHA%3D';\n        </script>";
+
+    [Fact]
+    public void NeedsLogin_登入頁或只有導去登入頁的script都算()
+    {
+        Assert.True(EipClient.NeedsLogin(LoginPage));
+        Assert.True(EipClient.NeedsLogin(PleaseLoginPage));
+        Assert.False(EipClient.IsLoginForm(PleaseLoginPage));
+    }
+
+    [Fact]
+    public void NeedsLogin_正常頁面裡有導去登入頁的script不算()
+    {
+        // 登入後的假單頁本來就有導去 login.php 的 script，不能當成 session 失效
+        var page = "<html><body><script>function logout(){ location.href='/plug/home/php/login.php?get_url='; }</script>" +
+                   "<table><tr><th>單號</th><th>請假時間(起)</th></tr></table></body></html>";
+        Assert.False(EipClient.NeedsLogin(page));
+        Assert.False(EipClient.NeedsLogin("<script>alert('查無資料');history.back();</script>"));
+        Assert.False(EipClient.NeedsLogin(""));
+    }
+
     [Fact]
     public void AlertText_取出錯誤訊息()
     {

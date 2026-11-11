@@ -94,13 +94,13 @@ public sealed partial class EipClient : IDisposable
         return PersonNo is { Length: > 0 } me ? leaves.Where(l => l.PersonNo.Equals(me, StringComparison.OrdinalIgnoreCase)).ToList() : leaves;
     }
 
-    /// <summary>還沒登入就先登入；session 過期（被導回登入頁）時重新登入一次再試。</summary>
+    /// <summary>還沒登入就先登入；session 過期（回登入頁，或只回一段導去登入頁的 script）時重新登入一次再試。</summary>
     async Task<string> WithLoginAsync(Func<Task<string>> fetch, EipCredentials cred, CancellationToken ct)
     {
         if (!LoggedIn && !(await LoginAsync(cred, ct)).Ok)
             throw new EipLoginException("EIP 帳號或密碼錯誤");
         var html = await fetch();
-        if (!IsLoginForm(html))
+        if (!NeedsLogin(html))
             return html;
         if (!(await LoginAsync(cred, ct)).Ok)
             throw new EipLoginException("EIP 帳號或密碼錯誤");
@@ -129,6 +129,12 @@ public sealed partial class EipClient : IDisposable
 
     [GeneratedRegex(@"alert\s*\(\s*(['""])(?<msg>.*?)\1\s*\)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex Alert();
+
+    [GeneratedRegex(@"<script\b[^>]*>.*?</script>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex ScriptBlock();
+
+    [GeneratedRegex(@"location(?:\.href)?\s*(?:=|\.(?:replace|assign)\s*\()\s*['""][^'""]*login\.php", RegexOptions.IgnoreCase)]
+    private static partial Regex LoginRedirect();
 
     [GeneratedRegex(@"<tr\b[^>]*>(?<row>.*?)</tr>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex Row();
@@ -172,6 +178,14 @@ public sealed partial class EipClient : IDisposable
     /// <summary>頁面上有密碼欄位就是還在登入頁（登入失敗或 session 過期）。</summary>
     internal static bool IsLoginForm(string html) =>
         InputTag().Matches(html).Any(m => Attributes(m.Value).GetValueOrDefault("type")?.Equals("password", StringComparison.OrdinalIgnoreCase) == true);
+
+    /// <summary>
+    /// session 已經失效、要重新登入：回的是登入頁，或整頁只有一段 script 把頁面導去 login.php
+    /// （alert('請登入'); location.href='/plug/home/php/login.php?…'）。
+    /// 登入後的正常假單頁裡也有導去 login.php 的 script，所以要「除了 script 沒有別的內容」才算。
+    /// </summary>
+    internal static bool NeedsLogin(string html) =>
+        IsLoginForm(html) || (LoginRedirect().IsMatch(html) && string.IsNullOrWhiteSpace(ScriptBlock().Replace(html, "")));
 
     /// <summary>PHP 常用 alert('…') 回錯誤訊息。</summary>
     internal static string? AlertText(string html) =>
