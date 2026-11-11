@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>HayakuBar</RootNamespace>
     <AssemblyName>HayakuBar</AssemblyName>
-    <Version>1.8.2</Version>
+    <Version>1.9.0</Version>
     <Product>HayakuBar</Product>
     <Description>Hayaku 工時工作列小工具</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>

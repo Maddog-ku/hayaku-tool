@@ -103,7 +103,7 @@ public partial class TasksPage : UserControl, IWorkPage
     readonly WorkspaceWindow _host;
     readonly Dictionary<string, RadioButton> _tabs = [];
     string _tab = TimerEngine.AllTab;
-    string _view = "list"; // list、tree、kanban
+    string _view = "list"; // list、tree、kanban、calendar、gantt
     string? _project; // 只看這個專案（名稱）；null＝全部
     List<TaskSummary> _doneTasks = [];
     string _doneDays = "30";
@@ -158,8 +158,8 @@ public partial class TasksPage : UserControl, IWorkPage
         SortBox.ItemsSource = TaskOrder.Sorts.Select(s => s.Label).ToList();
         var sortIndex = TaskOrder.Sorts.ToList().FindIndex(s => s.Key == _engine.Config.TaskSort);
         SortBox.SelectedIndex = Math.Max(0, sortIndex);
-        _view = _engine.Config.TaskView is "tree" or "kanban" ? _engine.Config.TaskView : "list";
-        (_view switch { "tree" => TreeViewButton, "kanban" => KanbanViewButton, _ => ListViewButton }).IsChecked = true;
+        _view = Views.Contains(_engine.Config.TaskView) ? _engine.Config.TaskView : "list";
+        ViewButton(_view).IsChecked = true;
         _project = string.IsNullOrEmpty(_engine.Config.TaskProject) ? null : _engine.Config.TaskProject;
         LeafOnlyBox.IsChecked = _engine.Config.TaskLeafOnly;
         HideDoneBox.IsChecked = _engine.Config.TaskHideDone;
@@ -167,6 +167,7 @@ public partial class TasksPage : UserControl, IWorkPage
         InitColumns();
         _kanbanTick.Tick += (_, _) => UpdateElapsed();
         IsVisibleChanged += (_, _) => UpdateKanbanTick();
+        InitSchedule();
         _buildingFilters = false;
 
         PreviewKeyDown += (_, e) =>
@@ -189,7 +190,7 @@ public partial class TasksPage : UserControl, IWorkPage
             RenderList(keepSelection: true);
     }
 
-    /// <summary>arg：任務編號（直接打開那個任務）、"new"（新增）、"new:F2P-5"（新增 F2P-5 的子任務）、分頁名稱（overdue…）或顯示方式（list、tree、kanban）。</summary>
+    /// <summary>arg：任務編號（直接打開那個任務）、"new"（新增）、"new:F2P-5"（新增 F2P-5 的子任務）、分頁名稱（overdue…）或顯示方式（list、tree、kanban、calendar、gantt）。</summary>
     public async Task ActivateAsync(object? arg)
     {
         RenderList(keepSelection: true);
@@ -201,8 +202,8 @@ public partial class TasksPage : UserControl, IWorkPage
             case string s when s.StartsWith("new:", StringComparison.OrdinalIgnoreCase) && KeyFinder.Parse(s[4..]) is { } parent:
                 ShowCreate(parent);
                 break;
-            case "list" or "tree" or "kanban":
-                (arg switch { "tree" => TreeViewButton, "kanban" => KanbanViewButton, _ => ListViewButton }).IsChecked = true;
+            case string view when Views.Contains(view):
+                ViewButton(view).IsChecked = true;
                 break;
             case string tab when _tabs.ContainsKey(tab):
                 _tabs[tab].IsChecked = true;
@@ -301,10 +302,12 @@ public partial class TasksPage : UserControl, IWorkPage
             _loadingDetail = false;
         }
 
-        // 樹狀、看板：搜尋結果沒有上下層與狀態類別，照樣用清單
+        // 樹狀、看板、日曆、甘特：搜尋結果沒有上下層、狀態類別與日期，照樣用清單
         var tree = _view == "tree" && _tab != SearchTab;
         var kanban = Kanban_On;
-        TaskList.Visibility = tree || kanban ? Visibility.Collapsed : Visibility.Visible;
+        var calendar = _view == "calendar" && _tab != SearchTab;
+        var gantt = _view == "gantt" && _tab != SearchTab;
+        TaskList.Visibility = tree || kanban || calendar || gantt ? Visibility.Collapsed : Visibility.Visible;
         ColumnHeader.Visibility = TaskList.Visibility;
         ColumnsButton.Visibility = TaskList.Visibility;
         CollapseAllButton.Visibility = tree ? Visibility.Visible : Visibility.Collapsed;
@@ -323,6 +326,7 @@ public partial class TasksPage : UserControl, IWorkPage
             RenderKanban(shown, rows);
         else
             TodoColumn.ItemsSource = DoingColumn.ItemsSource = DoneColumn.ItemsSource = null;
+        RenderSchedule(calendar ? "calendar" : gantt ? "gantt" : null, shown);
         UpdateFilterHighlights();
         UpdateKanbanTick();
     }
@@ -677,7 +681,7 @@ public partial class TasksPage : UserControl, IWorkPage
     {
         if (_buildingFilters)
             return;
-        _view = sender == TreeViewButton ? "tree" : sender == KanbanViewButton ? "kanban" : "list";
+        _view = Views.FirstOrDefault(v => ViewButton(v) == sender) ?? "list";
         _engine.Config.TaskView = _view;
         _engine.Config.Save();
         RenderList(keepSelection: true);

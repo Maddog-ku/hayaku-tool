@@ -153,6 +153,10 @@
                                              Checked="View_Checked" ToolTip="依專案分組，照上下層排成樹" />
                                 <RadioButton x:Name="KanbanViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="看板"
                                              Checked="View_Checked" ToolTip="待處理、進行中、已完成三欄" />
+                                <RadioButton x:Name="CalendarViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="日曆"
+                                             Checked="View_Checked" ToolTip="月曆；把任務拖到別天就改預計日期" />
+                                <RadioButton x:Name="GanttViewButton" Style="{StaticResource Segment}" GroupName="TaskView" Content="甘特"
+                                             Checked="View_Checked" ToolTip="甘特圖；拖整條平移，拖兩端改預計開始、結束" />
                             </StackPanel>
                         </Border>
                         <ComboBox x:Name="SortBox" Width="150" VerticalAlignment="Top" Margin="8,0,0,4"
@@ -233,6 +237,9 @@
                             </ScrollViewer>
                         </DockPanel>
                     </Grid>
+                    <!-- 日曆、甘特圖：程式畫（TasksPage.Calendar.cs、TasksPage.Gantt.cs） -->
+                    <Grid x:Name="CalendarView" Visibility="Collapsed" Margin="8,2,8,8" />
+                    <Grid x:Name="GanttView" Visibility="Collapsed" Margin="8,2,8,8" />
                     <TextBlock x:Name="ListMessage" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                                Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="20" />
                 </Grid>

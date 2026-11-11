@@ -63,7 +63,7 @@ public sealed class AppConfig
     /// <summary>工作台「我的任務」的排序：default、due、dueDesc、priority、status、key、timing。</summary>
     public string TaskSort { get; set; } = "default";
 
-    /// <summary>工作台「我的任務」的顯示方式：list（清單）、tree（依專案分組的樹狀）或 kanban（看板）。</summary>
+    /// <summary>工作台「我的任務」的顯示方式：list（清單）、tree（依專案分組的樹狀）、kanban（看板）、calendar（日曆）或 gantt（甘特圖）。</summary>
     public string TaskView { get; set; } = "list";
 
     /// <summary>工作台「我的任務」只看哪個專案（專案名稱）；空字串＝全部專案。</summary>
