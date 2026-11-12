@@ -23,10 +23,14 @@ public sealed class LeaveRowVm
     public Visibility CancelVisibility => Mine && Item.EndAt > DateTimeOffset.Now ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// <summary>請假與出差：列出期間內誰請假、出差，登記自己的請假或出差、取消。出差照常算上班時數。</summary>
+/// <summary>
+/// 請假與出差：列出期間內誰請假、出差，登記自己的請假或出差、取消。出差照常算上班時數。
+/// 右上切到「EIP 假單」看公司 EIP 上自己的假單（<see cref="EipLeavesPage"/>，切過去才讀）。
+/// </summary>
 public partial class LeavesPage : UserControl, IWorkPage
 {
     readonly TimerEngine _engine;
+    EipLeavesPage? _eip;
     string _range = "2w";
     string _span = "DAY";
     bool _trip;
@@ -41,7 +45,42 @@ public partial class LeavesPage : UserControl, IWorkPage
         Dates.SetRange(tomorrow, tomorrow);
     }
 
-    public Task ActivateAsync(object? arg) => LoadAsync();
+    bool ShowingEip => ViewEip.IsChecked == true;
+
+    /// <summary>arg：「eip」切到 EIP 假單、「hayaku」切回 Hayaku；沒帶就留在目前的分頁。</summary>
+    public Task ActivateAsync(object? arg)
+    {
+        var view = arg as string;
+        if (view == "eip" && !ShowingEip)
+        {
+            ViewEip.IsChecked = true; // View_Checked 會讀
+            return Task.CompletedTask;
+        }
+        if (view == "hayaku" && ShowingEip)
+        {
+            ViewHayaku.IsChecked = true;
+            return Task.CompletedTask;
+        }
+        return ShowingEip ? _eip!.ActivateAsync(null) : LoadAsync();
+    }
+
+    async void View_Checked(object sender, RoutedEventArgs e)
+    {
+        if (EipHost is null)
+            return;
+        var eip = ShowingEip;
+        HayakuView.Visibility = eip ? Visibility.Collapsed : Visibility.Visible;
+        EipHost.Visibility = eip ? Visibility.Visible : Visibility.Collapsed;
+        if (eip)
+        {
+            EipHost.Content = _eip ??= new EipLeavesPage(_engine);
+            await _eip.ActivateAsync(null);
+        }
+        else
+        {
+            await LoadAsync();
+        }
+    }
 
     (DateOnly From, DateOnly To) Range()
     {
@@ -99,7 +138,8 @@ public partial class LeavesPage : UserControl, IWorkPage
 
     void Kind_Checked(object sender, RoutedEventArgs e)
     {
-        if (sender is not RadioButton { Tag: string kind } || FormTitle is null)
+        // 載入時「請假」預設勾選就會觸發，這時後面的 TripTaskPanel 還沒建好（預設值本來就是請假的樣子）
+        if (sender is not RadioButton { Tag: string kind } || TripTaskPanel is null)
             return;
         _trip = kind == "TRIP";
         FormTitle.Text = _trip ? "登記出差" : "登記請假";

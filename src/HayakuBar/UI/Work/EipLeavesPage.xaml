@@ -1,9 +1,8 @@
 <UserControl x:Class="HayakuBar.UI.Work.EipLeavesPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <DockPanel Margin="24,18,24,16">
-        <TextBlock DockPanel.Dock="Top" Text="EIP 請假紀錄" Style="{StaticResource PageTitle}" />
-
+    <!-- 嵌在請假頁（LeavesPage）的「EIP 假單」分頁 -->
+    <DockPanel>
         <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="PrevButton" Content="‹ 上個月" Style="{StaticResource FlatButton}" Click="Prev_Click" />

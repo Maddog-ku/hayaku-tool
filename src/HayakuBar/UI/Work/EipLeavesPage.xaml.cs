@@ -33,7 +33,7 @@ public sealed class EipLeaveRowVm
     public Visibility SyncedVisibility => Synced ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// <summary>EIP 請假紀錄：直接讀 EIP 的假單，可以切換月份，用來確認同步讀到的資料。</summary>
+/// <summary>請假頁的「EIP 假單」分頁：直接讀 EIP 的假單，可以切換月份，用來確認同步讀到的資料。</summary>
 public partial class EipLeavesPage : UserControl, IWorkPage
 {
     readonly TimerEngine _engine;

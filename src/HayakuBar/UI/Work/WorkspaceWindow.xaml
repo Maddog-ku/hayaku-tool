@@ -67,7 +67,6 @@
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="activity" Checked="Nav_Checked" Content="專案動態" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="workload" Checked="Nav_Checked" Content="工作負荷" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="leaves" Checked="Nav_Checked" Content="請假" />
-                <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="eipleaves" Checked="Nav_Checked" Content="EIP 請假紀錄" />
                 <RadioButton Style="{StaticResource NavItem}" GroupName="WorkNav" Tag="stats" Checked="Nav_Checked" Content="統計" />
             </StackPanel>
             </ScrollViewer>

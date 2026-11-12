@@ -26,7 +26,7 @@ public sealed partial class TimerEngine
     /// <summary>同一時間只有一個流程用 EIP（登入、換頁共用同一個 session）。</summary>
     readonly SemaphoreSlim _eipGate = new(1, 1);
 
-    /// <summary>「EIP 請假紀錄」頁讀過的年份（年 → 假單），切換月份不重讀。</summary>
+    /// <summary>請假頁「EIP 假單」分頁讀過的年份（年 → 假單），切換月份不重讀。</summary>
     readonly Dictionary<int, List<EipLeaveRecord>> _eipYears = [];
     DateTime _eipRetryAt = DateTime.MinValue;
 
@@ -375,7 +375,7 @@ public sealed partial class TimerEngine
     }
 
     /// <summary>
-    /// 「EIP 請假紀錄」頁用：某一年自己的假單（待審、核准、駁回都列），讀過就用暫存，reload 才重讀。
+    /// 請假頁「EIP 假單」分頁用：某一年自己的假單（待審、核准、駁回都列），讀過就用暫存，reload 才重讀。
     /// 是使用者打開頁面才讀，不受「不上班的日子不送請求」限制。
     /// </summary>
     public async Task<IReadOnlyList<EipLeaveRecord>> LoadEipYearAsync(int year, bool reload)

@@ -3,130 +3,146 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="clr-namespace:HayakuBar.UI">
     <DockPanel Margin="24,18,24,16">
-        <TextBlock DockPanel.Dock="Top" Text="請假與出差" Style="{StaticResource PageTitle}" />
-
-        <!-- 登記 -->
-        <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,14">
-            <StackPanel>
-                <Grid Margin="0,0,0,10">
-                    <TextBlock x:Name="FormTitle" Text="登記請假" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <TextBlock x:Name="FormDesc" Text="只登記、不簽核；登記後當天不用上班，自動上下班也會跳過" Style="{StaticResource CardDesc}"
-                               HorizontalAlignment="Right" Margin="0" />
-                </Grid>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <Border Style="{StaticResource SegmentTrack}" Margin="0,0,10,0">
-                        <StackPanel Orientation="Horizontal">
-                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveKind" Tag="LEAVE" Content="請假" IsChecked="True"
-                                         Checked="Kind_Checked" />
-                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveKind" Tag="TRIP" Content="✈ 出差" Checked="Kind_Checked"
-                                         ToolTip="出差照常算上班時數、不扣應出勤" />
-                        </StackPanel>
-                    </Border>
-                    <Border Style="{StaticResource SegmentTrack}">
-                        <StackPanel Orientation="Horizontal">
-                            <RadioButton x:Name="SpanDay" Style="{StaticResource Segment}" GroupName="Span" Tag="DAY" Content="整天" IsChecked="True"
-                                         Checked="Span_Checked" />
-                            <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_AM" Content="上午" Checked="Span_Checked" />
-                            <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_PM" Content="下午" Checked="Span_Checked" />
-                            <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="RANGE" Content="指定時段" Checked="Span_Checked" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="280" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock x:Name="DateLabel" Text="第一天 ～ 最後一天（只請一天就點同一天）" Style="{StaticResource FieldLabel}" />
-                        <ui:DateRangePicker x:Name="Dates" />
-                    </StackPanel>
-                    <Grid x:Name="RangePanel" Grid.Column="2" Width="160" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="6" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel>
-                            <TextBlock Text="開始" Style="{StaticResource FieldLabel}" />
-                            <TextBox x:Name="StartInput" Style="{StaticResource HintBox}" Tag="14:00" FontFamily="{StaticResource MonoFont}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="結束" Style="{StaticResource FieldLabel}" />
-                            <TextBox x:Name="EndInput" Style="{StaticResource HintBox}" Tag="16:00" FontFamily="{StaticResource MonoFont}" />
-                        </StackPanel>
-                    </Grid>
-                    <StackPanel Grid.Column="4">
-                        <TextBlock Text="備註（只有自己與管理者看得到）" Style="{StaticResource FieldLabel}" />
-                        <TextBox x:Name="NoteInput" Style="{StaticResource HintBox}" Tag="選填" />
-                    </StackPanel>
-                    <Button x:Name="AddButton" Grid.Column="6" Content="登記" Style="{StaticResource PrimaryButton}" Padding="18,6"
-                            VerticalAlignment="Bottom" Click="Add_Click" />
-                </Grid>
-                <!-- 出差：工時寫到哪個任務（出差時段過了 Hayaku 自動寫） -->
-                <StackPanel x:Name="TripTaskPanel" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
-                    <TextBlock Text="工時寫到" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <TextBlock x:Name="TripTaskText" Text="還沒選任務" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
-                               MaxWidth="420" TextTrimming="CharacterEllipsis" />
-                    <Button Content="選任務…" Style="{StaticResource FlatButton}" Margin="10,0,0,0" Click="PickTripTask_Click"
-                            ToolTip="出差時段過了，Hayaku 會自動把工時寫到這個任務；未來的出差等當天過了出差時段才寫" />
-                </StackPanel>
-
-                <TextBlock x:Name="FormStatus" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
-            </StackPanel>
-        </Border>
-
-        <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
-            <Border Style="{StaticResource SegmentTrack}">
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
+            <TextBlock Text="請假與出差" Style="{StaticResource PageTitle}" Margin="0" VerticalAlignment="Center" />
+            <!-- Hayaku 上登記的請假、出差／公司 EIP 上的假單（待審、核准、駁回） -->
+            <Border Style="{StaticResource SegmentTrack}" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <StackPanel Orientation="Horizontal">
-                    <RadioButton Style="{StaticResource Segment}" GroupName="LeaveRange" Tag="2w" Content="接下來兩週" IsChecked="True"
-                                 Checked="Range_Checked" />
-                    <RadioButton Style="{StaticResource Segment}" GroupName="LeaveRange" Tag="month" Content="本月" Checked="Range_Checked" />
-                    <RadioButton Style="{StaticResource Segment}" GroupName="LeaveRange" Tag="next" Content="下個月" Checked="Range_Checked" />
+                    <RadioButton x:Name="ViewHayaku" Style="{StaticResource Segment}" GroupName="LeaveView" Tag="hayaku" Content="Hayaku" IsChecked="True"
+                                 Checked="View_Checked" ToolTip="Hayaku 上登記的請假與出差（所有人），可以登記、取消" />
+                    <RadioButton x:Name="ViewEip" Style="{StaticResource Segment}" GroupName="LeaveView" Tag="eip" Content="EIP 假單" Checked="View_Checked"
+                                 ToolTip="直接讀公司 EIP 的假單（只有自己的，含待審、駁回），只能看" />
                 </StackPanel>
             </Border>
-            <CheckBox x:Name="MineOnly" Content="只看我的" HorizontalAlignment="Right" VerticalAlignment="Center" Click="MineOnly_Click" />
         </Grid>
-        <TextBlock x:Name="ListStatus" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed" />
 
         <Grid>
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl x:Name="LeaveList">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Style="{StaticResource Card}" Padding="16,10">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid Width="30" Height="30" Margin="0,0,12,0">
-                                        <Ellipse Fill="{DynamicResource AvatarBrush}" />
-                                        <TextBlock Text="{Binding Initial}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                    </Grid>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding Period}" Style="{StaticResource CardDesc}" />
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="{Binding Lost}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
-                                               Margin="12,0" />
-                                    <Button Grid.Column="3" Content="{Binding CancelText}" Style="{StaticResource IconButton}" Tag="{Binding}" Click="Cancel_Click"
-                                            Visibility="{Binding CancelVisibility}" VerticalAlignment="Center" />
-                                </Grid>
+            <DockPanel x:Name="HayakuView">
+                <!-- 登記 -->
+                <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <TextBlock x:Name="FormTitle" Text="登記請假" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock x:Name="FormDesc" Text="只登記、不簽核；登記後當天不用上班，自動上下班也會跳過" Style="{StaticResource CardDesc}"
+                                       HorizontalAlignment="Right" Margin="0" />
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Border Style="{StaticResource SegmentTrack}" Margin="0,0,10,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="LeaveKind" Tag="LEAVE" Content="請假" IsChecked="True"
+                                                 Checked="Kind_Checked" />
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="LeaveKind" Tag="TRIP" Content="✈ 出差" Checked="Kind_Checked"
+                                                 ToolTip="出差照常算上班時數、不扣應出勤" />
+                                </StackPanel>
                             </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-            <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"
-                       Visibility="Collapsed" />
+                            <Border Style="{StaticResource SegmentTrack}">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="SpanDay" Style="{StaticResource Segment}" GroupName="Span" Tag="DAY" Content="整天" IsChecked="True"
+                                                 Checked="Span_Checked" />
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_AM" Content="上午" Checked="Span_Checked" />
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="HALF_PM" Content="下午" Checked="Span_Checked" />
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="Span" Tag="RANGE" Content="指定時段" Checked="Span_Checked" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="280" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="DateLabel" Text="第一天 ～ 最後一天（只請一天就點同一天）" Style="{StaticResource FieldLabel}" />
+                                <ui:DateRangePicker x:Name="Dates" />
+                            </StackPanel>
+                            <Grid x:Name="RangePanel" Grid.Column="2" Width="160" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="6" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="開始" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="StartInput" Style="{StaticResource HintBox}" Tag="14:00" FontFamily="{StaticResource MonoFont}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="結束" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="EndInput" Style="{StaticResource HintBox}" Tag="16:00" FontFamily="{StaticResource MonoFont}" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="備註（只有自己與管理者看得到）" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="NoteInput" Style="{StaticResource HintBox}" Tag="選填" />
+                            </StackPanel>
+                            <Button x:Name="AddButton" Grid.Column="6" Content="登記" Style="{StaticResource PrimaryButton}" Padding="18,6"
+                                    VerticalAlignment="Bottom" Click="Add_Click" />
+                        </Grid>
+                        <!-- 出差：工時寫到哪個任務（出差時段過了 Hayaku 自動寫） -->
+                        <StackPanel x:Name="TripTaskPanel" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
+                            <TextBlock Text="工時寫到" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock x:Name="TripTaskText" Text="還沒選任務" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
+                                       MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                            <Button Content="選任務…" Style="{StaticResource FlatButton}" Margin="10,0,0,0" Click="PickTripTask_Click"
+                                    ToolTip="出差時段過了，Hayaku 會自動把工時寫到這個任務；未來的出差等當天過了出差時段才寫" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="FormStatus" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <Border Style="{StaticResource SegmentTrack}">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveRange" Tag="2w" Content="接下來兩週" IsChecked="True"
+                                         Checked="Range_Checked" />
+                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveRange" Tag="month" Content="本月" Checked="Range_Checked" />
+                            <RadioButton Style="{StaticResource Segment}" GroupName="LeaveRange" Tag="next" Content="下個月" Checked="Range_Checked" />
+                        </StackPanel>
+                    </Border>
+                    <CheckBox x:Name="MineOnly" Content="只看我的" HorizontalAlignment="Right" VerticalAlignment="Center" Click="MineOnly_Click" />
+                </Grid>
+                <TextBlock x:Name="ListStatus" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed" />
+
+                <Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="LeaveList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource Card}" Padding="16,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid Width="30" Height="30" Margin="0,0,12,0">
+                                                <Ellipse Fill="{DynamicResource AvatarBrush}" />
+                                                <TextBlock Text="{Binding Initial}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                            </Grid>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Period}" Style="{StaticResource CardDesc}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding Lost}" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"
+                                                       Margin="12,0" />
+                                            <Button Grid.Column="3" Content="{Binding CancelText}" Style="{StaticResource IconButton}" Tag="{Binding}" Click="Cancel_Click"
+                                                    Visibility="{Binding CancelVisibility}" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"
+                               Visibility="Collapsed" />
+                </Grid>
+            </DockPanel>
+            <ContentControl x:Name="EipHost" Focusable="False" Visibility="Collapsed" />
         </Grid>
     </DockPanel>
 </UserControl>

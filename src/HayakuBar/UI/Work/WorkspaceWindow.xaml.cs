@@ -29,9 +29,17 @@ public partial class WorkspaceWindow : Window
         RefreshChrome();
     }
 
-    /// <summary>頁面：tasks、projects、tests、reviews、hours、entries、worklog、reminders、meetings、chat、notes、spaces、forum、team、activity、workload、leaves、eipleaves、stats。</summary>
+    /// <summary>
+    /// 頁面：tasks、projects、tests、reviews、hours、entries、worklog、reminders、meetings、chat、notes、spaces、forum、team、activity、workload、leaves、stats。
+    /// eipleaves（原本的「EIP 請假紀錄」）併進請假頁，打開請假頁的「EIP 假單」分頁。
+    /// </summary>
     public void ShowPage(string page, object? arg = null)
     {
+        if (string.Equals(page, "eipleaves", StringComparison.OrdinalIgnoreCase))
+        {
+            page = "leaves";
+            arg ??= "eip";
+        }
         _pendingArg = arg;
         var nav = NavPanel.Children.OfType<RadioButton>().FirstOrDefault(r => string.Equals(r.Tag as string, page, StringComparison.OrdinalIgnoreCase))
                   ?? NavPanel.Children.OfType<RadioButton>().First();
@@ -64,7 +72,6 @@ public partial class WorkspaceWindow : Window
                 "forum" => new ForumPage(_engine),
                 "team" => new TeamPage(_engine, this),
                 "leaves" => new LeavesPage(_engine),
-                "eipleaves" => new EipLeavesPage(_engine),
                 "stats" => new StatsPage(_engine),
                 "reviews" => new ReviewsPage(_engine, this),
                 "activity" => new ActivityPage(_engine, this),
