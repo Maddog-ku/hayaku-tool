@@ -1,0 +1,237 @@
+// 工作台「我的工時」頁（對應 C# UI/Work/HoursPage.xaml）：月曆每天填了多少、應出勤多少；點一天開工時紀錄補登。
+// 契約：匯出 global HoursPageData（Rust 端用 window.global::<HoursPageData>() 讀寫）與 component HoursPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, Motion, Tip } from "@hb/index.slint";
+import { FieldLabel } from "@hbc/index.slint";
+import { W2, W2Button, W2Stat, W2Title } from "w2-common.slint";
+
+/// 月曆的一格（C# DayCellVm）。bg：0 空格、1 不用上班、2 一般、3 填滿、4 不足、5 沒填；value-tone：0 一般、1 淡色、2 紅色。
+export struct HoursDayCell {
+    has-date: bool,
+    day-text: string,
+    tag: string,
+    value: string,
+    tip: string,
+    bg: int,
+    value-tone: int,
+    today: bool,
+    future: bool,
+}
+
+export global HoursPageData {
+    in-out property <bool> loading;
+    in-out property <string> month-text;
+    in-out property <bool> this-month-enabled;
+    /// 讀取中…／讀取失敗：…（空字串收起來）
+    in-out property <string> loading-text;
+    in-out property <string> filled;
+    in-out property <string> expected;
+    in-out property <string> expected-to-date;
+    in-out property <string> missing;
+    in-out property <bool> missing-error;
+    in-out property <string> unfilled;
+    in-out property <string> unfilled-detail;
+    in-out property <[HoursDayCell]> cells;
+    callback prev();
+    callback next();
+    callback this-month();
+    callback open-day(index: int);
+}
+
+component Legend {
+    in property <color> swatch;
+    in property <string> text;
+    HorizontalLayout {
+        spacing: 5px;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            background: root.swatch;
+        }
+        Text {
+            text: root.text;
+            color: Theme.muted;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component DayCell inherits Rectangle {
+    in property <HoursDayCell> cell;
+    callback clicked;
+    border-radius: 12px;
+    background: !cell.has-date ? transparent : cell.bg == 1 ? Theme.sched-off : cell.bg == 3 ? Theme.sched-filled : cell.bg == 4 ? Theme.sched-partial : cell.bg == 5 ? Theme.sched-missing : Theme.card;
+    border-width: !cell.has-date ? 0px : cell.today ? 2px : 1px;
+    border-color: cell.today ? Theme.accent : ta.has-hover ? Theme.faint : Theme.line;
+    opacity: cell.future ? 0.75 : 1;
+    animate border-color { duration: 180ms; }
+    if cell.has-date: VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        HorizontalLayout {
+            Text {
+                text: root.cell.day-text;
+                color: Theme.ink;
+                font-family: Theme.font-num;
+                font-size: Theme.fs-base;
+                font-weight: root.cell.today ? 700 : 600;
+            }
+            Text {
+                text: root.cell.tag;
+                color: Theme.muted;
+                font-size: 11px;
+                horizontal-alignment: right;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+        Text {
+            text: root.cell.value;
+            color: root.cell.value-tone == 2 ? Theme.error : root.cell.value-tone == 1 ? Theme.muted : Theme.ink;
+            font-family: Theme.font-num;
+            font-size: 12px;
+            overflow: elide;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.cell.has-date;
+        mouse-cursor: root.cell.has-date ? pointer : default;
+        clicked => {
+            root.clicked();
+        }
+    }
+    if root.cell.has-date: Rectangle {
+        Tooltip {
+            Tip {
+                text: root.cell.tip;
+            }
+        }
+    }
+}
+
+export component HoursPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 14px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            W2Title {
+                text: "我的工時";
+                horizontal-stretch: 1;
+            }
+            W2Button {
+                text: "‹";
+                tip: "上個月";
+                font-size: 15px;
+                clicked => { HoursPageData.prev(); }
+            }
+            Text {
+                text: HoursPageData.month-text;
+                min-width: 110px;
+                color: Theme.ink;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            W2Button {
+                text: "›";
+                tip: "下個月";
+                font-size: 15px;
+                clicked => { HoursPageData.next(); }
+            }
+            W2Button {
+                text: "本月";
+                enabled: HoursPageData.this-month-enabled;
+                clicked => { HoursPageData.this-month(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            W2Stat {
+                label: "已填";
+                value: HoursPageData.filled;
+                desc: "同時計時只算一次";
+            }
+            W2Stat {
+                label: "應出勤";
+                value: HoursPageData.expected;
+                desc: HoursPageData.expected-to-date;
+            }
+            W2Stat {
+                label: "還差";
+                value: HoursPageData.missing;
+                value-color: HoursPageData.missing-error ? Theme.error : Theme.ink;
+                desc: "到今天為止";
+            }
+            W2Stat {
+                label: "沒填滿的日子";
+                value: HoursPageData.unfilled;
+                desc: HoursPageData.unfilled-detail;
+            }
+        }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            spacing: 4px;
+            HorizontalLayout {
+                for w in ["一", "二", "三", "四", "五", "六", "日"]: Rectangle {
+                    horizontal-stretch: 1;
+                    height: 18px;
+                    FieldLabel {
+                        x: 11px;
+                        text: w;
+                    }
+                }
+            }
+            grid := Rectangle {
+                vertical-stretch: 1;
+                property <int> rows: max(1, ceil(HoursPageData.cells.length / 7));
+                property <length> cw: self.width / 7;
+                property <length> ch: self.height / self.rows;
+                for cell[i] in HoursPageData.cells: DayCell {
+                    x: mod(i, 7) * grid.cw + 3px;
+                    y: floor(i / 7) * grid.ch + 3px;
+                    width: grid.cw - 6px;
+                    height: grid.ch - 6px;
+                    cell: cell;
+                    clicked => { HoursPageData.open-day(i); }
+                }
+                if HoursPageData.loading-text != "": Text {
+                    text: HoursPageData.loading-text;
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            padding-left: 4px;
+            spacing: 14px;
+            Legend { swatch: Theme.sched-filled; text: "填滿"; }
+            Legend { swatch: Theme.sched-partial; text: "不足"; }
+            Legend { swatch: Theme.sched-missing; text: "沒填"; }
+            Legend { swatch: Theme.sched-off; text: "不用上班或請假"; }
+            Text {
+                text: "點日期可以查看、補登那天的工時";
+                color: Theme.faint;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+}

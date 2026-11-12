@@ -1,0 +1,28 @@
+[package]
+name = "hb-slack"
+description = "Slack Web API、Socket Mode、SlackBridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hb-api.workspace = true
+hb-backend.workspace = true
+hb-core.workspace = true
+# 只用 hb_eip::net_time（C# DateTime 的 JSON 格式），slack.json 的 postedAt 跟 eip-sync.json 同一種寫法
+hb-eip.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+log.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+hb-claude.workspace = true
+tempfile.workspace = true

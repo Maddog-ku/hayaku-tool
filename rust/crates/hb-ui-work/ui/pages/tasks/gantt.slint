@@ -1,0 +1,285 @@
+// 我的任務：甘特圖（C# TasksPage.Gantt.cs）。左邊任務名稱（照目前的排序），右邊日期軸（週末底色、今天一條線，天數照寬度）。
+// 拖整條平移、拖兩端改預計開始或結束；沒有預計日期的任務在自己那列拉出一段就是設定起訖。
+// 不在畫面範圍的任務在邊上標日期，點了跳過去。
+import { Theme, ScrollView, Tip } from "@hb/index.slint";
+import { TaskMenuArea } from "@hbc/index.slint";
+import { TasksPageData, TkGanttRow } from "data.slint";
+import { BarLook, ScheduleToolbar } from "calendar.slint";
+
+component GanttRowView {
+    in property <TkGanttRow> item;
+    in property <int> index;
+    in property <length> name-width;
+    in property <length> day-width;
+    in property <int> days;
+    property <length> edge: 7px;
+    height: 28px;
+    // 列底線
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+        opacity: 0.6;
+    }
+    // 名稱
+    Rectangle {
+        x: 0;
+        width: root.name-width;
+        menu := TaskMenuArea {
+            width: parent.width;
+            height: parent.height;
+            key: root.item.key;
+        }
+        name-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                TasksPageData.gantt-open(root.item.key);
+            }
+            pointer-event(e) => {
+                if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                    menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+                }
+            }
+            Tooltip {
+                Tip {
+                    text: root.item.name-tip;
+                    max-bubble-width: 340px;
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 8px;
+            opacity: root.item.done ? 0.55 : 1;
+            Text {
+                text: root.item.key + " ";
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.item.title;
+                color: name-ta.has-hover ? Theme.accent-ink : Theme.ink;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+    // 日期軸
+    canvas := Rectangle {
+        x: root.name-width;
+        width: root.width - root.name-width;
+        clip: true;
+        if root.item.kind == 2: draw-ta := TouchArea {
+            mouse-cursor: MouseCursor.crosshair;
+            pointer-event(e) => {
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                    TasksPageData.gantt-draw-start(root.index, clamp(floor(self.mouse-x / root.day-width), 0, root.days - 1));
+                } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                    TasksPageData.gantt-release(root.index);
+                } else if e.kind == PointerEventKind.cancel {
+                    TasksPageData.bar-cancel();
+                }
+            }
+            moved => {
+                if self.pressed {
+                    TasksPageData.gantt-draw-move(root.index, clamp(floor(self.mouse-x / root.day-width), 0, root.days - 1));
+                }
+            }
+            Tooltip {
+                Tip {
+                    text: "沒有預計日期：在這列拉出一段就是預計開始到結束";
+                }
+            }
+        }
+        if root.item.kind == 2 && root.item.preview: BarLook {
+            x: root.item.start * root.day-width + 1px;
+            y: 4px;
+            width: max(root.day-width - 2px, (root.item.end + 1 - root.item.start) * root.day-width - 2px);
+            height: root.height - 8px;
+            bar: root.item.bar;
+            opacity: 0.6;
+        }
+        if root.item.kind == 1: jump := Text {
+            x: root.item.jump-before ? 4px : max(4px, parent.width - self.width - 4px);
+            y: 6px;
+            text: root.item.jump-text;
+            color: root.item.jump-overdue ? Theme.error : jump-ta.has-hover ? Theme.ink : Theme.muted;
+            font-size: 11px;
+            jump-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    TasksPageData.gantt-jump(root.index);
+                }
+                Tooltip {
+                    Tip {
+                        text: "跳到這個任務的日期";
+                    }
+                }
+            }
+        }
+        if root.item.kind == 0: bar := Rectangle {
+            property <bool> started;
+            property <length> px;
+            property <length> py;
+            property <int> mode;
+            x: root.item.start * root.day-width + 1px;
+            y: 4px;
+            width: max(root.day-width - 2px, (root.item.end + 1 - root.item.start) * root.day-width - 2px);
+            height: root.height - 8px;
+            BarLook {
+                width: parent.width;
+                height: parent.height;
+                bar: root.item.bar;
+                dragging: TasksPageData.drag-key == root.item.key;
+            }
+            bar-ta := TouchArea {
+                // 移到兩端提示可以拉
+                mouse-cursor: self.mouse-x <= root.edge || self.mouse-x >= self.width - root.edge ? MouseCursor.ew-resize : MouseCursor.pointer;
+                pointer-event(e) => {
+                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                        bar.started = false;
+                        bar.px = self.absolute-position.x + self.mouse-x;
+                        bar.py = self.absolute-position.y + self.mouse-y;
+                        bar.mode = self.mouse-x <= root.edge ? 1 : self.mouse-x >= self.width - root.edge ? 2 : 0;
+                    } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                        bar.started = false;
+                        TasksPageData.gantt-release(root.index);
+                    } else if e.kind == PointerEventKind.cancel {
+                        bar.started = false;
+                        TasksPageData.bar-cancel();
+                    } else if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                        menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+                    }
+                }
+                moved => {
+                    if !self.pressed {
+                        return;
+                    }
+                    let ax = self.absolute-position.x + self.mouse-x;
+                    let ay = self.absolute-position.y + self.mouse-y;
+                    if !bar.started && (abs(ax - bar.px) > 4px || abs(ay - bar.py) > 4px) {
+                        bar.started = true;
+                    }
+                    if bar.started {
+                        TasksPageData.gantt-drag(root.index, bar.mode, round((ax - bar.px) / root.day-width));
+                    }
+                }
+                Tooltip {
+                    Tip {
+                        text: root.item.bar.tip;
+                        max-bubble-width: 320px;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component GanttView {
+    property <length> name-width: 240px;
+    property <length> bar-margin: 22px;
+    property <length> dw: TasksPageData.gantt-day-width;
+    changed width => {
+        TasksPageData.gantt-resized(self.width);
+    }
+    init => {
+        TasksPageData.gantt-resized(self.width);
+    }
+    VerticalLayout {
+        ScheduleToolbar { }
+        // 日期標題：月份（每月第一天或最左邊）、日期與星期
+        Rectangle {
+            height: 38px;
+            Text {
+                x: 4px;
+                y: parent.height - self.height - 5px;
+                text: "任務";
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+                font-weight: 600;
+            }
+            Rectangle {
+                x: root.name-width;
+                width: parent.width - root.name-width - root.bar-margin;
+                clip: true;
+                for d[i] in TasksPageData.gantt-header: Rectangle {
+                    x: i * root.dw;
+                    width: root.dw;
+                    if d.month != "": Text {
+                        x: 2px;
+                        y: 0;
+                        text: d.month;
+                        color: Theme.muted;
+                        font-family: Theme.font-num;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    Rectangle {
+                        y: 14px;
+                        height: 22px;
+                        border-radius: 6px;
+                        background: d.today ? Theme.accent-soft : transparent;
+                        VerticalLayout {
+                            Text {
+                                text: d.day;
+                                color: d.today ? Theme.accent-ink : d.weekend ? Theme.faint : Theme.muted;
+                                font-family: Theme.font-num;
+                                font-size: 10px;
+                                font-weight: d.today ? 700 : 500;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: d.weekday;
+                                color: d.today ? Theme.accent-ink : d.weekend ? Theme.faint : Theme.muted;
+                                font-size: 9.5px;
+                                font-weight: d.today ? 700 : 400;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.line;
+            }
+        }
+        sv := ScrollView {
+            overlay-bar: false;
+            content-height: max(self.visible-height, TasksPageData.gantt-rows.length * 28px + 6px);
+            content-width: self.visible-width;
+            // 週末底色、今天一條線：整欄畫一次（每列各畫一次太重）
+            Rectangle {
+                x: root.name-width;
+                y: 0;
+                width: sv.visible-width - root.name-width;
+                height: sv.content-height;
+                clip: true;
+                for d[i] in TasksPageData.gantt-header: Rectangle {
+                    x: i * root.dw;
+                    width: root.dw;
+                    background: d.weekend ? Theme.fill : transparent;
+                }
+                if TasksPageData.gantt-today >= 0: Rectangle {
+                    x: (TasksPageData.gantt-today + 0.5) * root.dw - 1px;
+                    width: 2px;
+                    background: Theme.accent;
+                    opacity: 0.7;
+                }
+            }
+            for r[i] in TasksPageData.gantt-rows: GanttRowView {
+                y: i * 28px;
+                width: sv.visible-width;
+                item: r;
+                index: i;
+                name-width: root.name-width;
+                day-width: root.dw;
+                days: TasksPageData.gantt-days;
+            }
+        }
+    }
+}

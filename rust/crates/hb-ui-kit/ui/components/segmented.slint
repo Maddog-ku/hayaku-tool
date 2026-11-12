@@ -1,0 +1,100 @@
+// 分頁切換：膠囊底，ink 指示器以彈簧滑到選取項（寬度一起變），按下縮放。
+import { Theme, Motion } from "../theme.slint";
+
+export component Segmented {
+    in property <[string]> items;
+    in-out property <int> current: 0;
+    /// true 時每格等寬（撐滿寬度）；false 時依文字寬度
+    in property <bool> equal: false;
+    in property <length> font-size: 13px;
+    in property <length> item-padding: 18px;
+    callback selected(index: int);
+    property <length> ind-x;
+    property <length> ind-w;
+    property <bool> ready;
+    height: 40px;
+    horizontal-stretch: equal ? 1 : 0;
+    preferred-width: hl.preferred-width;
+    Timer {
+        interval: 250ms;
+        running: !root.ready;
+        triggered => {
+            root.ready = true;
+        }
+    }
+    Rectangle {
+        x: 0;
+        width: root.equal ? root.width : min(root.width, hl.preferred-width);
+        background: Theme.fill;
+        border-radius: self.height / 2;
+    }
+    Rectangle {
+        x: root.ind-x;
+        y: 4px;
+        width: root.ind-w;
+        height: root.height - 8px;
+        border-radius: self.height / 2;
+        background: Theme.ink;
+        animate x, width {
+            duration: root.ready ? Motion.spring-dur : 0ms;
+            easing: Motion.spring;
+        }
+    }
+    hl := HorizontalLayout {
+        padding: 4px;
+        alignment: root.equal ? LayoutAlignment.stretch : LayoutAlignment.start;
+        for item[i] in root.items: Rectangle {
+            property <bool> on: i == root.current;
+            horizontal-stretch: root.equal ? 1 : 0;
+            min-width: lbl.preferred-width + 2 * root.item-padding;
+            init => {
+                if self.on {
+                    root.ind-x = self.x;
+                    root.ind-w = self.width;
+                }
+            }
+            changed on => {
+                if self.on {
+                    root.ind-x = self.x;
+                    root.ind-w = self.width;
+                }
+            }
+            changed x => {
+                if self.on {
+                    root.ind-x = self.x;
+                }
+            }
+            changed width => {
+                if self.on {
+                    root.ind-w = self.width;
+                }
+            }
+            accessible-role: tab;
+            accessible-label: item;
+            accessible-item-selected: self.on;
+            Rectangle {
+                transform-scale: ta.pressed ? 0.92 : 1;
+                animate transform-scale {
+                    duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+                    easing: ta.pressed ? Motion.press : Motion.spring;
+                }
+                lbl := Text {
+                    text: item;
+                    color: on ? Theme.on-ink : Theme.muted;
+                    font-size: root.font-size;
+                    font-weight: 600;
+                    animate color { duration: 300ms; }
+                }
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    if root.current != i {
+                        root.current = i;
+                        root.selected(i);
+                    }
+                }
+            }
+        }
+    }
+}

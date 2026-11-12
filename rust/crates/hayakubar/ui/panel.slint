@@ -1,0 +1,1575 @@
+// 點工作列上的工時後往上彈出的面板（對應 C# UI/PanelWindow.xaml）：計時／任務／今天／通知四個分頁。
+// 資料都由 Rust（src/panel/）填；選單（⋯、右鍵、改狀態、稍後）用原生選單，這裡只回報按鈕位置（視窗座標）。
+import { Theme, Motion, Spinner, Checkbox, TextField, TipArea } from "@hb/index.slint";
+import { DayTimeline, DayTimelineModel, ColorKeys, LinkButton, CheckRow } from "@hbc/index.slint";
+import { Hint, SectionHeader, GlyphButton, SmallButton, CountBadge, StatusChip, ClickRow, SummaryCard, MiniChip } from "widgets.slint";
+
+/// 計時中／今天做過的一列（C# TaskRowVm）。
+export struct TaskRow {
+    key: string,
+    title: string,
+    parent-prefix: string,
+    icon: string,
+    icon-color: int,
+    icon-tip: string,
+    status: string,
+    elapsed: string,
+    action-glyph: string,
+    action-tip: string,
+    not-busy: bool,
+}
+
+/// 托盤上的一個釘選任務或會議（C# PinRowVm）。
+export struct PinRow {
+    key: string,
+    index: string,
+    title: string,
+    elapsed: string,
+    tip: string,
+    running: bool,
+    gone: bool,
+    can-act: bool,
+    action-glyph: string,
+    action-tip: string,
+    action-color: int,
+}
+
+/// 任務分頁的一列（C# MyTaskRowVm）。
+export struct MyTaskRow {
+    key: string,
+    title: string,
+    status: string,
+    due-text: string,
+    due-color: int,
+    action-glyph: string,
+    action-tip: string,
+    action-color: int,
+    not-busy: bool,
+}
+
+/// Claude Code 區的一個資料夾（C# RepoRowVm）。
+export struct RepoRow {
+    name: string,
+    path: string,
+    status-text: string,
+    status-color: int,
+    task-text: string,
+    task-tip: string,
+    pick-visible: bool,
+}
+
+export struct MeetingRow {
+    time: string,
+    time-color: int,
+    title: string,
+    detail: string,
+    join-visible: bool,
+    joining: bool,
+}
+
+export struct TodoRow {
+    text: string,
+    detail: string,
+    busy: bool,
+}
+
+export struct ReminderRow {
+    time: string,
+    text: string,
+}
+
+export struct NotifRow {
+    label: string,
+    count-text: string,
+    text: string,
+    text-color: int,
+    meta: string,
+    unread: bool,
+    archiving: bool,
+}
+
+/// 開始任務的候選（C# PickItem）。
+export struct PickRow {
+    key: string,
+    title: string,
+    detail: string,
+}
+
+/// 篩選標籤（任務分頁、通知分類）。
+export struct FilterChip {
+    label: string,
+    shown: bool,
+    tip: string,
+}
+
+/// 分頁按鈕（文字＋徽章）。
+export struct PanelTab {
+    label: string,
+    badge: string,
+    /// 0 錯誤色（逾期）、1 muted（今天）、2 accent（未讀）
+    badge-kind: int,
+}
+
+/// 分頁列（C# TabButton 的 UniformGrid）：ink 指示器以彈簧滑到選取的分頁。
+component TabBar {
+    in property <[PanelTab]> tabs;
+    in-out property <int> current;
+    callback selected(index: int);
+    height: 34px;
+    Rectangle {
+        border-radius: self.height / 2;
+        background: Theme.fill;
+    }
+    Rectangle {
+        property <length> w: (root.width - 6px) / max(1, root.tabs.length);
+        x: 3px + root.current * self.w;
+        y: 3px;
+        width: self.w;
+        height: root.height - 6px;
+        border-radius: self.height / 2;
+        background: Theme.ink;
+        animate x {
+            duration: Motion.spring-dur;
+            easing: Motion.spring;
+        }
+    }
+    HorizontalLayout {
+        padding: 3px;
+        for t[i] in root.tabs: Rectangle {
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                alignment: center;
+                spacing: 5px;
+                Text {
+                    text: t.label;
+                    color: i == root.current ? Theme.on-ink : (tab-ta.has-hover ? Theme.ink : Theme.muted);
+                    font-size: 12.5px;
+                    font-weight: i == root.current ? 700 : 500;
+                    vertical-alignment: center;
+                    animate color { duration: 200ms; }
+                }
+                if t.badge != "": CountBadge {
+                    y: (parent.height - self.height) / 2;
+                    text: t.badge;
+                    background: t.badge-kind == 0 ? Theme.error : t.badge-kind == 1 ? Theme.muted : Theme.accent;
+                }
+            }
+            tab-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    if root.current != i {
+                        root.current = i;
+                        root.selected(i);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 托盤上的一個任務（C# PinTemplate）：▶ 切換、點名稱看詳細、右鍵更多；計時中是反相深色。
+component PinChip {
+    in property <PinRow> pin;
+    callback act();
+    callback open();
+    callback menu(x: length, y: length);
+    height: 28px;
+    preferred-width: lay.preferred-width;
+    min-width: lay.min-width;
+    horizontal-stretch: 0;
+    opacity: root.pin.gone ? 0.45 : 1;
+    property <color> fg: root.pin.running ? Theme.inverse-text : Theme.ink;
+    property <color> fg-muted: root.pin.running ? Theme.inverse-muted : Theme.muted;
+    Rectangle {
+        border-radius: 10px;
+        background: root.pin.running ? Theme.inverse-bg : (ta.has-hover ? Theme.hover : Theme.fill);
+        border-width: root.pin.running ? 0px : 1px;
+        border-color: Theme.line;
+        animate background { duration: 200ms; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.open();
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+    Hint {
+        text: root.pin.tip;
+    }
+    lay := HorizontalLayout {
+        padding-left: 1px;
+        padding-right: 9px;
+        spacing: 0px;
+        GlyphButton {
+            y: (parent.height - self.height) / 2;
+            text: root.pin.action-glyph;
+            color: ColorKeys.color(root.pin.action-color);
+            enabled: root.pin.can-act;
+            tip: root.pin.action-tip;
+            font-size: 10px;
+            clicked => {
+                root.act();
+            }
+        }
+        if root.pin.index != "": Text {
+            text: root.pin.index;
+            color: root.fg-muted;
+            font-size: 9.5px;
+            vertical-alignment: center;
+        }
+        if root.pin.index != "": Rectangle {
+            width: 4px;
+        }
+        Text {
+            text: root.pin.key;
+            color: root.fg;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            width: 5px;
+        }
+        Text {
+            text: root.pin.title;
+            color: root.fg-muted;
+            max-width: 110px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if root.pin.elapsed != "": Rectangle {
+            width: 6px;
+        }
+        if root.pin.elapsed != "": Text {
+            text: root.pin.elapsed;
+            color: root.fg;
+            font-family: Theme.font-num;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// 計時中／今天做過的一列（C# TaskRowTemplate）。
+component TaskLine {
+    in property <TaskRow> data;
+    callback open();
+    callback act();
+    callback more(x: length, y: length);
+    callback status(x: length, y: length);
+    ClickRow {
+        width: 100%;
+        tip: "點一下看詳細；右鍵有更多動作";
+        clicked => {
+            root.open();
+        }
+        right-clicked(x, y) => {
+            root.more(x, y);
+        }
+        Text {
+            width: 16px;
+            text: root.data.icon;
+            color: ColorKeys.color(root.data.icon-color);
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        Text {
+            color: Theme.ink;
+            text: root.data.key;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.data.parent-prefix + root.data.title;
+            color: Theme.muted;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if root.data.status != "": StatusChip {
+            y: (parent.height - self.height) / 2;
+            text: root.data.status;
+            clicked(x, y) => {
+                root.status(x, y);
+            }
+        }
+        Text {
+            color: Theme.ink;
+            text: root.data.elapsed;
+            font-family: Theme.font-num;
+            font-size: 12px;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            min-width: 52px;
+        }
+        GlyphButton {
+            width: 26px;
+            text: root.data.action-glyph;
+            tip: root.data.action-tip;
+            enabled: root.data.not-busy;
+            font-size: 10px;
+            clicked => {
+                root.act();
+            }
+        }
+        more-btn := GlyphButton {
+            width: 26px;
+            text: "⋯";
+            tip: "更多：停止並完成、改狀態、提醒…";
+            font-size: 14px;
+            rest-opacity: 0.45;
+            clicked => {
+                root.more(self.absolute-position.x + self.width, self.absolute-position.y);
+            }
+        }
+    }
+}
+
+/// 任務分頁的一列（C# MyTaskRowTemplate）：點編號複製、點其他地方看詳細。
+component MyTaskLine {
+    in property <MyTaskRow> data;
+    callback open();
+    callback copy-key();
+    callback act();
+    callback more(x: length, y: length);
+    callback status(x: length, y: length);
+    ClickRow {
+        width: 100%;
+        padding-y: 5px;
+        clicked => {
+            root.open();
+        }
+        right-clicked(x, y) => {
+            root.more(x, y);
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 3px;
+            HorizontalLayout {
+                spacing: 6px;
+                Rectangle {
+                    width: key-text.preferred-width;
+                    key-text := Text {
+                        text: root.data.key;
+                        font-weight: 700;
+                        color: key-ta.has-hover ? Theme.accent-ink : Theme.ink;
+                    }
+                    key-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.copy-key();
+                        }
+                    }
+                    Hint {
+                        text: "點一下複製編號";
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.data.title;
+                    color: Theme.muted;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                spacing: 5px;
+                alignment: start;
+                StatusChip {
+                    text: root.data.status;
+                    clicked(x, y) => {
+                        root.status(x, y);
+                    }
+                }
+                if root.data.due-text != "": Text {
+                    text: root.data.due-text;
+                    color: ColorKeys.color(root.data.due-color);
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+        GlyphButton {
+            y: (parent.height - self.height) / 2;
+            width: 28px;
+            text: root.data.action-glyph;
+            tip: root.data.action-tip;
+            color: ColorKeys.color(root.data.action-color);
+            enabled: root.data.not-busy;
+            font-size: 10px;
+            clicked => {
+                root.act();
+            }
+        }
+        GlyphButton {
+            y: (parent.height - self.height) / 2;
+            width: 28px;
+            text: "⋯";
+            tip: "更多：停止並完成、改狀態、提醒…";
+            font-size: 14px;
+            rest-opacity: 0.45;
+            clicked => {
+                root.more(self.absolute-position.x + self.width, self.absolute-position.y);
+            }
+        }
+    }
+}
+
+/// 通知的一列（C# NotificationRowTemplate）：滑過才出現「稍後」「封存」。
+component NotifLine {
+    in property <NotifRow> data;
+    callback open();
+    callback snooze(x: length, y: length);
+    callback archive();
+    cr := ClickRow {
+        width: 100%;
+        padding-y: 6px;
+        tip: "點一下在 Hayaku 開啟並標為已讀";
+        clicked => {
+            root.open();
+        }
+        Rectangle {
+            width: 14px;
+            if root.data.unread: Rectangle {
+                x: 0;
+                y: 5px;
+                width: 7px;
+                height: 7px;
+                border-radius: 3.5px;
+                background: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 1px;
+            HorizontalLayout {
+                spacing: 4px;
+                Text {
+                    color: Theme.ink;
+                    text: root.data.label;
+                    font-weight: 700;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.data.count-text;
+                    color: Theme.muted;
+                }
+            }
+            Text {
+                text: root.data.text;
+                color: ColorKeys.color(root.data.text-color);
+                wrap: word-wrap;
+            }
+            Text {
+                text: root.data.meta;
+                color: Theme.muted;
+                font-size: 11px;
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            opacity: cr.hovered ? 1 : 0;
+            VerticalLayout {
+                alignment: start;
+                HorizontalLayout {
+                    GlyphButton {
+                        text: "稍後";
+                        tip: "先收起來，晚點再出現";
+                        enabled: cr.hovered;
+                        clicked => {
+                            root.snooze(self.absolute-position.x, self.absolute-position.y + self.height);
+                        }
+                    }
+                    GlyphButton {
+                        text: "封存";
+                        tip: "從收件匣移除";
+                        enabled: cr.hovered && !root.data.archiving;
+                        clicked => {
+                            root.archive();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component PanelWindow inherits Window {
+    title: "HayakuBar";
+    icon: @image-url("../assets/app.ico");
+    no-frame: true;
+    always-on-top: true;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 12px;
+    width: 432px;
+    min-height: body.preferred-height;
+    max-height: body.preferred-height;
+
+    // ---- 標題與今天工時 ----
+    in property <string> user-text: "Hayaku";
+    in property <string> status-text;
+    in property <string> total-text;
+    in property <string> expected-text;
+    in property <float> progress;
+    in property <string> summary-detail;
+    in property <DayTimelineModel> timeline;
+    in property <string> error-text;
+    in property <bool> initial-syncing;
+    in property <bool> show-login;
+    in property <string> login-text: "登入 Hayaku";
+    in property <bool> login-enabled: true;
+    in property <bool> main-visible;
+    /// 內容區高度（設定的面板高度）；0 是跟著內容（最高 440）
+    in property <length> content-height: 440px;
+
+    // ---- 分頁 ----
+    in property <[PanelTab]> tabs: [{ label: "計時" }, { label: "任務" }, { label: "今天" }, { label: "通知" }];
+    in-out property <int> tab;
+
+    // ---- 計時 ----
+    in property <[PinRow]> pins;
+    in property <[TaskRow]> running;
+    in property <[TaskRow]> paused;
+    in property <[RepoRow]> repos;
+    in-out property <string> start-text;
+    in property <[PickRow]> start-items;
+    in-out property <int> start-index;
+    in property <bool> start-popup-open;
+
+    // ---- 任務 ----
+    in property <[FilterChip]> task-filters;
+    in property <int> task-filter;
+    in property <bool> leaf-only;
+    in property <[MyTaskRow]> my-tasks;
+    in property <string> my-task-empty;
+    in property <string> more-tasks-text: "在工作台看全部 ›";
+
+    // ---- 今天 ----
+    in property <bool> due-none: true;
+    in property <int> due-count;
+    in property <int> overdue-count;
+    in property <string> review-text;
+    in property <string> test-text;
+    in property <string> leave-text;
+    in property <[MeetingRow]> meetings;
+    in property <[TodoRow]> todos;
+    in property <[ReminderRow]> reminders;
+    in-out property <string> capture-text;
+    in-out property <bool> capture-todo;
+    in property <bool> capture-enabled: true;
+
+    // ---- 通知 ----
+    in property <string> unread-text;
+    in property <bool> mark-all-enabled;
+    in property <[FilterChip]> notify-filters;
+    in property <int> notify-filter;
+    in property <bool> discussions-visible;
+    in property <int> discussion-source;
+    in-out property <bool> discussion-unresolved;
+    in-out property <bool> discussion-unread;
+    in property <[NotifRow]> notifications;
+    in property <string> notify-empty;
+    in property <bool> notify-empty-visible;
+
+    // ---- 底部 ----
+    in property <bool> clock-in-visible: true;
+    in property <bool> clock-out-visible;
+    in property <string> clock-in-text: "上班";
+    in property <string> clock-out-text: "下班";
+    in property <bool> clock-in-enabled: true;
+    in property <bool> clock-out-enabled: true;
+    in property <bool> entries-enabled: true;
+    in property <string> sync-text;
+    in property <string> sync-tip;
+    in property <bool> refresh-enabled: true;
+
+    /// 內容的高度（還沒顯示時，Rust 用來先擺好位置）
+    out property <length> pref-h: body.preferred-height;
+    /// 打開時往上滑入、淡入；收起時往下滑、淡出（C# AnimateIn／HidePanel）
+    in property <bool> revealed: true;
+    /// 清掉開始任務輸入框的焦點（C# Keyboard.ClearFocus）
+    public function clear-start-focus() {
+        keys.focus();
+    }
+
+    // 開始任務輸入框的位置（視窗座標）：候選清單擺在它正上方
+    property <length> start-x;
+    property <length> start-y;
+    property <length> start-w;
+    property <length> start-row-h: 40px;
+
+    callback tab-selected(int);
+    callback key-pressed(KeyEvent) -> bool;
+    callback login();
+    // 計時
+    callback pin-act(int);
+    callback pin-open(int);
+    callback pin-menu(int, length, length);
+    callback running-open(int);
+    callback running-act(int);
+    callback running-more(int, length, length);
+    callback running-status(int, length, length);
+    callback paused-open(int);
+    callback paused-act(int);
+    callback paused-more(int, length, length);
+    callback paused-status(int, length, length);
+    callback start-edited(string);
+    callback start-focus(bool);
+    callback start-pick(int);
+    callback start-accept();
+    callback repo-pick(int);
+    // 任務
+    callback task-filter-selected(int);
+    callback leaf-only-toggled(bool);
+    callback my-task-open(int);
+    callback my-task-copy(int);
+    callback my-task-act(int);
+    callback my-task-more(int, length, length);
+    callback my-task-status(int, length, length);
+    callback all-tasks();
+    callback new-task();
+    // 今天
+    callback due-clicked();
+    callback review-clicked();
+    callback test-clicked();
+    callback new-meeting();
+    callback meeting-open(int);
+    callback meeting-join(int);
+    callback todo-done(int);
+    callback new-reminder();
+    callback capture();
+    callback work-log();
+    // 通知
+    callback mark-all();
+    callback open-notifications();
+    callback notify-filter-selected(int);
+    callback discussion-source-selected(int);
+    callback discussion-filter(bool);
+    callback notif-open(int);
+    callback notif-snooze(int, length, length);
+    callback notif-archive(int);
+    // 底部
+    callback clock-in();
+    callback clock-out();
+    callback entries();
+    callback workspace();
+    callback refresh();
+    callback settings();
+
+    forward-focus: keys;
+    keys := FocusScope {
+        // C# PreviewKeyDown：Alt＋數字、Esc 先處理（輸入框之前）
+        capture-key-pressed(e) => {
+            root.key-pressed(e) ? EventResult.accept : EventResult.reject
+        }
+
+        reveal := Rectangle {
+            y: root.revealed ? 0px : 16px;
+            opacity: root.revealed ? 1 : 0;
+            animate y {
+                duration: Theme.reduce-motion ? 0ms : (root.revealed ? 260ms : 150ms);
+                easing: root.revealed ? cubic-bezier(0.215, 0.61, 0.355, 1) : cubic-bezier(0.55, 0.055, 0.675, 0.19);
+            }
+            animate opacity { duration: Theme.reduce-motion ? 0ms : (root.revealed ? 170ms : 150ms); }
+        body := VerticalLayout {
+            // ---- 標題與今天工時 ----
+            VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 16px;
+                spacing: 0px;
+                HorizontalLayout {
+                    Text {
+                        color: Theme.ink;
+                        horizontal-stretch: 1;
+                        text: root.user-text;
+                        font-size: 13.5px;
+                        font-weight: 700;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: root.status-text;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.main-visible: HorizontalLayout {
+                    padding-top: 8px;
+                    spacing: 0px;
+                    Text {
+                        color: Theme.ink;
+                        text: root.total-text;
+                        font-family: Theme.font-num;
+                        font-size: 24px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.expected-text;
+                        color: Theme.muted;
+                        font-family: Theme.font-num;
+                        font-size: 24px;
+                        font-weight: 500;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        width: 12px;
+                    }
+                    Rectangle {
+                        width: 90px;
+                        Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            height: 5px;
+                            border-radius: 2.5px;
+                            background: Theme.line;
+                        }
+                        Rectangle {
+                            x: 0;
+                            y: (parent.height - self.height) / 2;
+                            width: 90px * clamp(root.progress, 0, 1);
+                            height: 5px;
+                            border-radius: 2.5px;
+                            background: Theme.accent;
+                            animate width {
+                                duration: Motion.soft-dur;
+                                easing: Motion.out;
+                            }
+                        }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "  " + root.summary-detail;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                if root.main-visible: VerticalLayout {
+                    padding-top: 10px;
+                    DayTimeline {
+                        model: root.timeline;
+                    }
+                }
+                if root.error-text != "": Text {
+                    text: root.error-text;
+                    color: Theme.error;
+                    wrap: word-wrap;
+                }
+                if root.initial-syncing: HorizontalLayout {
+                    padding-top: 18px;
+                    padding-bottom: 14px;
+                    alignment: center;
+                    spacing: 10px;
+                    Spinner {
+                        y: (parent.height - self.height) / 2;
+                        width: 18px;
+                        height: 18px;
+                        color: Theme.accent;
+                    }
+                    VerticalLayout {
+                        Text {
+                            color: Theme.ink;
+                            text: "同步中，請稍候…";
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: "正在從 Hayaku 讀取今天的計時與班表";
+                            color: Theme.muted;
+                            font-size: 11px;
+                        }
+                    }
+                }
+                if root.show-login: VerticalLayout {
+                    padding-top: 12px;
+                    padding-bottom: 10px;
+                    spacing: 6px;
+                    SmallButton {
+                        height: 34px;
+                        text: root.login-text;
+                        primary: true;
+                        enabled: root.login-enabled;
+                        horizontal-stretch: 1;
+                        clicked => {
+                            root.login();
+                        }
+                    }
+                    Text {
+                        text: "會開啟瀏覽器到 Hayaku 登入並授權，之後這個工具會出現在「我的 › 已連線的應用程式」。";
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // ---- 分頁 ----
+            if root.main-visible: VerticalLayout {
+                padding-top: 12px;
+                spacing: 6px;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    TabBar {
+                        tabs: root.tabs;
+                        current <=> root.tab;
+                        selected(i) => {
+                            root.tab-selected(i);
+                        }
+                    }
+                }
+                sv := Flickable {
+                    height: root.content-height > 0 ? root.content-height : min(440px, inner.preferred-height);
+                    content-height: inner.preferred-height;
+                    inner := VerticalLayout {
+                        x: 0;
+                        y: 0;
+                        width: sv.width;
+                        padding-left: 16px;
+                        padding-right: 14px;
+                        padding-bottom: 4px;
+
+                        // ===== 計時 =====
+                        if root.tab == 0: VerticalLayout {
+                            property <length> sx: start.absolute-position.x;
+                            property <length> sy: start.absolute-position.y;
+                            property <length> sw: start.width;
+                            init => {
+                                root.start-x = self.sx;
+                                root.start-y = self.sy;
+                                root.start-w = self.sw;
+                            }
+                            changed sx => {
+                                root.start-x = self.sx;
+                            }
+                            changed sy => {
+                                root.start-y = self.sy;
+                            }
+                            changed sw => {
+                                root.start-w = self.sw;
+                            }
+                            property <bool> start-focused: start.has-focus;
+                            changed start-focused => {
+                                root.start-focus(self.start-focused);
+                            }
+                            if root.pins.length > 0: VerticalLayout {
+                                SectionHeader {
+                                    text: "托盤";
+                                    hint: "▶ 切換（暫停其他）· Alt+1～9";
+                                }
+                                FlexboxLayout {
+                                    spacing: 6px;
+                                    for p[i] in root.pins: PinChip {
+                                        pin: p;
+                                        act => {
+                                            root.pin-act(i);
+                                        }
+                                        open => {
+                                            root.pin-open(i);
+                                        }
+                                        menu(x, y) => {
+                                            root.pin-menu(i, x, y);
+                                        }
+                                    }
+                                }
+                            }
+                            SectionHeader {
+                                text: "計時中";
+                            }
+                            for r[i] in root.running: TaskLine {
+                                data: r;
+                                open => {
+                                    root.running-open(i);
+                                }
+                                act => {
+                                    root.running-act(i);
+                                }
+                                more(x, y) => {
+                                    root.running-more(i, x, y);
+                                }
+                                status(x, y) => {
+                                    root.running-status(i, x, y);
+                                }
+                            }
+                            if root.running.length == 0: Text {
+                                text: "目前沒有計時";
+                                color: Theme.muted;
+                            }
+                            if root.paused.length > 0: SectionHeader {
+                                text: "今天做過";
+                            }
+                            for r[i] in root.paused: TaskLine {
+                                data: r;
+                                open => {
+                                    root.paused-open(i);
+                                }
+                                act => {
+                                    root.paused-act(i);
+                                }
+                                more(x, y) => {
+                                    root.paused-more(i, x, y);
+                                }
+                                status(x, y) => {
+                                    root.paused-status(i, x, y);
+                                }
+                            }
+                            VerticalLayout {
+                                padding-top: 12px;
+                                start := TextField {
+                                    height: 34px;
+                                    font-size: 12.5px;
+                                    radius: 12px;
+                                    placeholder: "🔍  輸入任務編號或關鍵字開始計時";
+                                    text <=> root.start-text;
+                                    edited(t) => {
+                                        root.start-edited(t);
+                                    }
+                                    accepted => {
+                                        root.start-accept();
+                                    }
+                                    key-intercept(e) => {
+                                        if e.text == Key.DownArrow && root.start-items.length > 0 {
+                                            root.start-index = min(root.start-items.length - 1, root.start-index + 1);
+                                            return EventResult.accept;
+                                        }
+                                        if e.text == Key.UpArrow && root.start-items.length > 0 {
+                                            root.start-index = max(0, root.start-index - 1);
+                                            return EventResult.accept;
+                                        }
+                                        EventResult.reject
+                                    }
+                                }
+                            }
+                            if root.repos.length > 0: VerticalLayout {
+                                SectionHeader {
+                                    text: "Claude Code";
+                                }
+                                for r[i] in root.repos: HorizontalLayout {
+                                    padding-top: 2px;
+                                    padding-bottom: 2px;
+                                    spacing: 8px;
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        min-width: 60px;
+                                        Text {
+                                            color: Theme.ink;
+                                            width: 100%;
+                                            text: r.name;
+                                            font-weight: 700;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                        Hint {
+                                            text: r.path;
+                                        }
+                                    }
+                                    Text {
+                                        text: r.status-text;
+                                        color: ColorKeys.color(r.status-color);
+                                        vertical-alignment: center;
+                                    }
+                                    Rectangle {
+                                        width: task-lbl.preferred-width;
+                                        task-lbl := Text {
+                                            text: r.task-text;
+                                            color: Theme.muted;
+                                            vertical-alignment: center;
+                                        }
+                                        Hint {
+                                            text: r.task-tip;
+                                        }
+                                    }
+                                    if r.pick-visible: GlyphButton {
+                                        text: "選擇";
+                                        tip: "為這個專案目前的 Claude session 指定任務";
+                                        clicked => {
+                                            root.repo-pick(i);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ===== 任務 =====
+                        if root.tab == 1: VerticalLayout {
+                            padding-top: 10px;
+                            spacing: 4px;
+                            FlexboxLayout {
+                                spacing: 5px;
+                                for f[i] in root.task-filters: MiniChip {
+                                    visible: f.shown;
+                                    width: f.shown ? self.preferred-width : 0px;
+                                    text: f.label;
+                                    selected: i == root.task-filter;
+                                    clicked => {
+                                        root.task-filter-selected(i);
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                padding-top: 2px;
+                                padding-bottom: 4px;
+                                Rectangle {
+                                    horizontal-stretch: 0;
+                                    width: leaf.preferred-width;
+                                    leaf := CheckRow {
+                                        text: "只顯示沒有子任務的";
+                                        checked: root.leaf-only;
+                                        tip: "上層任務不列出來，只看真正要做的事（跟工作台同一個設定）";
+                                        toggled(v) => {
+                                            root.leaf-only-toggled(v);
+                                        }
+                                    }
+                                }
+                                Rectangle { }
+                            }
+                            for r[i] in root.my-tasks: MyTaskLine {
+                                data: r;
+                                open => {
+                                    root.my-task-open(i);
+                                }
+                                copy-key => {
+                                    root.my-task-copy(i);
+                                }
+                                act => {
+                                    root.my-task-act(i);
+                                }
+                                more(x, y) => {
+                                    root.my-task-more(i, x, y);
+                                }
+                                status(x, y) => {
+                                    root.my-task-status(i, x, y);
+                                }
+                            }
+                            if root.my-tasks.length == 0: Text {
+                                text: root.my-task-empty;
+                                color: Theme.muted;
+                            }
+                            HorizontalLayout {
+                                padding-top: 10px;
+                                LinkButton {
+                                    text: root.more-tasks-text;
+                                    font-size: 12px;
+                                    clicked => {
+                                        root.all-tasks();
+                                    }
+                                }
+                                Rectangle { }
+                                LinkButton {
+                                    text: "＋ 新增任務";
+                                    font-size: 12px;
+                                    clicked => {
+                                        root.new-task();
+                                    }
+                                }
+                            }
+                        }
+
+                        // ===== 今天 =====
+                        if root.tab == 2: VerticalLayout {
+                            padding-top: 10px;
+                            spacing: 0px;
+                            SummaryCard {
+                                tip: "在工作台看逾期的任務";
+                                clicked => {
+                                    root.due-clicked();
+                                }
+                                if root.due-none: Text {
+                                    horizontal-stretch: 1;
+                                    text: "今天沒有到期或逾期的任務";
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                if !root.due-none: HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        text: "今天到期 " + root.due-count;
+                                        color: root.due-count > 0 ? Theme.warn : Theme.muted;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: "　·　";
+                                        color: Theme.muted;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: "逾期 " + root.overdue-count;
+                                        color: root.overdue-count > 0 ? Theme.error : Theme.muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            if root.review-text != "": VerticalLayout {
+                                padding-top: 6px;
+                                SummaryCard {
+                                    tip: "在工作台審核（依專案分組，可以直接核准或拒絕）";
+                                    clicked => {
+                                        root.review-clicked();
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: root.review-text;
+                                        color: Theme.accent-ink;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            if root.test-text != "": VerticalLayout {
+                                padding-top: 6px;
+                                SummaryCard {
+                                    tip: "在工作台看「測試」：需修復、需測試、測試總覽";
+                                    clicked => {
+                                        root.test-clicked();
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: root.test-text;
+                                        color: Theme.accent-ink;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            if root.leave-text != "": VerticalLayout {
+                                padding-top: 6px;
+                                padding-left: 2px;
+                                Text {
+                                    text: root.leave-text;
+                                    color: Theme.muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            SectionHeader {
+                                text: "會議";
+                                link: "＋ 新增";
+                                link-clicked => {
+                                    root.new-meeting();
+                                }
+                            }
+                            for m[i] in root.meetings: ClickRow {
+                                tip: "點一下在 Hayaku 開啟";
+                                clicked => {
+                                    root.meeting-open(i);
+                                }
+                                Text {
+                                    text: m.time;
+                                    font-family: Theme.font-num;
+                                    color: ColorKeys.color(m.time-color);
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    width: 6px;
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    Text {
+                                        color: Theme.ink;
+                                        text: m.title;
+                                        font-weight: 700;
+                                        overflow: elide;
+                                    }
+                                    Text {
+                                        text: m.detail;
+                                        color: Theme.muted;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+                                if m.join-visible: SmallButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "加入並計時";
+                                    primary: true;
+                                    enabled: !m.joining;
+                                    clicked => {
+                                        root.meeting-join(i);
+                                    }
+                                }
+                            }
+                            if root.meetings.length == 0: Text {
+                                text: "今天沒有會議";
+                                color: Theme.muted;
+                            }
+                            SectionHeader {
+                                text: "待辦";
+                            }
+                            for t[i] in root.todos: HorizontalLayout {
+                                padding-top: 3px;
+                                padding-bottom: 3px;
+                                spacing: 8px;
+                                VerticalLayout {
+                                    alignment: start;
+                                    TipArea {
+                                        text: "勾掉這則待辦";
+                                        Checkbox {
+                                            width: 20px;
+                                            height: 20px;
+                                            enabled: !t.busy;
+                                            checked: t.busy;
+                                            toggled(v) => {
+                                                if v {
+                                                    root.todo-done(i);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        color: Theme.ink;
+                                        text: t.text;
+                                        wrap: word-wrap;
+                                    }
+                                    if t.detail != "": Text {
+                                        text: t.detail;
+                                        color: Theme.muted;
+                                        font-size: 11px;
+                                    }
+                                }
+                            }
+                            if root.todos.length == 0: Text {
+                                text: "沒有待辦";
+                                color: Theme.muted;
+                            }
+                            SectionHeader {
+                                text: "即將提醒";
+                                link: "＋ 新增";
+                                link-clicked => {
+                                    root.new-reminder();
+                                }
+                            }
+                            for r in root.reminders: HorizontalLayout {
+                                padding-top: 3px;
+                                padding-bottom: 3px;
+                                spacing: 10px;
+                                Text {
+                                    text: r.time;
+                                    font-family: Theme.font-num;
+                                    color: Theme.muted;
+                                }
+                                Text {
+                                    color: Theme.ink;
+                                    horizontal-stretch: 1;
+                                    text: r.text;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            if root.reminders.length == 0: Text {
+                                text: "沒有即將到來的提醒";
+                                color: Theme.muted;
+                            }
+                            SectionHeader {
+                                text: "隨手記";
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                TextField {
+                                    height: 32px;
+                                    font-size: 12.5px;
+                                    radius: 12px;
+                                    placeholder: "記一筆，按 Enter 存到筆記本";
+                                    enabled: root.capture-enabled;
+                                    text <=> root.capture-text;
+                                    accepted => {
+                                        root.capture();
+                                    }
+                                }
+                                Rectangle {
+                                    width: todo-box.preferred-width;
+                                    todo-box := CheckRow {
+                                        text: "待辦";
+                                        checked <=> root.capture-todo;
+                                        tip: "存成待辦（會出現在上面的待辦清單）";
+                                    }
+                                }
+                                SmallButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "存";
+                                    clicked => {
+                                        root.capture();
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                padding-top: 12px;
+                                LinkButton {
+                                    text: "昨天的工作日誌 ›";
+                                    font-size: 12px;
+                                    clicked => {
+                                        root.work-log();
+                                    }
+                                }
+                                Rectangle { }
+                            }
+                        }
+
+                        // ===== 通知 =====
+                        if root.tab == 3: VerticalLayout {
+                            padding-top: 8px;
+                            spacing: 4px;
+                            HorizontalLayout {
+                                spacing: 4px;
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.unread-text;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                GlyphButton {
+                                    text: "全部標為已讀";
+                                    enabled: root.mark-all-enabled;
+                                    clicked => {
+                                        root.mark-all();
+                                    }
+                                }
+                                GlyphButton {
+                                    text: "在網頁看全部 ↗";
+                                    clicked => {
+                                        root.open-notifications();
+                                    }
+                                }
+                            }
+                            FlexboxLayout {
+                                spacing: 5px;
+                                for f[i] in root.notify-filters: MiniChip {
+                                    text: f.label;
+                                    tip: f.tip;
+                                    selected: i == root.notify-filter;
+                                    clicked => {
+                                        root.notify-filter-selected(i);
+                                    }
+                                }
+                            }
+                            if root.discussions-visible: HorizontalLayout {
+                                padding-left: 2px;
+                                spacing: 5px;
+                                MiniChip {
+                                    text: "全部";
+                                    selected: root.discussion-source == 0;
+                                    clicked => {
+                                        root.discussion-source-selected(0);
+                                    }
+                                }
+                                MiniChip {
+                                    text: "空間評論";
+                                    tip: "團隊空間與文件的評論";
+                                    selected: root.discussion-source == 1;
+                                    clicked => {
+                                        root.discussion-source-selected(1);
+                                    }
+                                }
+                                MiniChip {
+                                    text: "聊天";
+                                    selected: root.discussion-source == 2;
+                                    clicked => {
+                                        root.discussion-source-selected(2);
+                                    }
+                                }
+                                Rectangle {
+                                    width: 6px;
+                                }
+                                Rectangle {
+                                    width: unresolved.preferred-width;
+                                    unresolved := CheckRow {
+                                        text: "只看未解決";
+                                        tip: "只留還沒解決的評論串（聊天照樣列）";
+                                        checked <=> root.discussion-unresolved;
+                                        toggled => {
+                                            root.discussion-filter(true);
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    width: unread-only.preferred-width;
+                                    unread-only := CheckRow {
+                                        text: "只看未讀";
+                                        checked <=> root.discussion-unread;
+                                        toggled => {
+                                            root.discussion-filter(false);
+                                        }
+                                    }
+                                }
+                                Rectangle { }
+                            }
+                            for n[i] in root.notifications: NotifLine {
+                                data: n;
+                                open => {
+                                    root.notif-open(i);
+                                }
+                                snooze(x, y) => {
+                                    root.notif-snooze(i, x, y);
+                                }
+                                archive => {
+                                    root.notif-archive(i);
+                                }
+                            }
+                            if root.notify-empty-visible: Text {
+                                text: root.notify-empty;
+                                color: Theme.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- 底部 ----
+            VerticalLayout {
+                padding-top: 10px;
+                Rectangle {
+                    height: 1px;
+                    background: Theme.line;
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 12px;
+                    padding-top: 10px;
+                    padding-bottom: 12px;
+                    spacing: 4px;
+                    if root.clock-in-visible: SmallButton {
+                        text: root.clock-in-text;
+                        primary: true;
+                        enabled: root.clock-in-enabled;
+                        tip: "恢復上次的任務並開始計時";
+                        clicked => {
+                            root.clock-in();
+                        }
+                    }
+                    if root.clock-out-visible: SmallButton {
+                        text: root.clock-out-text;
+                        enabled: root.clock-out-enabled;
+                        tip: "停止所有計時（之後可以復原）";
+                        clicked => {
+                            root.clock-out();
+                        }
+                    }
+                    Rectangle {
+                        width: 2px;
+                    }
+                    GlyphButton {
+                        y: 1px;
+                        text: "工時紀錄";
+                        enabled: root.entries-enabled;
+                        tip: "查看、修改、補登計時紀錄";
+                        clicked => {
+                            root.entries();
+                        }
+                    }
+                    GlyphButton {
+                        y: 1px;
+                        text: "工作台";
+                        tip: "任務、工時月曆、提醒、會議、聊天、請假、統計";
+                        clicked => {
+                            root.workspace();
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    Rectangle {
+                        width: sync-lbl.preferred-width;
+                        sync-lbl := Text {
+                            text: root.sync-text;
+                            color: Theme.muted;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        Hint {
+                            text: root.sync-tip;
+                        }
+                    }
+                    GlyphButton {
+                        y: 1px;
+                        text: "⟳";
+                        font-size: 14px;
+                        enabled: root.refresh-enabled;
+                        tip: "立即同步";
+                        clicked => {
+                            root.refresh();
+                        }
+                    }
+                    GlyphButton {
+                        y: 1px;
+                        text: "⚙";
+                        font-size: 14px;
+                        tip: "設定";
+                        clicked => {
+                            root.settings();
+                        }
+                    }
+                }
+            }
+        }
+
+        }
+
+        // 開始任務的候選清單（C# StartPopup：在輸入框正上方）
+        if root.start-popup-open && root.main-visible && root.tab == 0 && root.start-items.length > 0: Rectangle {
+            property <length> list-h: min(260px, root.start-items.length * root.start-row-h);
+            x: root.start-x;
+            y: max(4px, root.start-y - self.height - 4px);
+            width: root.start-w;
+            height: self.list-h + 8px;
+            border-radius: 14px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: Theme.shadow;
+            drop-shadow-blur: 16px;
+            drop-shadow-offset-y: 6px;
+            TouchArea { }
+            Flickable {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                height: parent.list-h;
+                content-height: root.start-items.length * root.start-row-h;
+                for item[i] in root.start-items: Rectangle {
+                    x: 0;
+                    y: i * root.start-row-h;
+                    width: parent.width;
+                    height: root.start-row-h;
+                    border-radius: 10px;
+                    background: i == root.start-index ? Theme.selected : (row-ta.has-hover ? Theme.hover : transparent);
+                    row-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.start-pick(i);
+                        }
+                    }
+                    VerticalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        alignment: center;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                color: Theme.ink;
+                                text: item.key;
+                                font-weight: 700;
+                            }
+                            Text {
+                                color: Theme.ink;
+                                horizontal-stretch: 1;
+                                text: item.title;
+                                overflow: elide;
+                            }
+                        }
+                        Text {
+                            text: item.detail;
+                            color: Theme.muted;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

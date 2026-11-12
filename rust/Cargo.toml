@@ -1,0 +1,94 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/hb-api",
+    "crates/hb-backend",
+    "crates/hb-win",
+    "crates/hb-ui-kit",
+    "crates/hb-ui-common",
+    "crates/hb-ui-work",
+    "crates/hb-claude",
+    "crates/hb-eip",
+    "crates/hb-core",
+    "crates/hb-slack",
+    "crates/hayakubar",
+]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# 各 crate 用 `xxx.workspace = true` 引用，版本只在這裡管
+[workspace.dependencies]
+hb-api = { path = "crates/hb-api" }
+hb-backend = { path = "crates/hb-backend" }
+hb-win = { path = "crates/hb-win" }
+hb-claude = { path = "crates/hb-claude" }
+hb-eip = { path = "crates/hb-eip" }
+hb-core = { path = "crates/hb-core" }
+hb-slack = { path = "crates/hb-slack" }
+hb-ui-kit = { path = "crates/hb-ui-kit" }
+hb-ui-common = { path = "crates/hb-ui-common" }
+hb-ui-work = { path = "crates/hb-ui-work" }
+
+slint = { version = "1.18", features = ["raw-window-handle-06"] }
+slint-build = "1.18"
+raw-window-handle = "0.6"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync", "io-util", "fs", "process"] }
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "charset", "http2", "cookies", "form", "query", "stream"] }
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+log = "0.4"
+thiserror = "2"
+regex = "1"
+url = "2"
+urlencoding = "2"
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.9"
+encoding_rs = "0.8"
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+arboard = "3"
+rfd = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "ico"] }
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"

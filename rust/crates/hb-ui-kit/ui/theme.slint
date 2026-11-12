@@ -1,0 +1,126 @@
+// HayakuBar 主題：色票、圓角、間距、字級、字型與緩動。
+// 淺色參考微互動元件牆設計稿的色票；深色由同一套推導（深底、卡片略亮、主色反轉成接近白、橘色保留）。
+// 語意色對應 C# 版 Themes/Light.xaml、Dark.xaml（Run、Claude、Error、Warn、班表 Filled/Partial/Missing/OffDay、看板狀態、計時卡）。
+
+// 嵌入字型：數字 Space Grotesk、英文 Inter；中文由系統退回 Microsoft JhengHei（見 hb_ui_kit::init_fonts）。
+import "./fonts/Inter-Regular.ttf";
+import "./fonts/Inter-Medium.ttf";
+import "./fonts/Inter-SemiBold.ttf";
+import "./fonts/Inter-Bold.ttf";
+import "./fonts/SpaceGrotesk-Medium.ttf";
+import "./fonts/SpaceGrotesk-Bold.ttf";
+
+export global Theme {
+    // ---- 切換 ----
+    /// 深色主題
+    in-out property <bool> dark: false;
+    /// Windows「顯示動畫」關閉時設為 true：所有彈簧改成不回彈的平滑緩動，循環動畫停止
+    in-out property <bool> reduce-motion: false;
+
+    // ---- 基本色票 ----
+    out property <color> bg: dark ? #0B0C0F : #E8E9ED;
+    out property <color> card: dark ? #17191E : #FFFFFF;
+    /// 主色（文字與主要填色）；深色時反轉成接近白
+    out property <color> ink: dark ? #F2F3F6 : #0E0F13;
+    /// 放在 ink 填色上的文字／圖示
+    out property <color> on-ink: dark ? #0E0F13 : #FFFFFF;
+    out property <color> muted: dark ? #8D909A : #7B7E88;
+    out property <color> line: dark ? #2A2D34 : #E2E3E8;
+    out property <color> fill: dark ? #22252B : #F2F3F6;
+    /// 更淡的線條（未選圓圈、月曆非本月日期）
+    out property <color> faint: dark ? #4B4F58 : #C2C4CB;
+    out property <color> hover: dark ? #2A2D34 : #EBECF0;
+    out property <color> accent: dark ? #FF6A33 : #FF5B22;
+    out property <color> accent-soft: dark ? #3A2116 : #FFE3D6;
+    out property <color> accent-ink: dark ? #FF9466 : #C23D0C;
+    /// 放在 accent 填色上的文字（設計稿用 ink 黑字，深淺色都一樣）
+    out property <color> on-accent: #0E0F13;
+    /// 開關、滑桿拇指
+    out property <color> knob: dark ? #D5D7DD : #FFFFFF;
+    out property <color> shadow: dark ? #00000099 : #0E0F1329;
+    out property <color> scroll-thumb: dark ? #3A3D45 : #C9CBD2;
+
+    // ---- 反相卡片（設計稿 .dark；C# RunCard）----
+    out property <color> inverse-bg: dark ? #050608 : #0E0F13;
+    out property <color> inverse-text: #FFFFFF;
+    out property <color> inverse-muted: #FFFFFF8C;
+    out property <color> inverse-fill: #FFFFFF14;
+    out property <color> inverse-line: #FFFFFF38;
+
+    // ---- 語意色（HayakuBar）----
+    /// 計時中
+    out property <color> run: dark ? #3DD68C : #12965F;
+    out property <color> run-soft: dark ? #143326 : #DDF5EA;
+    /// Claude 活動
+    out property <color> claude: dark ? #E08B67 : #C15F3C;
+    out property <color> claude-soft: dark ? #3A241A : #F8E4DA;
+    out property <color> error: dark ? #FF6B6E : #D93036;
+    out property <color> error-soft: dark ? #3D1C1E : #FDE2E3;
+    out property <color> warn: dark ? #F5B547 : #B7760B;
+    out property <color> warn-soft: dark ? #3A2E14 : #FDF0D2;
+    /// 班表：工時填滿／部分／缺少／休假日
+    out property <color> sched-filled: dark ? #3A3218 : #FFF1C9;
+    out property <color> sched-partial: accent-soft;
+    out property <color> sched-missing: error-soft;
+    out property <color> sched-off: dark ? #1D1F24 : #F2F3F6;
+    /// 看板狀態（底色／文字）：待辦、進行中、完成
+    out property <color> status-todo: fill;
+    out property <color> status-todo-ink: muted;
+    out property <color> status-doing: accent-soft;
+    out property <color> status-doing-ink: accent-ink;
+    out property <color> status-done: run-soft;
+    out property <color> status-done-ink: dark ? #5BE0A0 : #0E7A4F;
+    /// 選取列、資料夾
+    out property <color> selected: accent-soft;
+    out property <color> folder: dark ? #5A3A26 : #F3CDB0;
+
+    // ---- 圓角 ----
+    out property <length> radius-card: 28px;
+    out property <length> radius-field: 16px;
+    out property <length> radius-input: 14px;
+    out property <length> radius-small: 11px;
+    out property <length> radius-pill: 99px;
+
+    // ---- 間距 ----
+    out property <length> gap: 12px;
+    out property <length> pad: 20px;
+    out property <length> space-xs: 4px;
+    out property <length> space-sm: 6px;
+    out property <length> space-md: 10px;
+    out property <length> space-lg: 16px;
+    out property <length> space-xl: 24px;
+
+    // ---- 字級 ----
+    out property <length> fs-xs: 10.5px;
+    out property <length> fs-sm: 12px;
+    out property <length> fs-md: 13.5px;
+    out property <length> fs-base: 14px;
+    out property <length> fs-lg: 16px;
+    out property <length> fs-xl: 22px;
+    out property <length> fs-2xl: 30px;
+    out property <length> fs-3xl: 40px;
+    out property <length> fs-display: 48px;
+
+    // ---- 字型 ----
+    /// 介面文字（英文 Inter，中文由系統退回 Microsoft JhengHei）
+    out property <string> font-ui: "Inter";
+    /// 數字
+    out property <string> font-num: "Space Grotesk";
+    out property <string> font-cjk: "Microsoft JhengHei";
+}
+
+/// 緩動曲線與時間（與 Theme 分開：easing 型別的屬性不能匯出到 Rust，放在 Theme 會讓每個匯出 Theme 的 crate 出警告）。
+/// 依 Theme.reduce-motion 自動切換成不回彈的平滑緩動。
+export global Motion {
+    /// 彈簧：cubic-bezier(.34,1.56,.64,1) 700ms；reduce-motion 時改為 cubic-bezier(.22,1,.36,1) 420ms 不回彈
+    out property <easing> spring: Theme.reduce-motion ? cubic-bezier(0.22, 1, 0.36, 1) : cubic-bezier(0.34, 1.56, 0.64, 1);
+    out property <duration> spring-dur: Theme.reduce-motion ? 420ms : 700ms;
+    /// 柔和彈簧：cubic-bezier(.22,1.2,.36,1) 700ms
+    out property <easing> soft: Theme.reduce-motion ? cubic-bezier(0.22, 1, 0.36, 1) : cubic-bezier(0.22, 1.2, 0.36, 1);
+    out property <duration> soft-dur: Theme.reduce-motion ? 420ms : 700ms;
+    /// 平滑減速：cubic-bezier(.22,1,.36,1)
+    out property <easing> out: cubic-bezier(0.22, 1, 0.36, 1);
+    /// 快速壓下（按壓時用）
+    out property <easing> press: cubic-bezier(0, 0, 0.58, 1);
+    out property <duration> press-dur: 110ms;
+}

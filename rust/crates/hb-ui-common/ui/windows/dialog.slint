@@ -1,0 +1,42 @@
+// 小視窗共用的外框（C# UI/SmallDialog.cs）：固定在最上層、不佔工作列、跟著深淺色；內容放上面，下面一排按鈕，訊息列顯示錯誤。
+// Slint 只有一個 @children，所以外框只負責底色、內距、Esc 關閉；內容與按鈕列由各視窗自己排（見 DialogButtons）。
+import { Theme } from "@hb/index.slint";
+
+/// 小視窗的內容區：卡片底、內距 20/16、Esc 觸發 cancel。
+export component DialogBody inherits FocusScope {
+    in property <length> padding-x: 22px;
+    in property <length> padding-y: 18px;
+    in property <length> spacing: 10px;
+    callback cancel();
+    capture-key-pressed(e) => {
+        if e.text == Key.Escape {
+            root.cancel();
+            return EventResult.accept;
+        }
+        EventResult.reject
+    }
+    lay := VerticalLayout {
+        padding-left: root.padding-x;
+        padding-right: root.padding-x;
+        padding-top: root.padding-y;
+        padding-bottom: root.padding-y;
+        spacing: root.spacing;
+        @children
+    }
+    out property <length> content-height: lay.preferred-height;
+}
+
+/// 按鈕列：靠右排。
+export component DialogButtons inherits HorizontalLayout {
+    alignment: end;
+    spacing: 8px;
+    padding-top: 4px;
+}
+
+/// 標題列：粗體、可換行（C# Body 第一行）。
+export component DialogTitle inherits Text {
+    color: Theme.ink;
+    font-size: Theme.fs-base;
+    font-weight: 700;
+    wrap: word-wrap;
+}

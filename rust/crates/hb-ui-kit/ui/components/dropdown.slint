@@ -1,0 +1,168 @@
+// 下拉選單：觸發鈕開啟時出現外框、箭頭以彈簧轉 180°；選單由上方縮放彈出，滑過的項目有滑動高亮，選取的勾勾彈出。
+import { Theme, Motion } from "../theme.slint";
+import { Icon, Icons } from "icons.slint";
+import { SwapText } from "motion.slint";
+
+export component Dropdown {
+    in property <[string]> items;
+    in-out property <int> current: 0;
+    in property <string> placeholder;
+    in property <bool> enabled: true;
+    in property <length> item-height: 38px;
+    callback selected(index: int);
+    height: 46px;
+    min-width: 120px;
+    opacity: enabled ? 1 : 0.5;
+    accessible-role: combobox;
+    accessible-value: current >= 0 && current < items.length ? items[current] : "";
+    property <bool> open: popup.is-open;
+    Rectangle {
+        transform-scale: ta.pressed ? 0.96 : 1;
+        animate transform-scale {
+            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+            easing: ta.pressed ? Motion.press : Motion.spring;
+        }
+        border-radius: Theme.radius-input;
+        background: root.open ? Theme.card : Theme.fill;
+        border-width: 1.5px;
+        border-color: root.open ? Theme.ink : transparent;
+        animate background, border-color { duration: 300ms; }
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            spacing: 8px;
+            SwapText {
+                horizontal-stretch: 1;
+                text: root.current >= 0 && root.current < root.items.length ? root.items[root.current] : root.placeholder;
+                color: root.current >= 0 && root.current < root.items.length ? Theme.ink : Theme.muted;
+                font-size: Theme.fs-base;
+                font-weight: 600;
+            }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                path: Icons.chevron-down;
+                color: Theme.ink;
+                transform-rotation: root.open ? 180deg : 0deg;
+                animate transform-rotation {
+                    duration: Theme.reduce-motion ? 420ms : 500ms;
+                    easing: Motion.spring;
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            popup.show();
+        }
+    }
+    popup := PopupWindow {
+        // 四周多留 16px 給陰影
+        x: -16px;
+        y: root.height + 6px - 16px;
+        width: root.width + 32px;
+        height: root.items.length * root.item-height + 10px + 32px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        menu := Rectangle {
+            property <float> t: 0;
+            property <float> fade: 0;
+            property <int> hl: root.current;
+            property <bool> closing;
+            init => {
+                t = 1;
+                fade = 1;
+            }
+            animate t {
+                duration: Motion.spring-dur;
+                easing: Motion.spring;
+            }
+            animate fade { duration: 200ms; }
+            x: 16px;
+            y: 16px - 8px * (1 - self.t);
+            width: parent.width - 32px;
+            height: parent.height - 32px;
+            opacity: self.fade;
+            transform-scale: 0.96 + 0.04 * self.t;
+            transform-origin: { x: self.width / 2, y: 0px };
+            border-radius: 16px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 10px;
+            Rectangle {
+                x: 5px;
+                y: 5px + menu.hl * root.item-height;
+                width: parent.width - 10px;
+                height: root.item-height;
+                border-radius: 11px;
+                background: Theme.fill;
+                visible: menu.hl >= 0;
+                animate y {
+                    duration: Theme.reduce-motion ? 420ms : 450ms;
+                    easing: Motion.soft;
+                }
+            }
+            for item[i] in root.items: row := Rectangle {
+                property <bool> sel: i == root.current;
+                property <float> ck: self.sel ? 1 : 0;
+                animate ck {
+                    duration: Theme.reduce-motion ? 420ms : 500ms;
+                    easing: Motion.spring;
+                }
+                x: 5px;
+                y: 5px + i * root.item-height;
+                width: parent.width - 10px;
+                height: root.item-height;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: item;
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 16px;
+                        height: 16px;
+                        path: Icons.check;
+                        color: Theme.accent;
+                        weight: 2.6;
+                        opacity: clamp(row.ck * 2, 0, 1);
+                        transform-scale: 0.4 + 0.6 * row.ck;
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    changed has-hover => {
+                        if self.has-hover {
+                            menu.hl = i;
+                        }
+                    }
+                    clicked => {
+                        if root.current != i {
+                            root.current = i;
+                            root.selected(i);
+                        }
+                        menu.closing = true;
+                    }
+                }
+            }
+            // 選取後讓勾勾彈出再收起選單
+            Timer {
+                interval: 380ms;
+                running: menu.closing;
+                triggered => {
+                    menu.closing = false;
+                    popup.close();
+                }
+            }
+        }
+    }
+}

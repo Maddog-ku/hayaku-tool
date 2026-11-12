@@ -1,0 +1,51 @@
+// 開關：拇指以彈簧滑動，移動途中被拉寬、壓扁（果凍感，峰值 1.28×0.86）。
+import { Theme, Motion } from "../theme.slint";
+
+export component Toggle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback toggled(checked: bool);
+    width: 46px;
+    height: 28px;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: switch;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: label;
+    accessible-action-default => { ta.clicked(); }
+    property <float> pos: checked ? 1 : 0;
+    animate pos {
+        duration: Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    // 移動途中的拉伸量：中段最大，兩端為 0
+    property <float> stretch: Theme.reduce-motion ? 0 : clamp(4 * root.pos * (1 - root.pos), 0, 1);
+    Rectangle {
+        border-radius: self.height / 2;
+        background: root.checked ? Theme.ink : Theme.line;
+        animate background { duration: 350ms; }
+    }
+    Rectangle {
+        property <length> w: 22px * (1 + 0.28 * root.stretch);
+        property <length> h: 22px * (1 - 0.14 * root.stretch);
+        width: self.w;
+        height: self.h;
+        x: 3px + 18px * root.pos - (self.w - 22px) / 2;
+        y: (root.height - self.h) / 2;
+        border-radius: self.h / 2;
+        background: root.checked ? Theme.on-ink : Theme.knob;
+        drop-shadow-color: #0E0F132E;
+        drop-shadow-blur: 4px;
+        drop-shadow-offset-y: 2px;
+        animate background { duration: 350ms; }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}

@@ -1,0 +1,905 @@
+// 我的任務：任務詳細的彈窗內容（C# TasksPage.xaml 的 DetailPanel；測試流程 Testing.cs、補一段 Note.cs、展開區塊 Extras.cs）。
+import { Theme, ScrollView, Tip } from "@hb/index.slint";
+import { DateRangePicker, FieldLabel, GroupLabel, LinkButton, PlainText, StatusLine, TextArea, InlineEdit } from "@hbc/index.slint";
+import { SmallButton, MiniSelect, HintBox, CheckText, Expander } from "../../shared/index.slint";
+import { TasksPageData, TkLine, TkDep } from "data.slint";
+
+/// 任務編號連結（點了在這裡打開那個任務）。
+component KeyLink {
+    in property <string> key;
+    in property <color> color: Theme.accent-ink;
+    horizontal-stretch: 0;
+    min-width: lbl.preferred-width;
+    lbl := Text {
+        text: root.key;
+        color: root.color;
+        font-size: Theme.fs-md;
+        font-weight: 700;
+        vertical-alignment: center;
+        opacity: ta.has-hover ? 0.7 : 1;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            TasksPageData.d-open(root.key);
+        }
+    }
+}
+
+/// 展開區塊裡的一行（TkLine）。kind：0 小標題、1 一般、2 淡色說明、3 錯誤、4 任務連結列、5 粗體標題列。
+component LineView {
+    in property <TkLine> line;
+    min-height: 22px;
+    HorizontalLayout {
+        padding-left: root.line.depth * 16px;
+        padding-top: root.line.kind == 0 || root.line.kind == 5 ? 6px : 1px;
+        padding-bottom: 1px;
+        spacing: 6px;
+        opacity: root.line.dim ? 0.6 : 1;
+        if root.line.kind == 4: KeyLink {
+            key: root.line.key;
+        }
+        if root.line.kind == 5: Text {
+            text: root.line.key;
+            color: Theme.ink;
+            font-size: Theme.fs-md;
+            font-weight: 700;
+        }
+        Text {
+            text: root.line.text;
+            color: root.line.kind == 0 || root.line.kind == 2 ? Theme.muted : root.line.kind == 3 ? Theme.error : Theme.ink;
+            font-size: root.line.kind == 0 || root.line.kind == 2 ? Theme.fs-sm : Theme.fs-md;
+            wrap: root.line.kind == 2 || root.line.kind == 3 ? word-wrap : no-wrap;
+            overflow: elide;
+            horizontal-stretch: root.line.meta == "" ? 1 : 0;
+        }
+        if root.line.meta != "": Text {
+            text: root.line.meta;
+            color: Theme.muted;
+            font-size: Theme.fs-sm;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+    }
+    if root.line.kind == 4: TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            TasksPageData.d-open(root.line.key);
+        }
+    }
+}
+
+/// 一個欄位（標題＋內容）。
+component Field {
+    in property <string> label;
+    VerticalLayout {
+        spacing: 4px;
+        FieldLabel {
+            text: root.label;
+        }
+        @children
+    }
+}
+
+export component DetailView {
+    callback focus-dialog();
+    property <length> pad-left: 26px;
+    property <length> pad-right: 52px;
+    changed visible => {
+        sv.content-y = 0;
+    }
+    if !TasksPageData.detail-ready: Text {
+        x: 24px;
+        width: parent.width - 48px;
+        text: TasksPageData.detail-empty;
+        color: Theme.muted;
+        font-size: Theme.fs-md;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    sv := ScrollView {
+        visible: TasksPageData.detail-ready;
+        content-height: body.preferred-height + 24px;
+        content-width: self.visible-width;
+        TouchArea {
+            clicked => {
+                root.focus-dialog();
+            }
+        }
+        body := VerticalLayout {
+            x: root.pad-left;
+            y: 18px;
+            width: sv.visible-width - root.pad-left - root.pad-right;
+            spacing: 0px;
+
+            Text {
+                text: TasksPageData.d-path;
+                color: Theme.muted;
+                font-size: 11px;
+                overflow: elide;
+            }
+            Text {
+                text: TasksPageData.d-key-text;
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+                font-family: Theme.font-num;
+            }
+            Rectangle {
+                height: 4px;
+            }
+            Rectangle {
+                min-height: title.min-height;
+                title := InlineEdit {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> TasksPageData.d-title;
+                    font-size: 20px;
+                    font-weight: 700;
+                    accepted => {
+                        root.focus-dialog();
+                    }
+                    focus-lost(t) => {
+                        TasksPageData.d-title-commit(t);
+                    }
+                }
+                Rectangle {
+                    Tooltip {
+                        Tip {
+                            text: "點一下修改名稱，Enter 儲存";
+                        }
+                    }
+                }
+            }
+            if TasksPageData.d-approval != "": Text {
+                text: TasksPageData.d-approval;
+                color: Theme.warn;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+
+            // 測試結果：分類、嚴重度、輪數、回報的人與處理按鈕
+            if TasksPageData.d-test-kind == 2: VerticalLayout {
+                padding-top: 10px;
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 0px;
+                    Text {
+                        text: TasksPageData.d-test-line;
+                        color: TasksPageData.d-test-tone == 1 ? Theme.error : TasksPageData.d-test-tone == 2 ? Theme.muted : Theme.ink;
+                        font-weight: TasksPageData.d-test-bold ? 600 : 400;
+                        font-size: Theme.fs-md;
+                        wrap: word-wrap;
+                        horizontal-stretch: TasksPageData.d-test-parent == "" ? 1 : 0;
+                    }
+                    if TasksPageData.d-test-parent != "": Text {
+                        text: "　測試任務 ";
+                        color: Theme.muted;
+                        font-size: Theme.fs-md;
+                    }
+                    if TasksPageData.d-test-parent != "": KeyLink {
+                        key: TasksPageData.d-test-parent;
+                    }
+                    Rectangle {
+                        horizontal-stretch: TasksPageData.d-test-parent == "" ? 0 : 1;
+                    }
+                }
+                if TasksPageData.d-test-actions.length > 0: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    for a in TasksPageData.d-test-actions: SmallButton {
+                        text: a.text;
+                        tip: a.tip;
+                        kind: a.primary ? 0 : 1;
+                        clicked => {
+                            TasksPageData.d-test-action(a.id);
+                        }
+                    }
+                }
+                if TasksPageData.d-test-note != "": Text {
+                    text: TasksPageData.d-test-note;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+            }
+            // 測試任務：底下測試結果的進度與各狀態數量
+            if TasksPageData.d-test-kind == 1: VerticalLayout {
+                padding-top: 10px;
+                spacing: 5px;
+                Text {
+                    text: TasksPageData.d-test-summary;
+                    color: Theme.ink;
+                    font-size: Theme.fs-md;
+                }
+                if TasksPageData.d-test-has-progress: Rectangle {
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.fill;
+                    clip: true;
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * clamp(TasksPageData.d-test-progress, 0, 1);
+                        border-radius: 3px;
+                        background: Theme.run;
+                    }
+                }
+                if TasksPageData.d-test-counts != "": Text {
+                    text: TasksPageData.d-test-counts;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    SmallButton {
+                        text: "＋ 加入測試結果";
+                        kind: 0;
+                        tip: "R：記一個問題（分類、嚴重度、要誰修、關聯任務）";
+                        clicked => {
+                            TasksPageData.d-add-test-result();
+                        }
+                    }
+                }
+            }
+
+            // 動作
+            VerticalLayout {
+                padding-top: 12px;
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    SmallButton {
+                        text: TasksPageData.d-timer-text;
+                        kind: TasksPageData.d-timer-primary ? 0 : 1;
+                        enabled: TasksPageData.d-timer-enabled;
+                        tip: TasksPageData.d-timer-tip;
+                        clicked => {
+                            TasksPageData.d-timer();
+                        }
+                    }
+                    SmallButton {
+                        text: "✓ 停止並完成";
+                        enabled: TasksPageData.d-complete-enabled;
+                        tip: "停止計時並把狀態改成完成";
+                        clicked => {
+                            TasksPageData.d-complete();
+                        }
+                    }
+                    SmallButton {
+                        text: "⏰ 新增提醒";
+                        clicked => {
+                            TasksPageData.d-remind();
+                        }
+                    }
+                    SmallButton {
+                        text: "＋ 子任務";
+                        clicked => {
+                            TasksPageData.d-new-child();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    SmallButton {
+                        text: TasksPageData.d-pin-text;
+                        tip: TasksPageData.d-pin-tip;
+                        enabled: TasksPageData.d-pin-enabled;
+                        clicked => {
+                            TasksPageData.d-pin();
+                        }
+                    }
+                    SmallButton {
+                        text: "⇅ 移動…";
+                        tip: "在同一個專案裡搬到別的任務底下或最上層";
+                        clicked => {
+                            TasksPageData.d-move();
+                        }
+                    }
+                    SmallButton {
+                        text: "🗑 刪除…";
+                        tip: "刪除這個任務（含子任務），可以從網頁的垃圾桶還原";
+                        clicked => {
+                            TasksPageData.d-delete();
+                        }
+                    }
+                    SmallButton {
+                        text: "在網頁開啟 ↗";
+                        clicked => {
+                            TasksPageData.d-open-web();
+                        }
+                    }
+                }
+                StatusLine {
+                    text: TasksPageData.d-msg;
+                    tone: TasksPageData.d-msg-tone;
+                }
+            }
+
+            // 欄位
+            GridLayout {
+                padding-top: 12px;
+                spacing-horizontal: 14px;
+                spacing-vertical: 12px;
+                Field {
+                    row: 0;
+                    col: 0;
+                    label: "狀態";
+                    MiniSelect {
+                        items: TasksPageData.d-status-items;
+                        current <=> TasksPageData.d-status-index;
+                        selected(i) => {
+                            TasksPageData.d-status-selected(i);
+                        }
+                    }
+                }
+                Field {
+                    row: 0;
+                    col: 1;
+                    label: "優先級";
+                    MiniSelect {
+                        items: ["緊急", "高", "中", "低", "無"];
+                        current <=> TasksPageData.d-priority-index;
+                        selected(i) => {
+                            TasksPageData.d-priority-selected(i);
+                        }
+                    }
+                }
+                Field {
+                    row: 1;
+                    col: 0;
+                    colspan: 2;
+                    label: "預計開始 ～ 結束";
+                    DateRangePicker {
+                        start <=> TasksPageData.d-plan-start;
+                        end <=> TasksPageData.d-plan-end;
+                        today: TasksPageData.today;
+                        applied => {
+                            TasksPageData.d-dates-applied();
+                        }
+                    }
+                }
+                Field {
+                    row: 2;
+                    col: 0;
+                    label: "預估工時（小時）";
+                    HintBox {
+                        text <=> TasksPageData.d-estimate;
+                        placeholder: "例 4、1.5";
+                        accepted => {
+                            root.focus-dialog();
+                        }
+                        focus-lost(t) => {
+                            TasksPageData.d-estimate-commit(t);
+                        }
+                    }
+                }
+                Field {
+                    row: 2;
+                    col: 1;
+                    label: "已記錄／預估工時";
+                    Rectangle {
+                        height: 30px;
+                        Text {
+                            x: 0;
+                            text: TasksPageData.d-logged;
+                            color: TasksPageData.d-logged-over ? Theme.error : Theme.ink;
+                            font-size: Theme.fs-base;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        if TasksPageData.d-logged-tip != "": Rectangle {
+                            Tooltip {
+                                Tip {
+                                    text: TasksPageData.d-logged-tip;
+                                }
+                            }
+                        }
+                    }
+                }
+                Field {
+                    row: 3;
+                    col: 0;
+                    label: "實際日期";
+                    Text {
+                        text: TasksPageData.d-actual;
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                    }
+                }
+                Field {
+                    row: 3;
+                    col: 1;
+                    label: "執行者";
+                    Text {
+                        text: TasksPageData.d-assignees;
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                        wrap: word-wrap;
+                    }
+                }
+                Rectangle {
+                    row: 4;
+                    col: 0;
+                    VerticalLayout {
+                        alignment: end;
+                        CheckText {
+                            text: "當作分類（只用來分組）";
+                            checked <=> TasksPageData.d-category;
+                            tip: "不算未指派、不算逾期、不進任何人的我的任務、不能計時；日期與工時自動加總子任務。只有管理員、編輯者能設";
+                            toggled(c) => {
+                                TasksPageData.d-category-toggled(c);
+                            }
+                        }
+                    }
+                }
+                Field {
+                    row: 4;
+                    col: 1;
+                    label: "類型";
+                    MiniSelect {
+                        items: TasksPageData.d-type-items;
+                        current <=> TasksPageData.d-type-index;
+                        tip: "一般、測試、測試結果；測試結果只能放在測試任務底下";
+                        selected(i) => {
+                            TasksPageData.d-type-selected(i);
+                        }
+                    }
+                }
+            }
+
+            // 子任務（測試任務的是測試結果）
+            if TasksPageData.d-children-visible: VerticalLayout {
+                padding-top: 14px;
+                spacing: 4px;
+                GroupLabel {
+                    text: TasksPageData.d-children-header;
+                }
+                if TasksPageData.d-result-filter-visible: HorizontalLayout {
+                    spacing: 8px;
+                    HintBox {
+                        text <=> TasksPageData.d-result-filter;
+                        placeholder: "🔍 用名稱或編號找測試結果";
+                        edited(t) => {
+                            TasksPageData.d-result-filter-edited(t);
+                        }
+                    }
+                    MiniSelect {
+                        width: 110px;
+                        items: TasksPageData.d-bucket-labels;
+                        current <=> TasksPageData.d-bucket-index;
+                        tip: "依狀態篩選";
+                        selected(i) => {
+                            TasksPageData.d-bucket-selected(i);
+                        }
+                    }
+                }
+                for c in TasksPageData.d-children: Rectangle {
+                    height: 28px;
+                    border-radius: 8px;
+                    background: child-ta.has-hover ? Theme.fill : transparent;
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        spacing: 6px;
+                        Text {
+                            text: c.key;
+                            color: Theme.accent-ink;
+                            font-size: Theme.fs-md;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: c.title;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: c.status;
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    child-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            TasksPageData.d-open(c.key);
+                        }
+                    }
+                }
+                Expander {
+                    title: TasksPageData.d-ch-header;
+                    expanded <=> TasksPageData.d-ch-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-ch-toggled(e);
+                    }
+                    for l in TasksPageData.d-ch-lines: LineView {
+                        line: l;
+                    }
+                }
+                Expander {
+                    title: TasksPageData.d-tree-header;
+                    expanded <=> TasksPageData.d-tree-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-tree-toggled(e);
+                    }
+                    for l in TasksPageData.d-tree-lines: LineView {
+                        line: l;
+                    }
+                }
+            }
+
+            // 備註
+            VerticalLayout {
+                padding-top: 14px;
+                spacing: 6px;
+                HorizontalLayout {
+                    GroupLabel {
+                        text: "備註";
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    SmallButton {
+                        text: "＋ 補一段";
+                        tip: "在任務內容最後補一段（Markdown），原本的圖片、附件、表格都不動";
+                        clicked => {
+                            TasksPageData.d-note-append-toggle();
+                            if TasksPageData.d-note-append-open {
+                                append-box.focus();
+                            }
+                        }
+                    }
+                }
+                if TasksPageData.d-note-visible: Rectangle {
+                    border-radius: 14px;
+                    background: Theme.fill;
+                    height: min(220px, note-text.preferred-height + 18px);
+                    note-sv := ScrollView {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 16px;
+                        height: parent.height - 16px;
+                        content-height: note-text.preferred-height;
+                        content-width: self.visible-width;
+                        note-text := PlainText {
+                            width: note-sv.visible-width - 8px;
+                            text: TasksPageData.d-note;
+                        }
+                    }
+                }
+                append-panel := VerticalLayout {
+                    visible: TasksPageData.d-note-append-open;
+                    height: TasksPageData.d-note-append-open ? self.preferred-height : 0px;
+                    spacing: 6px;
+                    append-box := TextArea {
+                        text <=> TasksPageData.d-note-append-text;
+                        placeholder: "要補在任務內容最後的一段（Markdown，不會取代原本的內容）";
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        SmallButton {
+                            text: TasksPageData.d-note-append-busy ? "處理中…" : "補上";
+                            kind: 0;
+                            enabled: !TasksPageData.d-note-append-busy;
+                            clicked => {
+                                TasksPageData.d-note-append-submit();
+                            }
+                        }
+                        SmallButton {
+                            text: "取消";
+                            clicked => {
+                                TasksPageData.d-note-append-toggle();
+                            }
+                        }
+                        SmallButton {
+                            text: "▦ 表格";
+                            tip: "插入表格（Markdown）；從 Excel 複製貼上也會自動變成表格";
+                            clicked => {
+                                TasksPageData.d-note-table(append-box.anchor-offset, append-box.cursor-offset);
+                                append-box.focus();
+                                append-box.set-selection(TasksPageData.d-note-cursor, TasksPageData.d-note-cursor);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 相依、附件、文件、異動紀錄：平常收起，展開才讀（省請求）
+            VerticalLayout {
+                padding-top: 12px;
+                spacing: 4px;
+                Expander {
+                    title: "相依與關聯任務";
+                    expanded <=> TasksPageData.d-deps-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-deps-toggled(e);
+                    }
+                    for d[i] in TasksPageData.d-deps: HorizontalLayout {
+                        spacing: 6px;
+                        padding-top: d.kind == 0 ? 6px : 1px;
+                        min-height: 26px;
+                        if d.kind == 0 || d.kind == 3 || d.kind == 4: Text {
+                            text: d.title;
+                            color: d.kind == 4 ? Theme.error : Theme.muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                        if d.kind == 1 || d.kind == 2: KeyLink {
+                            key: d.key;
+                        }
+                        if d.kind == 1 || d.kind == 2: Text {
+                            text: d.title;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if d.kind == 1 || d.kind == 2: Text {
+                            text: d.meta;
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if d.blocking: Text {
+                            text: "  · 還擋著";
+                            color: Theme.error;
+                            font-size: Theme.fs-sm;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        if d.kind == 1 || d.kind == 2: Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        if d.kind == 1 || d.kind == 2: SmallButton {
+                            text: "移除";
+                            enabled: d.removable;
+                            clicked => {
+                                TasksPageData.d-dep-remove(i);
+                            }
+                        }
+                    }
+                    if TasksPageData.d-dep-form-visible: HorizontalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 4px;
+                        spacing: 6px;
+                        HintBox {
+                            width: 110px;
+                            text <=> TasksPageData.d-dep-other;
+                            placeholder: "任務編號";
+                        }
+                        if TasksPageData.d-dep-quick.length > 0: MiniSelect {
+                            width: 150px;
+                            items: TasksPageData.d-dep-quick;
+                            current <=> TasksPageData.d-dep-quick-index;
+                            tip: "快速選同一層的任務";
+                            selected(i) => {
+                                TasksPageData.d-dep-quick-selected(i);
+                            }
+                        }
+                        MiniSelect {
+                            width: 130px;
+                            items: ["這個任務等它", "它等這個任務", "關聯（不擋開始）"];
+                            current <=> TasksPageData.d-dep-dir-index;
+                        }
+                        if TasksPageData.d-dep-dir-index != 2: MiniSelect {
+                            width: 170px;
+                            items: TasksPageData.d-dep-templates;
+                            current <=> TasksPageData.d-dep-template-index;
+                        }
+                        SmallButton {
+                            text: TasksPageData.d-dep-busy ? "處理中…" : "＋ 新增";
+                            enabled: !TasksPageData.d-dep-busy;
+                            clicked => {
+                                TasksPageData.d-dep-add();
+                            }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+                Expander {
+                    title: "附件";
+                    expanded <=> TasksPageData.d-attach-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-attach-toggled(e);
+                    }
+                    for a[i] in TasksPageData.d-attach: HorizontalLayout {
+                        spacing: 0px;
+                        min-height: 24px;
+                        if a.kind == 1: Rectangle {
+                            width: att-text.preferred-width;
+                            att-text := Text {
+                                x: 0;
+                                text: a.text;
+                                color: att-ta.has-hover ? Theme.accent : Theme.accent-ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                            att-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    TasksPageData.d-attach-open(i);
+                                }
+                                Tooltip {
+                                    Tip {
+                                        text: a.key;
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            text: a.kind == 1 ? a.meta : a.text;
+                            color: a.kind == 3 ? Theme.error : Theme.muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    if TasksPageData.d-attach-web: HorizontalLayout {
+                        padding-top: 4px;
+                        alignment: start;
+                        LinkButton {
+                            text: "上傳、下載到網頁 ↗";
+                            clicked => {
+                                TasksPageData.d-attach-web-open();
+                            }
+                        }
+                    }
+                }
+                if TasksPageData.d-docs-visible: Expander {
+                    title: TasksPageData.d-docs-header;
+                    expanded <=> TasksPageData.d-docs-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-docs-toggled(e);
+                    }
+                    for doc in TasksPageData.d-docs: VerticalLayout {
+                        spacing: 4px;
+                        padding-bottom: 8px;
+                        Text {
+                            text: doc.title;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            font-weight: 700;
+                        }
+                        Rectangle {
+                            border-radius: 12px;
+                            background: Theme.fill;
+                            height: min(320px, doc-text.preferred-height + 16px);
+                            doc-sv := ScrollView {
+                                x: 10px;
+                                y: 8px;
+                                width: parent.width - 16px;
+                                height: parent.height - 16px;
+                                content-height: doc-text.preferred-height;
+                                content-width: self.visible-width;
+                                doc-text := PlainText {
+                                    width: doc-sv.visible-width - 8px;
+                                    text: doc.text;
+                                }
+                            }
+                        }
+                    }
+                    for l in TasksPageData.d-docs-lines: LineView {
+                        line: l;
+                    }
+                }
+                Expander {
+                    title: "異動紀錄";
+                    expanded <=> TasksPageData.d-history-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-history-toggled(e);
+                    }
+                    for h in TasksPageData.d-history: HorizontalLayout {
+                        spacing: 0px;
+                        padding-top: 2px;
+                        padding-bottom: 2px;
+                        if h.kind == 1: Text {
+                            text: h.meta;
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            font-family: Theme.font-num;
+                        }
+                        Text {
+                            text: h.text;
+                            color: h.kind == 2 ? Theme.muted : h.kind == 3 ? Theme.error : Theme.ink;
+                            font-size: h.kind == 1 ? Theme.fs-md : Theme.fs-sm;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    if TasksPageData.d-history-more: HorizontalLayout {
+                        padding-top: 4px;
+                        alignment: start;
+                        LinkButton {
+                            text: "載入更多";
+                            clicked => {
+                                TasksPageData.d-history-load-more();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 聊天
+            VerticalLayout {
+                padding-top: 14px;
+                spacing: 8px;
+                GroupLabel {
+                    text: "聊天";
+                }
+                for m in TasksPageData.d-chat: VerticalLayout {
+                    spacing: 2px;
+                    padding-bottom: 4px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: m.author;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: m.time;
+                            color: Theme.muted;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                    }
+                    PlainText {
+                        text: m.body;
+                    }
+                    if m.poll-id != "": HorizontalLayout {
+                        alignment: start;
+                        LinkButton {
+                            text: "看投票結果";
+                            clicked => {
+                                TasksPageData.d-poll(m.poll-id);
+                            }
+                        }
+                    }
+                }
+                if TasksPageData.d-chat-empty != "": Text {
+                    text: TasksPageData.d-chat-empty;
+                    color: Theme.muted;
+                    font-size: Theme.fs-md;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    HintBox {
+                        text <=> TasksPageData.d-chat-text;
+                        placeholder: "傳訊息到這個任務（可用 @帳號），Enter 送出";
+                        accepted => {
+                            TasksPageData.d-chat-send();
+                        }
+                    }
+                    SmallButton {
+                        text: TasksPageData.d-send-busy ? "處理中…" : "送出";
+                        kind: 0;
+                        enabled: !TasksPageData.d-send-busy;
+                        horizontal-padding: 16px;
+                        clicked => {
+                            TasksPageData.d-chat-send();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /// 換任務或打開時捲回最上面
+    property <int> serial: TasksPageData.detail-serial;
+    changed serial => {
+        sv.content-y = 0;
+    }
+}

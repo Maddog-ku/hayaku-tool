@@ -1,0 +1,35 @@
+[package]
+name = "hb-ui-work"
+description = "工作台：外框（WorkspaceWindow）與 18 個頁面（對應 C# UI/Work/）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+slint.workspace = true
+chrono.workspace = true
+log.workspace = true
+serde_json.workspace = true
+hb-api.workspace = true
+hb-backend.workspace = true
+hb-core.workspace = true
+hb-win.workspace = true
+hb-ui-kit.workspace = true
+hb-ui-common.workspace = true
+# 頁面裡的確認對話框等使用者回覆（oneshot；不需要 tokio 執行環境）
+tokio = { workspace = true }
+
+# 統計頁匯出 CSV 的存檔對話框（C# SaveFileDialog）
+rfd.workspace = true
+raw-window-handle.workspace = true
+# 多行輸入框從 Excel 貼上（剪貼簿格式）、團隊頁同時補讀上層任務
+arboard.workspace = true
+windows.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+hb-eip.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true

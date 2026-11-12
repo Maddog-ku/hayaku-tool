@@ -1,0 +1,130 @@
+// 工作台任務列（清單、樹狀、看板、專案頁）的右鍵選單（C# UI/TaskMenu.cs）。
+// Windows 上 Slint 用原生 Win32 選單顯示（muda）。內容綁在 TaskMenuState global，由 hb_ui_common::wire_task_menu! 接到 Rust。
+//
+// 用法：
+//   menu := TaskMenuArea { key: row.key; }            // 放在列裡（蓋滿整列也可以，見下）
+//   列自己的 TouchArea：pointer-event(e) => { if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+//       menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y }); } }
+// TaskMenuArea 本身也有一個墊在 @children 底下的 TouchArea：列裡沒有其他 TouchArea 的地方直接右鍵就會打開。
+
+export global TaskMenuState {
+    /// 這次選單的任務
+    in-out property <string> key;
+    in-out property <string> start-title: "▶  開始計時";
+    in-out property <string> pin-title: "📌  釘到托盤";
+    in-out property <bool> pin-enabled: true;
+    in-out property <string> status-title: "⇄  改狀態";
+    /// 狀態子選單（目前狀態前面有「● 」）
+    in-out property <[string]> status-items;
+    /// false：子選單只放一個停用的 status-note（讀取中…／讀取失敗：…）
+    in-out property <bool> status-ready;
+    in-out property <string> status-note: "讀取中…";
+    /// Rust 準備好內容後 +1，要求剛按右鍵的 TaskMenuArea 顯示選單
+    in-out property <int> show-serial;
+    /// 按右鍵：Rust 準備選單內容
+    callback opening(key: string);
+    /// 選了項目：start、pin、open、copy-key、copy-link、web、template、delete
+    callback action(key: string, id: string);
+    /// 「改狀態」選了第 index 個
+    callback pick-status(key: string, index: int);
+}
+
+export component TaskMenuArea {
+    in property <string> key;
+    in property <bool> enabled: true;
+    property <Point> pos;
+    property <bool> waiting;
+    property <int> serial: TaskMenuState.show-serial;
+    changed serial => {
+        if root.waiting && TaskMenuState.key == root.key {
+            root.waiting = false;
+            cma.show(root.pos);
+        }
+    }
+    /// 從列自己的 TouchArea 打開（abs：視窗座標）
+    public function open-at(abs: Point) {
+        if !root.enabled {
+            return;
+        }
+        root.pos = { x: abs.x - root.absolute-position.x, y: abs.y - root.absolute-position.y };
+        root.waiting = true;
+        TaskMenuState.opening(root.key);
+    }
+    TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+            }
+        }
+    }
+    @children
+    cma := ContextMenuArea {
+        enabled: false;
+        Menu {
+            MenuItem {
+                title: TaskMenuState.start-title;
+                activated => {
+                    TaskMenuState.action(root.key, "start");
+                }
+            }
+            MenuItem {
+                title: TaskMenuState.pin-title;
+                enabled: TaskMenuState.pin-enabled;
+                activated => {
+                    TaskMenuState.action(root.key, "pin");
+                }
+            }
+            Menu {
+                title: TaskMenuState.status-title;
+                if !TaskMenuState.status-ready: MenuItem {
+                    title: TaskMenuState.status-note;
+                    enabled: false;
+                }
+                for s[i] in TaskMenuState.status-items: MenuItem {
+                    title: s;
+                    activated => {
+                        TaskMenuState.pick-status(root.key, i);
+                    }
+                }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "☰  查看詳細";
+                activated => {
+                    TaskMenuState.action(root.key, "open");
+                }
+            }
+            MenuItem {
+                title: "⧉  複製編號";
+                activated => {
+                    TaskMenuState.action(root.key, "copy-key");
+                }
+            }
+            MenuItem {
+                title: "🔗  複製連結";
+                activated => {
+                    TaskMenuState.action(root.key, "copy-link");
+                }
+            }
+            MenuItem {
+                title: "↗  在網頁開啟";
+                activated => {
+                    TaskMenuState.action(root.key, "web");
+                }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "📋  套用子任務範本…";
+                activated => {
+                    TaskMenuState.action(root.key, "template");
+                }
+            }
+            MenuItem {
+                title: "🗑  刪除任務…";
+                activated => {
+                    TaskMenuState.action(root.key, "delete");
+                }
+            }
+        }
+    }
+}

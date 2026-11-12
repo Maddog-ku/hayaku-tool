@@ -1,0 +1,113 @@
+// 輸入框外觀：淺灰底，取得焦點時變卡片底並出現 1.5px 外框（設計稿 .search.focus / .dd-t.open）。
+import { Theme } from "../theme.slint";
+import { Icon } from "icons.slint";
+
+export component TextField {
+    in-out property <string> text;
+    in property <string> placeholder;
+    /// 左側圖示（Icons.xxx）
+    in property <string> icon;
+    /// 右側鍵盤提示（例如 "/"），空字串不顯示；取得焦點時隱藏
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> read-only: false;
+    in property <InputType> input-type: InputType.text;
+    in property <length> font-size: 14.5px;
+    in property <length> radius: Theme.radius-field;
+    out property <bool> has-focus: input.has-focus;
+    callback accepted(text: string);
+    callback edited(text: string);
+    /// 在輸入框處理之前攔截按鍵（例如上下鍵切換結果）；回傳 accept 表示已處理
+    callback key-intercept(event: KeyEvent) -> EventResult;
+    key-intercept(e) => {
+        EventResult.reject
+    }
+    // focus()／clear-focus() 透過 forward-focus 轉給內部輸入框
+    forward-focus: input;
+    public function select-all() {
+        input.select-all();
+    }
+    height: 48px;
+    min-width: 120px;
+    opacity: enabled ? 1 : 0.5;
+    Rectangle {
+        background: input.has-focus ? Theme.card : Theme.fill;
+        border-radius: root.radius;
+        border-width: 1.5px;
+        border-color: input.has-focus ? Theme.ink : transparent;
+        animate background, border-color { duration: 300ms; }
+    }
+    TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => {
+            input.focus();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 10px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            path: root.icon;
+            color: Theme.muted;
+            width: 18px;
+            height: 18px;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Text {
+                x: 0;
+                width: parent.width;
+                text: root.placeholder;
+                visible: input.text == "" && !input.has-focus;
+                color: Theme.muted;
+                font-size: root.font-size;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            FocusScope {
+                capture-key-pressed(e) => {
+                    root.key-intercept(e)
+                }
+                input := TextInput {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> root.text;
+                    enabled: root.enabled;
+                    read-only: root.read-only;
+                    input-type: root.input-type;
+                    single-line: true;
+                    vertical-alignment: center;
+                    color: Theme.ink;
+                    font-size: root.font-size;
+                    font-weight: 500;
+                    selection-background-color: Theme.accent-soft;
+                    selection-foreground-color: Theme.ink;
+                    text-cursor-width: 1.5px;
+                    accepted => {
+                        root.accepted(self.text);
+                    }
+                    edited => {
+                        root.edited(self.text);
+                    }
+                }
+            }
+        }
+        if root.hint != "" && !input.has-focus: Rectangle {
+            y: (parent.height - self.height) / 2;
+            height: 20px;
+            width: kbd.preferred-width + 14px;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.line;
+            background: Theme.card;
+            kbd := Text {
+                text: root.hint;
+                color: Theme.muted;
+                font-size: 11px;
+            }
+        }
+    }
+}

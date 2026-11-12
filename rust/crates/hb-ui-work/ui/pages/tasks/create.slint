@@ -1,0 +1,363 @@
+// 我的任務：新增任務的彈窗內容（C# TasksPage.xaml 的 CreatePanel）：左邊專案樹（點 ＋ 選上層），右邊填資料。
+import { Theme, ScrollView, Tip } from "@hb/index.slint";
+import { DateRangePicker, FieldLabel, LinkButton, StatusLine } from "@hbc/index.slint";
+import { SmallButton, MiniSelect, HintBox, CheckText, GlyphButton } from "../../shared/index.slint";
+import { TasksPageData } from "data.slint";
+
+export component CreateView {
+    property <length> row-h: 30px;
+    property <int> focus-serial: TasksPageData.c-focus-serial;
+    changed focus-serial => {
+        name-box.focus();
+    }
+    property <int> scroll-serial: TasksPageData.c-scroll-serial;
+    changed scroll-serial => {
+        // 把選中的上層捲到看得到的地方
+        if TasksPageData.c-scroll-row >= 0 {
+            let top = TasksPageData.c-scroll-row * root.row-h;
+            if top + tree-sv.content-y < 0 || top + root.row-h + tree-sv.content-y > tree-sv.visible-height {
+                tree-sv.content-y = -max(0px, min(top - tree-sv.visible-height / 2, tree-sv.content-height - tree-sv.visible-height));
+            }
+        }
+    }
+    VerticalLayout {
+        padding-left: 26px;
+        padding-right: 52px;
+        padding-top: 20px;
+        padding-bottom: 20px;
+        spacing: 12px;
+        Text {
+            text: TasksPageData.c-title;
+            color: Theme.ink;
+            font-size: 20px;
+            font-weight: 700;
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: "專案";
+                color: Theme.muted;
+                font-size: Theme.fs-md;
+                vertical-alignment: center;
+            }
+            MiniSelect {
+                width: 260px;
+                items: TasksPageData.c-project-labels;
+                icons: TasksPageData.c-project-icons;
+                current <=> TasksPageData.c-project-index;
+                selected(i) => {
+                    TasksPageData.c-project-selected(i);
+                }
+            }
+            HintBox {
+                text <=> TasksPageData.c-filter;
+                placeholder: "🔍 篩選任務編號或名稱";
+                edited(t) => {
+                    TasksPageData.c-filter-edited(t);
+                }
+            }
+            CheckText {
+                y: (parent.height - self.height) / 2;
+                text: "不顯示完成及不處理";
+                checked <=> TasksPageData.c-hide-done;
+                toggled(c) => {
+                    TasksPageData.c-hide-done-toggled(c);
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            vertical-stretch: 1;
+            min-height: 260px;
+            preferred-height: 430px;
+            // 專案樹
+            Rectangle {
+                border-radius: 18px;
+                background: Theme.fill;
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 4px;
+                    Rectangle {
+                        height: 30px;
+                        border-radius: 10px;
+                        background: TasksPageData.c-root-picked ? Theme.selected : root-ta.has-hover ? Theme.hover : transparent;
+                        animate background { duration: 150ms; }
+                        Text {
+                            x: 10px;
+                            text: "＋ 新增到最上層";
+                            color: Theme.accent-ink;
+                            font-size: Theme.fs-md;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        root-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                TasksPageData.c-pick("");
+                                name-box.focus();
+                            }
+                            Tooltip {
+                                Tip {
+                                    text: "建立在最上層（不屬於任何任務）";
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        tree-sv := ScrollView {
+                            content-height: TasksPageData.c-tree.length * root.row-h + 6px;
+                            content-width: self.visible-width;
+                            for r[i] in TasksPageData.c-tree: Rectangle {
+                                y: i * root.row-h;
+                                height: root.row-h - 2px;
+                                width: tree-sv.visible-width - 10px;
+                                border-radius: 9px;
+                                background: r.picked ? Theme.selected : row-ta.has-hover ? Theme.card : transparent;
+                                animate background { duration: 130ms; }
+                                row-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        TasksPageData.c-pick(r.key);
+                                        name-box.focus();
+                                    }
+                                    Tooltip {
+                                        Tip {
+                                            text: r.tip;
+                                            max-bubble-width: 340px;
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 2px + r.depth * 19px;
+                                    padding-right: 4px;
+                                    spacing: 2px;
+                                    Rectangle {
+                                        width: 22px;
+                                        if r.has-children: GlyphButton {
+                                            glyph: r.expanded ? "▾" : "▸";
+                                            font-size: 14px;
+                                            size: 22px;
+                                            color: Theme.muted;
+                                            clicked => {
+                                                TasksPageData.c-toggle(i);
+                                            }
+                                        }
+                                    }
+                                    GlyphButton {
+                                        y: (parent.height - self.height) / 2;
+                                        glyph: "＋";
+                                        font-size: 13px;
+                                        size: 24px;
+                                        color: Theme.accent-ink;
+                                        tip: "在這個任務底下新增子任務";
+                                        clicked => {
+                                            TasksPageData.c-pick(r.key);
+                                            name-box.focus();
+                                        }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 5px;
+                                        opacity: r.opacity;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: r.key;
+                                            color: Theme.ink;
+                                            font-size: Theme.fs-md;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: r.title;
+                                            color: Theme.ink;
+                                            font-size: Theme.fs-md;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: r.suffix;
+                                            color: Theme.muted;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if TasksPageData.c-tree-message != "": Text {
+                            x: 16px;
+                            width: parent.width - 32px;
+                            text: TasksPageData.c-tree-message;
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            wrap: word-wrap;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+            // 新任務的資料
+            fields-sv := ScrollView {
+                width: 320px;
+                content-height: fields.preferred-height + 8px;
+                content-width: self.visible-width;
+                fields := VerticalLayout {
+                    width: fields-sv.visible-width - 8px;
+                    spacing: 0px;
+                    FieldLabel {
+                        text: "建立在";
+                    }
+                    Rectangle {
+                        height: 4px;
+                    }
+                    Rectangle {
+                        border-radius: 12px;
+                        background: Theme.selected;
+                        min-height: parent-text.preferred-height + 14px;
+                        parent-text := Text {
+                            x: 12px;
+                            width: parent.width - 24px;
+                            text: TasksPageData.c-parent-text;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Rectangle {
+                        height: 12px;
+                    }
+                    FieldLabel {
+                        text: "名稱";
+                    }
+                    Rectangle {
+                        height: 4px;
+                    }
+                    name-box := HintBox {
+                        text <=> TasksPageData.c-new-title;
+                        placeholder: "要做什麼（Enter 建立）";
+                        accepted => {
+                            TasksPageData.c-create();
+                        }
+                    }
+                    Rectangle {
+                        height: 12px;
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout {
+                            spacing: 4px;
+                            FieldLabel {
+                                text: "狀態";
+                            }
+                            MiniSelect {
+                                items: TasksPageData.c-status-items;
+                                current <=> TasksPageData.c-status-index;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 4px;
+                            FieldLabel {
+                                text: "優先級";
+                            }
+                            MiniSelect {
+                                items: ["無", "緊急", "高", "中", "低"];
+                                current <=> TasksPageData.c-priority-index;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 12px;
+                    }
+                    FieldLabel {
+                        text: "預計開始 ～ 結束";
+                    }
+                    Rectangle {
+                        height: 4px;
+                    }
+                    DateRangePicker {
+                        start <=> TasksPageData.c-start;
+                        end <=> TasksPageData.c-end;
+                        today: TasksPageData.today;
+                    }
+                    Rectangle {
+                        height: 12px;
+                    }
+                    FieldLabel {
+                        text: "預估工時（小時，選填）";
+                    }
+                    Rectangle {
+                        height: 4px;
+                    }
+                    HintBox {
+                        text <=> TasksPageData.c-estimate;
+                        placeholder: "例 4、1.5";
+                    }
+                    Rectangle {
+                        height: 10px;
+                    }
+                    CheckText {
+                        text: "指派給我";
+                        checked <=> TasksPageData.c-assign-me;
+                    }
+                    CheckText {
+                        text: "建立後馬上開始計時";
+                        checked <=> TasksPageData.c-start-timer;
+                    }
+                    Rectangle {
+                        height: 12px;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        SmallButton {
+                            text: TasksPageData.c-busy ? "處理中…" : "建立";
+                            kind: 0;
+                            enabled: !TasksPageData.c-busy;
+                            horizontal-padding: 20px;
+                            clicked => {
+                                TasksPageData.c-create();
+                            }
+                        }
+                        SmallButton {
+                            text: "取消";
+                            horizontal-padding: 20px;
+                            clicked => {
+                                TasksPageData.c-cancel();
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 10px;
+                    }
+                    StatusLine {
+                        text: TasksPageData.c-msg;
+                        tone: TasksPageData.c-msg-tone;
+                    }
+                    if TasksPageData.c-open-created != "": HorizontalLayout {
+                        padding-top: 4px;
+                        alignment: start;
+                        LinkButton {
+                            text: TasksPageData.c-open-created;
+                            clicked => {
+                                TasksPageData.c-open-created-clicked();
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 12px;
+                    }
+                    Text {
+                        text: "建立後會留在這裡，可以接著新增下一筆。執行者建立的任務要等管理者核准，但可以馬上計時。";
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

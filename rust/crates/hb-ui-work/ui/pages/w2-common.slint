@@ -1,0 +1,502 @@
+// 工作台「專案、測試、待我審核、我的工時、工時紀錄、工作日誌、提醒、統計、工作負荷」九頁共用的小元件
+// （對應 C# UI/Work/PageParts.cs 的按鈕、淡色字、輸入框，以及 Shared.xaml 的 Card、Stat、FlatButton、PrimaryButton、IconButton 樣式）。
+// 外觀沿用 hb-ui-kit 的 Theme 與微互動（元件牆風格）：頁面本身是白卡片，頁內的卡片用淡灰底。
+import { Theme, Motion, Button, ButtonKind, Tip, Icon, Icons } from "@hb/index.slint";
+import { ProjectIcon } from "@hbc/index.slint";
+
+/// 專案下拉的一項（C# ComboBoxItem { Content = ProjectIcons.Badge, Tag = key }）；key 空字串是「全部專案」。
+export struct W2Project {
+    key: string,
+    name: string,
+    glyph: string,
+    tint: color,
+}
+
+/// 頁面外距（C# Margin 24,18,24,16）
+export global W2 {
+    out property <length> pad-x: 24px;
+    out property <length> pad-top: 18px;
+    out property <length> pad-bottom: 16px;
+    /// 頁內卡片（C# Card）
+    out property <length> card-radius: 20px;
+}
+
+/// 滑過出現提示（沒有文字時不出現）。
+component TipBox {
+    in property <string> tip;
+    HorizontalLayout {
+        @children
+    }
+    if root.tip != "": Rectangle {
+        Tooltip {
+            Tip {
+                text: root.tip;
+            }
+        }
+    }
+}
+
+/// 一般按鈕（C# FlatButton／PrimaryButton）：primary 是 ink 底，其他是淡灰底。tip 是滑過的提示。
+export component W2Button {
+    in property <string> text;
+    in property <string> tip;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <length> font-size: 13px;
+    in property <length> button-height: 34px;
+    in property <length> horizontal-padding: 14px;
+    callback clicked;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    TipBox {
+        tip: root.tip;
+        Button {
+            text: root.text;
+            kind: root.primary ? ButtonKind.primary : ButtonKind.secondary;
+            enabled: root.enabled;
+            height: root.button-height;
+            font-size: root.font-size;
+            horizontal-padding: root.horizontal-padding;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+/// 列上的小按鈕（C# IconButton、TestsPage.Small）。
+export component W2Small inherits W2Button {
+    font-size: 12px;
+    button-height: 28px;
+    horizontal-padding: 11px;
+}
+
+/// 單行輸入框（C# TextBox／HintBox）：淡灰底，取得焦點時卡片底＋外框；可以失去焦點時存（focus-lost）、按 Enter（accepted）。
+export component W2Input {
+    in-out property <string> text;
+    /// 提示字（C# HintBox 的 Tag）
+    in property <string> placeholder;
+    in property <string> tip;
+    in property <bool> mono;
+    in property <bool> enabled: true;
+    in property <TextHorizontalAlignment> align: TextHorizontalAlignment.left;
+    in property <length> font-size: Theme.fs-md;
+    out property <bool> has-focus: input.has-focus;
+    callback accepted(text: string);
+    callback edited(text: string);
+    callback focus-lost(text: string);
+    forward-focus: input;
+    public function select-all() {
+        input.select-all();
+    }
+    /// C# Keyboard.ClearFocus
+    public function unfocus() {
+        input.clear-focus();
+    }
+    height: 34px;
+    min-width: 40px;
+    preferred-width: 120px;
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    opacity: root.enabled ? 1 : 0.5;
+    Rectangle {
+        background: input.has-focus ? Theme.card : Theme.fill;
+        border-radius: 11px;
+        border-width: 1.5px;
+        border-color: input.has-focus ? Theme.ink : transparent;
+        animate background, border-color { duration: 250ms; }
+    }
+    TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => {
+            input.focus();
+        }
+    }
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        text: root.placeholder;
+        visible: input.text == "" && !input.has-focus;
+        color: Theme.muted;
+        font-size: root.font-size;
+        horizontal-alignment: root.align;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    input := TextInput {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text <=> root.text;
+        enabled: root.enabled;
+        single-line: true;
+        vertical-alignment: center;
+        horizontal-alignment: root.align;
+        color: Theme.ink;
+        font-size: root.font-size;
+        font-family: root.mono ? Theme.font-num : "";
+        selection-background-color: Theme.accent-soft;
+        selection-foreground-color: Theme.ink;
+        text-cursor-width: 1.5px;
+        accepted => {
+            root.accepted(self.text);
+        }
+        edited => {
+            root.edited(self.text);
+        }
+        changed has-focus => {
+            if !self.has-focus {
+                root.focus-lost(self.text);
+            }
+        }
+    }
+    if root.tip != "" && !input.has-focus: Rectangle {
+        Tooltip {
+            Tip {
+                text: root.tip;
+            }
+        }
+    }
+}
+
+/// 頁內卡片（C# Card 樣式）：淡灰底、大圓角。
+export component W2Card inherits Rectangle {
+    in property <length> pad-x: 16px;
+    in property <length> pad-y: 12px;
+    in property <length> spacing: 6px;
+    /// true：外框（裡面有按鈕、輸入框時用，淡灰底的控制項才看得到）
+    in property <bool> outline;
+    background: root.outline ? transparent : Theme.fill;
+    border-width: root.outline ? 1px : 0px;
+    border-color: Theme.line;
+    border-radius: W2.card-radius;
+    VerticalLayout {
+        padding-left: root.pad-x;
+        padding-right: root.pad-x;
+        padding-top: root.pad-y;
+        padding-bottom: root.pad-y;
+        spacing: root.spacing;
+        @children
+    }
+}
+
+/// 數字卡（C# Stat：FieldLabel、26px 等寬數字、CardDesc）。
+export component W2Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> desc;
+    in property <color> value-color: Theme.ink;
+    in property <length> value-size: 26px;
+    background: Theme.fill;
+    border-radius: W2.card-radius;
+    horizontal-stretch: 1;
+    // 同一列的卡片等寬
+    preferred-width: 100px;
+    min-width: 0px;
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 2px;
+        Text {
+            text: root.label;
+            color: Theme.muted;
+            font-size: Theme.fs-sm;
+            font-weight: 500;
+            overflow: elide;
+        }
+        Text {
+            text: root.value;
+            color: root.value-color;
+            font-family: Theme.font-num;
+            font-size: root.value-size;
+            font-weight: 600;
+            overflow: elide;
+            animate color { duration: 300ms; }
+        }
+        Text {
+            text: root.desc;
+            color: Theme.muted;
+            font-size: Theme.fs-xs + 0.5px;
+            wrap: word-wrap;
+        }
+    }
+}
+
+/// 訊息框（C# MessageBox.Show(…, OKCancel, Question)）：蓋住整頁，按「確定」或「取消」。
+export component W2Confirm inherits Rectangle {
+    in property <bool> open;
+    in property <string> heading;
+    in property <string> message;
+    callback ok();
+    callback cancel();
+    visible: root.open;
+    background: Theme.dark ? #000000A0 : #0E0F1355;
+    property <float> t: root.open ? 1 : 0;
+    animate t {
+        duration: Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    TouchArea { }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            if e.text == Key.Return {
+                root.ok();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+    }
+    changed open => {
+        if root.open {
+            fs.focus();
+        }
+    }
+    Rectangle {
+        width: min(480px, root.width - 48px);
+        height: vl.preferred-height;
+        y: (root.height - self.height) / 2 + (1 - root.t) * 16px;
+        opacity: clamp(root.t * 1.4, 0, 1);
+        background: Theme.card;
+        border-radius: 24px;
+        drop-shadow-color: Theme.dark ? #00000099 : #0E0F1340;
+        drop-shadow-blur: 28px;
+        drop-shadow-offset-y: 10px;
+        vl := VerticalLayout {
+            padding: 22px;
+            spacing: 12px;
+            Text {
+                text: root.heading;
+                color: Theme.ink;
+                font-size: Theme.fs-lg;
+                font-weight: 700;
+            }
+            Text {
+                text: root.message;
+                color: Theme.ink;
+                font-size: Theme.fs-md;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                padding-top: 6px;
+                Button {
+                    text: "確定";
+                    kind: ButtonKind.primary;
+                    height: 36px;
+                    clicked => {
+                        root.ok();
+                    }
+                }
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    height: 36px;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 專案下拉（C# ComboBox，項目是 ProjectIcons.Badge）：外觀跟 @hbc SelectField 一樣，項目前面有專案圖示。
+export component W2ProjectSelect {
+    in property <[W2Project]> items;
+    in-out property <int> current: 0;
+    in property <bool> enabled: true;
+    in property <length> item-height: 36px;
+    in property <int> max-rows: 9;
+    callback selected(index: int);
+    height: 38px;
+    min-width: 120px;
+    opacity: enabled ? 1 : 0.5;
+    accessible-role: combobox;
+    accessible-value: current >= 0 && current < items.length ? items[current].name : "";
+    property <bool> open: popup.is-open;
+    property <bool> has: root.current >= 0 && root.current < root.items.length;
+    Rectangle {
+        border-radius: 12px;
+        background: root.open ? Theme.card : Theme.fill;
+        border-width: 1.5px;
+        border-color: root.open ? Theme.ink : transparent;
+        animate background, border-color { duration: 300ms; }
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 10px;
+            spacing: 8px;
+            if root.has && root.items[root.current].glyph != "": ProjectIcon {
+                y: (parent.height - self.height) / 2;
+                glyph: root.items[root.current].glyph;
+                tint: root.items[root.current].tint;
+                size: 18px;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.has ? root.items[root.current].name : "";
+                color: Theme.ink;
+                font-size: Theme.fs-md;
+                font-weight: 600;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                path: Icons.chevron-down;
+                color: Theme.ink;
+                width: 15px;
+                height: 15px;
+                transform-rotation: root.open ? 180deg : 0deg;
+                animate transform-rotation {
+                    duration: Theme.reduce-motion ? 420ms : 500ms;
+                    easing: Motion.spring;
+                }
+            }
+        }
+    }
+    TouchArea {
+        enabled: root.enabled && root.items.length > 0;
+        mouse-cursor: pointer;
+        clicked => {
+            popup.show();
+        }
+    }
+    popup := PopupWindow {
+        x: -14px;
+        y: root.height + 6px - 14px;
+        width: max(root.width, 220px) + 28px;
+        height: min(root.max-rows, root.items.length) * root.item-height + 10px + 28px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            x: 14px;
+            y: 14px;
+            width: parent.width - 28px;
+            height: parent.height - 28px;
+            border-radius: 14px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
+            drop-shadow-blur: 22px;
+            drop-shadow-offset-y: 8px;
+            fl := Flickable {
+                x: 5px;
+                y: 5px;
+                width: parent.width - 10px;
+                height: parent.height - 10px;
+                content-height: root.items.length * root.item-height;
+                init => {
+                    self.content-y = -max(0, min(root.current - root.max-rows + 2, root.items.length - root.max-rows)) * root.item-height;
+                }
+                for item[i] in root.items: Rectangle {
+                    y: i * root.item-height;
+                    height: root.item-height;
+                    border-radius: 10px;
+                    background: row-ta.has-hover ? Theme.fill : transparent;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 8px;
+                        if item.glyph != "": ProjectIcon {
+                            y: (parent.height - self.height) / 2;
+                            glyph: item.glyph;
+                            tint: item.tint;
+                            size: 18px;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: item.name;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            font-weight: i == root.current ? 600 : 400;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if i == root.current: Icon {
+                            y: (parent.height - self.height) / 2;
+                            width: 15px;
+                            height: 15px;
+                            path: Icons.check;
+                            color: Theme.accent;
+                            weight: 2.6;
+                        }
+                    }
+                    row-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if root.current != i {
+                                root.current = i;
+                                root.selected(i);
+                            }
+                            popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 頁標題（C# PageTitle）＋讀取中的小圈圈。
+export component W2Title inherits Text {
+    color: Theme.ink;
+    font-size: 24px;
+    font-weight: 700;
+    vertical-alignment: center;
+}
+
+/// 可以點的文字（C# Hyperlink；任務編號是 KeyCopy.Run）：滑過出現底線。tip 是滑過的提示；
+/// 右鍵轉給 right-click（視窗座標），列上的右鍵選單才打得開。
+export component W2Link {
+    in property <string> text;
+    in property <string> tip;
+    in property <color> color: Theme.ink;
+    in property <int> font-weight: 600;
+    in property <length> font-size: Theme.fs-md;
+    callback clicked;
+    callback right-click(abs: Point);
+    horizontal-stretch: 0;
+    preferred-width: lbl.preferred-width;
+    min-width: min(lbl.preferred-width, 24px);
+    min-height: lbl.preferred-height;
+    lbl := Text {
+        text: root.text;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Rectangle {
+        y: (root.height + lbl.preferred-height) / 2 - 1px;
+        height: 1px;
+        width: ta.has-hover ? min(lbl.preferred-width, root.width) : 0px;
+        background: root.color;
+        animate width { duration: 200ms; easing: Motion.out; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.right-click({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+            }
+        }
+    }
+    if root.tip != "": Rectangle {
+        Tooltip {
+            Tip {
+                text: root.tip;
+            }
+        }
+    }
+}

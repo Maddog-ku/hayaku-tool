@@ -1,0 +1,55 @@
+// 卡片：白底大圓角；inverse（設計稿 .dark）、accent（設計稿 .acc）變體；lbl 標題列（左中文、右英文小字）。
+import { Theme } from "../theme.slint";
+
+export enum CardVariant { normal, inverse, accent }
+
+export component Card inherits Rectangle {
+    in property <string> title;
+    /// 標題列右側的英文小字（自動轉大寫）
+    in property <string> subtitle;
+    in property <CardVariant> variant: normal;
+    in property <length> content-padding: Theme.pad;
+    in property <length> content-spacing: 10px;
+    /// 卡片上文字該用的顏色（給子元件參考）
+    out property <color> fg: variant == CardVariant.inverse ? Theme.inverse-text : variant == CardVariant.accent ? Theme.on-accent : Theme.ink;
+    out property <color> fg-muted: variant == CardVariant.inverse ? Theme.inverse-muted : variant == CardVariant.accent ? #0E0F138C : Theme.muted;
+    background: variant == CardVariant.inverse ? Theme.inverse-bg : variant == CardVariant.accent ? Theme.accent : Theme.card;
+    border-radius: Theme.radius-card;
+    border-width: Theme.dark && variant == CardVariant.inverse ? 1px : 0px;
+    border-color: Theme.line;
+    clip: true;
+    animate background { duration: 300ms; }
+    VerticalLayout {
+        padding: root.content-padding;
+        // 底部留白扣掉尾端空白前的 spacing，總和仍是 content-padding
+        padding-bottom: max(0px, root.content-padding - root.content-spacing);
+        spacing: root.content-spacing;
+        if root.title != "" || root.subtitle != "": HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.title;
+                color: root.fg;
+                font-size: Theme.fs-sm;
+                font-weight: 600;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: root.subtitle.to-uppercase();
+                color: root.variant == CardVariant.inverse ? #FFFFFF73 : root.fg-muted;
+                font-size: Theme.fs-xs;
+                font-weight: 500;
+                letter-spacing: 1.05px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+        @children
+        // 內容都不能伸展時吸收剩餘高度，讓內容靠上（不會被置中）；
+        // 要推到底部的元素前面放 vertical-stretch: 1 的空白即可，這裡的係數小到可忽略
+        Rectangle {
+            vertical-stretch: 0.0001;
+        }
+    }
+}

@@ -1,0 +1,50 @@
+// 共用的小動畫元件：文字替換、脈動圓點。
+import { Theme, Motion } from "../theme.slint";
+
+/// 文字替換：text 改變時新字從下方 8px 滑入並淡入（柔和彈簧）。
+export component SwapText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    in property <length> font-size: Theme.fs-md;
+    in property <int> font-weight: 400;
+    /// 空字串時用視窗預設字型
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: center;
+    in property <TextOverflow> overflow: elide;
+    in property <TextWrap> wrap: no-wrap;
+    property <string> shown;
+    property <float> t: 1;
+    property <bool> snap;
+    init => {
+        shown = text;
+    }
+    changed text => {
+        shown = text;
+        snap = true;
+        t = 0;
+        snap = false;
+        t = 1;
+    }
+    animate t {
+        duration: snap ? 0ms : Motion.soft-dur;
+        easing: Motion.soft;
+    }
+    min-height: txt.preferred-height;
+    preferred-width: txt.preferred-width;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        y: (1 - root.t) * 8px;
+        opacity: clamp(root.t, 0, 1);
+        text: root.shown;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+        wrap: root.wrap;
+    }
+}

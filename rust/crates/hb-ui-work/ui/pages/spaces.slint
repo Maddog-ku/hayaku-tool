@@ -1,0 +1,511 @@
+// 工作台「團隊空間」頁（對應 C# UI/Work/SpacesPage.cs，含 SpaceMoveWindow）。
+// 契約：匯出 global SpacesPageData（Rust 端用 window.global::<SpacesPageData>() 讀寫）與 component SpacesPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 選空間 → 左邊頁面樹（可全文搜尋）→ 右邊看那頁的 Markdown；新增頁、附加內容、編輯、移動、刪除；資料夾列出檔案。
+import { Theme, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
+import { StatusLine, PageTitle, SelectField, MutedText } from "@hbc/index.slint";
+import { W3Row, PageButton, RowList, MdArea, Reader, ConfirmOverlay, ListRow } from "w3-common.slint";
+
+export global SpacesPageData {
+    in-out property <bool> loading;
+    in-out property <[string]> spaces;
+    in-out property <[string]> space-tips;
+    in-out property <int> space-index: -1;
+    in-out property <string> search;
+    in-out property <string> status;
+    in-out property <int> status-tone;
+    in-out property <string> left-message;
+    in-out property <bool> show-hits;
+    in-out property <[W3Row]> tree;
+    in-out property <int> tree-current: -1;
+    in-out property <[W3Row]> hits;
+    in-out property <int> hit-current: -1;
+    // 右邊
+    in-out property <string> title;
+    in-out property <string> meta;
+    in-out property <string> right-message: "左邊選一頁";
+    in-out property <bool> right-visible: true;
+    in-out property <string> content;
+    in-out property <bool> content-visible;
+    in-out property <bool> files-visible;
+    in-out property <[W3Row]> files;
+    in-out property <int> file-current: -1;
+    in-out property <bool> up-visible;
+    in-out property <bool> actions-visible;
+    in-out property <bool> doc-only-visible: true;
+    in-out property <bool> new-top-visible: true;
+    // 新增頁、附加內容、編輯
+    in-out property <bool> composer-open;
+    in-out property <string> composer-label;
+    in-out property <string> compose-title;
+    in-out property <bool> compose-title-visible: true;
+    in-out property <string> compose-body;
+    in-out property <bool> compose-body-visible: true;
+    in-out property <string> compose-body-hint: "內容（Markdown）";
+    in-out property <bool> composing;
+    /// 加一就把焦點放到 focus-body（true 內容、false 名稱）
+    in-out property <int> focus-token;
+    in-out property <bool> focus-body;
+    // 移動頁面（C# SpaceMoveWindow）
+    in-out property <bool> move-open;
+    in-out property <string> move-label;
+    in-out property <[W3Row]> move-choices;
+    in-out property <int> move-index;
+    // 確認
+    in-out property <bool> confirm-open;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+
+    callback space-selected(int);
+    callback search-accepted();
+    callback search-escape();
+    callback tree-selected(int);
+    callback tree-toggled(int);
+    callback hit-selected(int);
+    callback up();
+    callback file-activated(int);
+    callback download();
+    callback child();
+    callback folder();
+    callback append();
+    callback edit();
+    callback move();
+    callback delete();
+    callback compose-submit();
+    callback compose-cancel();
+    callback new-top();
+    callback reload();
+    callback web();
+    callback move-ok();
+    callback move-cancel();
+    callback confirm-ok();
+    callback confirm-cancel();
+    callback md-table(int) -> string;
+    callback md-insert(string, int, int, string) -> string;
+    callback md-cursor(string, int, int, string) -> int;
+}
+
+component MoveOverlay inherits Rectangle {
+    visible: SpacesPageData.move-open;
+    background: Theme.dark ? #00000080 : #0E0F1333;
+    border-radius: Theme.radius-card;
+    property <bool> open: SpacesPageData.move-open;
+    changed open => {
+        if self.open {
+            keys.focus();
+        }
+    }
+    TouchArea { }
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                SpacesPageData.move-cancel();
+                return accept;
+            }
+            reject
+        }
+        Rectangle {
+            property <float> t: SpacesPageData.move-open ? 1 : 0;
+            animate t {
+                duration: Motion.spring-dur;
+                easing: Motion.spring;
+            }
+            width: min(460px, root.width - 40px);
+            height: lay.preferred-height;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            transform-scale: 0.94 + 0.06 * self.t;
+            opacity: clamp(self.t * 1.5, 0, 1);
+            background: Theme.card;
+            border-radius: Theme.radius-card;
+            drop-shadow-color: Theme.shadow;
+            drop-shadow-blur: 30px;
+            drop-shadow-offset-y: 10px;
+            lay := VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                Text {
+                    text: "移動頁面";
+                    color: Theme.ink;
+                    font-size: Theme.fs-lg;
+                    font-weight: 700;
+                }
+                Text {
+                    text: SpacesPageData.move-label;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                Rectangle {
+                    height: 280px;
+                    background: Theme.fill;
+                    border-radius: 16px;
+                    RowList {
+                        x: 6px;
+                        y: 6px;
+                        width: parent.width - 12px;
+                        height: parent.height - 12px;
+                        rows: SpacesPageData.move-choices;
+                        current: SpacesPageData.move-index;
+                        selected(i) => {
+                            SpacesPageData.move-index = i;
+                        }
+                        activated(i) => {
+                            SpacesPageData.move-index = i;
+                            SpacesPageData.move-ok();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PageButton {
+                        text: "移動";
+                        primary: true;
+                        clicked => {
+                            SpacesPageData.move-ok();
+                        }
+                    }
+                    PageButton {
+                        text: "取消";
+                        clicked => {
+                            SpacesPageData.move-cancel();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SpacesPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 6px;
+            PageTitle {
+                text: "團隊空間";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            if SpacesPageData.new-top-visible: PageButton {
+                text: "＋ 新頁";
+                primary: true;
+                tip: "在這個空間的最上層新增一頁";
+                clicked => {
+                    SpacesPageData.new-top();
+                }
+            }
+            PageButton {
+                text: "⟳ 重新整理";
+                clicked => {
+                    SpacesPageData.reload();
+                }
+            }
+            PageButton {
+                text: "在網頁開啟 ↗";
+                tip: "上傳、刪除檔案、還原刪掉的頁面請到網頁";
+                clicked => {
+                    SpacesPageData.web();
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            TipArea {
+                text: SpacesPageData.space-index >= 0 && SpacesPageData.space-index < SpacesPageData.space-tips.length ? SpacesPageData.space-tips[SpacesPageData.space-index] : "";
+                SelectField {
+                    width: 260px;
+                    height: 40px;
+                    items: SpacesPageData.spaces;
+                    current <=> SpacesPageData.space-index;
+                    selected(i) => {
+                        SpacesPageData.space-selected(i);
+                    }
+                }
+            }
+            TextField {
+                width: 300px;
+                height: 40px;
+                font-size: Theme.fs-md;
+                placeholder: "🔍 搜尋這個空間的頁名、內容與檔名（Enter）";
+                text <=> SpacesPageData.search;
+                accepted => {
+                    SpacesPageData.search-accepted();
+                }
+                key-intercept(e) => {
+                    if e.text == Key.Escape {
+                        SpacesPageData.search-escape();
+                        return accept;
+                    }
+                    reject
+                }
+            }
+        }
+        StatusLine {
+            text: SpacesPageData.status;
+            tone: SpacesPageData.status-tone;
+        }
+        HorizontalLayout {
+            spacing: 18px;
+            vertical-stretch: 1;
+            VerticalLayout {
+                width: 300px;
+                spacing: 6px;
+                if SpacesPageData.left-message != "": Text {
+                    text: SpacesPageData.left-message;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    if !SpacesPageData.show-hits: RowList {
+                        width: parent.width;
+                        height: parent.height;
+                        rows: SpacesPageData.tree;
+                        current: SpacesPageData.tree-current;
+                        selected(i) => {
+                            SpacesPageData.tree-current = i;
+                            SpacesPageData.tree-selected(i);
+                        }
+                        toggled(i) => {
+                            SpacesPageData.tree-toggled(i);
+                        }
+                    }
+                    if SpacesPageData.show-hits: RowList {
+                        width: parent.width;
+                        height: parent.height;
+                        rows: SpacesPageData.hits;
+                        current: SpacesPageData.hit-current;
+                        selected(i) => {
+                            SpacesPageData.hit-current = i;
+                            SpacesPageData.hit-selected(i);
+                        }
+                    }
+                }
+            }
+            ScrollView {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 4px;
+                    padding-right: 10px;
+                    alignment: start;
+                    if SpacesPageData.title != "": Text {
+                        text: SpacesPageData.title;
+                        color: Theme.ink;
+                        font-size: 18px;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                    }
+                    if SpacesPageData.meta != "": Text {
+                        text: SpacesPageData.meta;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    Rectangle {
+                        height: 10px;
+                    }
+                    if SpacesPageData.right-visible && SpacesPageData.right-message != "": Text {
+                        text: SpacesPageData.right-message;
+                        color: Theme.muted;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+                    if SpacesPageData.content-visible: Reader {
+                        text: SpacesPageData.content;
+                    }
+                    if SpacesPageData.files-visible: VerticalLayout {
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            if SpacesPageData.up-visible: PageButton {
+                                text: "↑ 上一層";
+                                clicked => {
+                                    SpacesPageData.up();
+                                }
+                            }
+                            PageButton {
+                                text: "⬇ 下載選取的檔案";
+                                tip: "用瀏覽器下載原檔（連結 1 小時有效）";
+                                clicked => {
+                                    SpacesPageData.download();
+                                }
+                            }
+                        }
+                        Text {
+                            text: "點兩下資料夾進去、點兩下文件打開、點兩下檔案直接看內容（圖片、PDF、Word、Excel、文字檔）。上傳、刪除檔案、打包 zip 下載請到網頁。";
+                            color: Theme.muted;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        // Enter：打開選取的（C# _fileList.KeyDown）
+                        files-keys := FocusScope {
+                            key-pressed(e) => {
+                                if e.text == Key.Return && SpacesPageData.file-current >= 0 {
+                                    SpacesPageData.file-activated(SpacesPageData.file-current);
+                                    return accept;
+                                }
+                                reject
+                            }
+                            VerticalLayout {
+                                spacing: 1px;
+                                for f[i] in SpacesPageData.files: ListRow {
+                                    data: f;
+                                    selected: i == SpacesPageData.file-current;
+                                    clicked => {
+                                        SpacesPageData.file-current = i;
+                                        files-keys.focus();
+                                    }
+                                    double-clicked => {
+                                        SpacesPageData.file-current = i;
+                                        SpacesPageData.file-activated(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if SpacesPageData.actions-visible: HorizontalLayout {
+                        padding-top: 12px;
+                        spacing: 6px;
+                        alignment: start;
+                        PageButton {
+                            text: "＋ 新增子頁";
+                            clicked => {
+                                SpacesPageData.child();
+                            }
+                        }
+                        PageButton {
+                            text: "＋ 資料夾";
+                            tip: "在這裡新增一個資料夾（可以放文件、白板、子資料夾和檔案）";
+                            clicked => {
+                                SpacesPageData.folder();
+                            }
+                        }
+                        if SpacesPageData.doc-only-visible: PageButton {
+                            text: "附加內容";
+                            clicked => {
+                                SpacesPageData.append();
+                            }
+                        }
+                        if SpacesPageData.doc-only-visible: PageButton {
+                            text: "✎ 編輯";
+                            tip: "改頁名、整頁換成新的內容（換掉前網頁會自動存一版）";
+                            clicked => {
+                                SpacesPageData.edit();
+                            }
+                        }
+                        PageButton {
+                            text: "移動…";
+                            clicked => {
+                                SpacesPageData.move();
+                            }
+                        }
+                        PageButton {
+                            text: "刪除…";
+                            clicked => {
+                                SpacesPageData.delete();
+                            }
+                        }
+                    }
+                    if SpacesPageData.composer-open: VerticalLayout {
+                        padding-top: 10px;
+                        spacing: 6px;
+                        property <int> focus-token: SpacesPageData.focus-token;
+                        function focus-input() {
+                            if SpacesPageData.focus-body {
+                                body-input.focus();
+                            } else {
+                                title-input.focus();
+                            }
+                        }
+                        init => {
+                            self.focus-input();
+                        }
+                        changed focus-token => {
+                            self.focus-input();
+                        }
+                        Text {
+                            text: SpacesPageData.composer-label;
+                            color: Theme.ink;
+                            font-weight: 600;
+                            font-size: Theme.fs-md;
+                        }
+                        Text {
+                            text: "團隊空間是公司的正式文件，大家都看得到；送出前請確認內容。";
+                            color: Theme.warn;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        title-input := TextField {
+                            visible: SpacesPageData.compose-title-visible;
+                            height: SpacesPageData.compose-title-visible ? 40px : 0px;
+                            font-size: Theme.fs-md;
+                            placeholder: "名稱";
+                            text <=> SpacesPageData.compose-title;
+                        }
+                        body-input := MdArea {
+                            visible: SpacesPageData.compose-body-visible;
+                            height: SpacesPageData.compose-body-visible ? 160px : 0px;
+                            placeholder: SpacesPageData.compose-body-hint;
+                            text <=> SpacesPageData.compose-body;
+                            md-table(k) => {
+                                return SpacesPageData.md-table(k);
+                            }
+                            md-insert(t, a, b, x) => {
+                                return SpacesPageData.md-insert(t, a, b, x);
+                            }
+                            md-cursor(t, a, b, x) => {
+                                return SpacesPageData.md-cursor(t, a, b, x);
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            PageButton {
+                                text: "送出";
+                                primary: true;
+                                busy: SpacesPageData.composing;
+                                clicked => {
+                                    SpacesPageData.compose-submit();
+                                }
+                            }
+                            PageButton {
+                                text: "取消";
+                                clicked => {
+                                    SpacesPageData.compose-cancel();
+                                }
+                            }
+                            PageButton {
+                                text: "▦ 表格";
+                                tip: "插入表格（Markdown）；從 Excel 複製貼上也會自動變成表格";
+                                clicked => {
+                                    body-input.insert-template();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    MoveOverlay { }
+    ConfirmOverlay {
+        open: SpacesPageData.confirm-open;
+        title: SpacesPageData.confirm-title;
+        message: SpacesPageData.confirm-text;
+        ok => {
+            SpacesPageData.confirm-ok();
+        }
+        cancel => {
+            SpacesPageData.confirm-cancel();
+        }
+    }
+}

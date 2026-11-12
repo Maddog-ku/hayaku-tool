@@ -1,0 +1,227 @@
+// 幾個只有說明＋一個欄位的小視窗：刪除任務（C# DeleteTaskWindow）、測試結果批次推到下一步（AdvanceTestsWindow）、
+// 駁回申請（RejectReviewWindow）。
+import { Theme, Button, ButtonKind, TextField } from "@hb/index.slint";
+import { FieldLabel, MutedText, StatusLine, TextArea } from "../common.slint";
+import { DialogBody, DialogButtons, DialogTitle } from "dialog.slint";
+
+export component DeleteTaskWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> heading;
+    in property <string> detail;
+    in property <string> error;
+    in property <bool> busy;
+    callback delete();
+    callback cancel();
+    title: "刪除任務";
+    width: 440px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: body;
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        key-pressed(e) => {
+            if e.text == Key.Return && !root.busy {
+                root.delete();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        DialogTitle {
+            text: root.heading;
+        }
+        MutedText {
+            text: root.detail;
+            font-size: Theme.fs-md;
+        }
+        StatusLine {
+            text: root.error;
+        }
+        DialogButtons {
+            Button {
+                text: "刪除";
+                kind: ButtonKind.primary;
+                enabled: !root.busy;
+                clicked => {
+                    root.delete();
+                }
+            }
+            Button {
+                text: "取消";
+                kind: ButtonKind.secondary;
+                enabled: !root.busy;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}
+
+export component AdvanceTestsWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> window-title;
+    in property <string> heading;
+    in property <string> keys;
+    in property <string> button-text;
+    in-out property <string> comment;
+    in property <string> error;
+    in property <bool> busy;
+    callback advance(comment: string);
+    callback comment-edited(text: string);
+    callback cancel();
+    title: window-title;
+    width: 440px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: comment-box;
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        DialogTitle {
+            text: root.heading;
+        }
+        if root.keys != "": MutedText {
+            text: root.keys;
+            font-size: Theme.fs-md;
+        }
+        MutedText {
+            text: "推到下一步（回到待復驗的會通知回報的人復驗）。";
+            font-size: Theme.fs-md;
+        }
+        VerticalLayout {
+            spacing: 6px;
+            padding-top: 4px;
+            FieldLabel {
+                text: "更新說明（會變成每筆的留言）";
+            }
+            comment-box := TextField {
+                height: 44px;
+                text <=> root.comment;
+                placeholder: "例 測試機 1.3.0-rc2（可以不填）";
+                font-size: Theme.fs-md;
+                enabled: !root.busy;
+                edited(t) => {
+                    root.comment-edited(t);
+                }
+                accepted => {
+                    root.advance(root.comment);
+                }
+            }
+        }
+        StatusLine {
+            text: root.error;
+        }
+        DialogButtons {
+            Button {
+                text: root.button-text;
+                kind: ButtonKind.primary;
+                enabled: !root.busy;
+                clicked => {
+                    root.advance(root.comment);
+                }
+            }
+            Button {
+                text: "取消";
+                kind: ButtonKind.secondary;
+                enabled: !root.busy;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}
+
+export component RejectReviewWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> heading;
+    in property <string> details;
+    /// 駁回新增任務的申請會刪掉那個任務（紅字）；空字串不顯示
+    in property <string> warning;
+    in property <string> button-text: "駁回";
+    in-out property <string> note;
+    in property <bool> busy;
+    callback reject(note: string);
+    callback cancel();
+    title: "駁回申請";
+    width: 440px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: note-box;
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        VerticalLayout {
+            spacing: 4px;
+            DialogTitle {
+                text: root.heading;
+            }
+            MutedText {
+                text: root.details;
+                font-size: Theme.fs-md;
+            }
+            if root.warning != "": Rectangle {
+                height: warn.preferred-height + 16px;
+                border-radius: Theme.radius-small;
+                background: Theme.error-soft;
+                warn := Text {
+                    x: 12px;
+                    width: parent.width - 24px;
+                    text: root.warning;
+                    color: Theme.error;
+                    font-size: Theme.fs-md;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        VerticalLayout {
+            spacing: 6px;
+            padding-top: 4px;
+            FieldLabel {
+                text: "給申請人的說明（選填）";
+            }
+            note-box := TextArea {
+                text <=> root.note;
+                min-height: 64px;
+                preferred-height: 80px;
+                enabled: !root.busy;
+            }
+        }
+        DialogButtons {
+            Button {
+                text: root.button-text;
+                kind: ButtonKind.primary;
+                enabled: !root.busy;
+                clicked => {
+                    root.reject(root.note);
+                }
+            }
+            Button {
+                text: "取消";
+                kind: ButtonKind.secondary;
+                enabled: !root.busy;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}

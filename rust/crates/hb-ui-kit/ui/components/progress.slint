@@ -1,0 +1,30 @@
+// 進度條。
+import { Theme, Motion } from "../theme.slint";
+
+/// 進度條：value 0–1（0.5s 平滑）；done 時變橘。
+export component ProgressBar {
+    in property <float> value;
+    in property <bool> done: false;
+    in property <color> track: Theme.fill;
+    in property <color> fill: Theme.ink;
+    in property <color> done-fill: Theme.accent;
+    height: 8px;
+    horizontal-stretch: 1;
+    property <float> shown: clamp(value, 0, 1);
+    animate shown {
+        duration: 500ms;
+        easing: Motion.out;
+    }
+    Rectangle {
+        border-radius: self.height / 2;
+        background: root.track;
+        clip: true;
+        Rectangle {
+            x: 0;
+            width: parent.width * root.shown;
+            border-radius: self.height / 2;
+            background: root.done ? root.done-fill : root.fill;
+            animate background { duration: 400ms; }
+        }
+    }
+}

@@ -1,0 +1,74 @@
+// 捲動區：Flickable 加上細的圓角捲軸（滑過或拖曳時變粗、變深）。
+import { Theme } from "../theme.slint";
+
+export component ScrollView {
+    in-out property <length> content-y <=> fl.content-y;
+    in-out property <length> content-x <=> fl.content-x;
+    in-out property <length> content-width <=> fl.content-width;
+    in-out property <length> content-height <=> fl.content-height;
+    out property <length> visible-width: fl.width;
+    out property <length> visible-height: fl.height;
+    /// 捲軸是否疊在內容上（false 時右側保留 12px）
+    in property <bool> overlay-bar: true;
+    callback scrolled();
+    property <length> max-y: max(0px, fl.content-height - fl.height);
+    preferred-height: 100%;
+    preferred-width: 100%;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    property <bool> dragging;
+    property <length> drag-start-y;
+    fl := Flickable {
+        width: root.overlay-bar ? root.width : root.width - 12px;
+        height: root.height;
+        x: 0;
+        y: 0;
+        mouse-drag-pan-enabled: false;
+        flicked => {
+            root.scrolled();
+        }
+        @children
+    }
+    bar := Rectangle {
+        x: root.width - 12px;
+        y: 0;
+        width: 12px;
+        height: root.height;
+        visible: root.max-y > 0;
+        thumb := Rectangle {
+            property <bool> wide: bar-ta.has-hover || root.dragging;
+            width: self.wide ? 8px : 5px;
+            x: parent.width - self.width - 2px;
+            height: max(28px, (root.height - 4px) * fl.height / max(1px, fl.content-height));
+            y: 2px + (root.max-y > 0 ? (-fl.content-y) / root.max-y : 0) * (root.height - 4px - self.height);
+            border-radius: self.width / 2;
+            background: self.wide ? Theme.muted : Theme.scroll-thumb;
+            animate width, background { duration: 200ms; }
+        }
+        bar-ta := TouchArea {
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down {
+                    if self.mouse-y >= thumb.y && self.mouse-y <= thumb.y + thumb.height {
+                        root.dragging = true;
+                        root.drag-start-y = fl.content-y;
+                    } else if self.mouse-y < thumb.y {
+                        // 點捲軸空白處：翻一頁
+                        fl.content-y = min(0px, fl.content-y + fl.height * 0.9);
+                        root.scrolled();
+                    } else {
+                        fl.content-y = max(-root.max-y, fl.content-y - fl.height * 0.9);
+                        root.scrolled();
+                    }
+                } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                    root.dragging = false;
+                }
+            }
+            moved => {
+                if root.dragging {
+                    fl.content-y = clamp(root.drag-start-y - (self.mouse-y - self.pressed-y) * root.max-y / max(1px, root.height - 4px - thumb.height), -root.max-y, 0px);
+                    root.scrolled();
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,86 @@
+// 膠囊標籤與數字徽章。
+import { Theme, Motion } from "../theme.slint";
+import { Icon } from "icons.slint";
+
+export enum Tone { accent, ink, neutral, outline, run, error, warn, claude }
+
+/// 膠囊（設計稿 .pill）。可放子元素在文字後面；子元素用 fg 取文字色。
+export component Pill {
+    in property <string> text;
+    in property <string> icon;
+    in property <Tone> tone: Tone.accent;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 700;
+    out property <color> fg: tone == Tone.accent ? Theme.accent-ink : tone == Tone.ink ? Theme.on-ink : tone == Tone.run ? Theme.status-done-ink : tone == Tone.error ? Theme.error : tone == Tone.warn ? Theme.warn : tone == Tone.claude ? Theme.claude : Theme.ink;
+    out property <color> bg: tone == Tone.accent ? Theme.accent-soft : tone == Tone.ink ? Theme.ink : tone == Tone.neutral ? Theme.fill : tone == Tone.run ? Theme.run-soft : tone == Tone.error ? Theme.error-soft : tone == Tone.warn ? Theme.warn-soft : tone == Tone.claude ? Theme.claude-soft : transparent;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    min-height: 24px;
+    Rectangle {
+        background: root.bg;
+        border-radius: self.height / 2;
+        border-width: root.tone == Tone.outline ? 1px : 0px;
+        border-color: Theme.line;
+        animate background { duration: 300ms; }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: 4px;
+        alignment: center;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            path: root.icon;
+            color: root.fg;
+            width: 13px;
+            height: 13px;
+            weight: 2.6;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            color: root.fg;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            vertical-alignment: center;
+        }
+        @children
+    }
+}
+
+/// 數字徽章（小圓）；text 改變時彈出。
+export component Badge {
+    in property <string> text;
+    in property <Tone> tone: Tone.accent;
+    property <float> s: 1;
+    property <bool> snap;
+    changed text => {
+        snap = true;
+        s = 0.5;
+        snap = false;
+        s = 1;
+    }
+    animate s {
+        duration: snap ? 0ms : Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    height: 18px;
+    min-width: 18px;
+    preferred-width: max(18px, t.preferred-width + 10px);
+    horizontal-stretch: 0;
+    Rectangle {
+        transform-scale: root.s;
+        border-radius: self.height / 2;
+        background: root.tone == Tone.accent ? Theme.accent : root.tone == Tone.ink ? Theme.ink : root.tone == Tone.run ? Theme.run : root.tone == Tone.error ? Theme.error : root.tone == Tone.warn ? Theme.warn : root.tone == Tone.claude ? Theme.claude : Theme.fill;
+        t := Text {
+            text: root.text;
+            color: root.tone == Tone.accent ? Theme.on-accent : root.tone == Tone.ink ? Theme.on-ink : root.tone == Tone.neutral || root.tone == Tone.outline ? Theme.ink : #FFFFFF;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: Theme.font-num;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}

@@ -1,0 +1,255 @@
+// 工作台「工作負荷」頁（對應 C# UI/Work/WorkloadPage.cs）：一週每天分配到（預計）或實際計時的工時對上容量（應出勤）。
+// 契約：匯出 global WorkloadPageData（Rust 端用 window.global::<WorkloadPageData>() 讀寫）與 component WorkloadPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, Motion, ScrollView, Segmented, TipArea } from "@hb/index.slint";
+import { GroupLabel, StatusLine } from "@hbc/index.slint";
+import { W2, W2Button, W2Link, W2Title } from "w2-common.slint";
+
+/// 一格（C# Cell）。tone：0 線條色、1 強調色、2 綠色、3 紅色。
+export struct WorkloadCell {
+    title: string,
+    value: string,
+    capacity: string,
+    ratio: float,
+    tone: int,
+    tasks: string,
+    today: bool,
+    total: bool,
+}
+
+export struct WorkloadTaskRow {
+    key: string,
+    title: string,
+    right: string,
+}
+
+export global WorkloadPageData {
+    in-out property <bool> loading;
+    in-out property <string> range-text;
+    in-out property <[string]> modes;
+    in-out property <int> mode-index;
+    in-out property <string> mode-tip;
+    in-out property <string> status-text;
+    in-out property <int> status-tone;
+    in-out property <[WorkloadCell]> days;
+    in-out property <[WorkloadTaskRow]> tasks;
+    /// 沒有任務時的說明（空字串不顯示）
+    in-out property <string> tasks-empty;
+    in-out property <string> incomplete-title;
+    in-out property <[WorkloadTaskRow]> incomplete;
+    callback prev();
+    callback next();
+    callback this-week();
+    callback mode-selected(index: int);
+    callback open-task(key: string);
+}
+
+component DayCard inherits Rectangle {
+    in property <WorkloadCell> data;
+    background: Theme.fill;
+    border-radius: 16px;
+    border-width: root.data.today ? 1.5px : 0px;
+    border-color: Theme.accent;
+    horizontal-stretch: 1;
+    preferred-width: 80px;
+    VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 2px;
+        Text {
+            text: root.data.title;
+            font-size: 11.5px;
+            color: root.data.today ? Theme.accent : Theme.muted;
+            font-weight: root.data.today || root.data.total ? 600 : 400;
+            overflow: elide;
+        }
+        Text {
+            text: root.data.value;
+            font-size: 17px;
+            font-weight: 600;
+            font-family: Theme.font-num;
+            color: Theme.ink;
+        }
+        Text {
+            text: root.data.capacity;
+            font-size: 11px;
+            color: Theme.muted;
+        }
+        Rectangle {
+            height: 15px;
+            Rectangle {
+                y: 6px;
+                height: 5px;
+                border-radius: 2.5px;
+                background: Theme.line;
+                Rectangle {
+                    property <float> shown: 0;
+                    init => {
+                        self.shown = root.data.ratio;
+                    }
+                    animate shown {
+                        duration: Motion.soft-dur;
+                        easing: Motion.out;
+                    }
+                    x: 0;
+                    width: parent.width * clamp(self.shown, 0, 1);
+                    border-radius: 2.5px;
+                    background: root.data.tone == 3 ? Theme.error : root.data.tone == 2 ? Theme.run : root.data.tone == 1 ? Theme.accent : Theme.line;
+                }
+            }
+        }
+        Text {
+            text: root.data.tasks;
+            font-size: 11px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
+}
+
+component TaskLine {
+    in property <WorkloadTaskRow> data;
+    HorizontalLayout {
+        padding-top: 3px;
+        padding-bottom: 3px;
+        spacing: 0px;
+        W2Link {
+            text: root.data.key;
+            clicked => { WorkloadPageData.open-task(root.data.key); }
+        }
+        Text {
+            text: " " + root.data.title;
+            color: Theme.ink;
+            overflow: elide;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.data.right;
+            color: Theme.muted;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+}
+
+export component WorkloadPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 12px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            padding-bottom: 2px;
+            W2Title {
+                text: "工作負荷";
+            }
+            Rectangle { width: 10px; }
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "‹";
+                tip: "上一週";
+                font-size: 15px;
+                clicked => { WorkloadPageData.prev(); }
+            }
+            Text {
+                text: WorkloadPageData.range-text;
+                min-width: 110px;
+                color: Theme.ink;
+                font-size: 16px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "›";
+                tip: "下一週";
+                font-size: 15px;
+                clicked => { WorkloadPageData.next(); }
+            }
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "本週";
+                tip: "回到本週";
+                clicked => { WorkloadPageData.this-week(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            TipArea {
+                text: WorkloadPageData.mode-tip;
+                Segmented {
+                    items: WorkloadPageData.modes;
+                    current <=> WorkloadPageData.mode-index;
+                    selected(i) => { WorkloadPageData.mode-selected(i); }
+                }
+            }
+        }
+        StatusLine {
+            text: WorkloadPageData.status-text;
+            tone: WorkloadPageData.status-tone;
+        }
+
+        sv := ScrollView {
+            vertical-stretch: 1;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                width: sv.visible-width - 14px;
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    padding-bottom: 8px;
+                    for d in WorkloadPageData.days: DayCard {
+                        data: d;
+                    }
+                }
+                GroupLabel {
+                    text: "這週的任務";
+                }
+                Rectangle {
+                    background: Theme.fill;
+                    border-radius: W2.card-radius;
+                    VerticalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        if WorkloadPageData.tasks-empty != "": Text {
+                            text: WorkloadPageData.tasks-empty;
+                            color: Theme.muted;
+                            height: 26px;
+                            vertical-alignment: center;
+                        }
+                        for t in WorkloadPageData.tasks: TaskLine {
+                            data: t;
+                        }
+                    }
+                }
+                if WorkloadPageData.incomplete-title != "": VerticalLayout {
+                    spacing: 6px;
+                    padding-top: 8px;
+                    GroupLabel {
+                        text: WorkloadPageData.incomplete-title;
+                    }
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: W2.card-radius;
+                        VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-top: 8px;
+                            padding-bottom: 8px;
+                            for t in WorkloadPageData.incomplete: TaskLine {
+                                data: t;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

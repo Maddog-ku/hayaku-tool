@@ -1,0 +1,526 @@
+// 「我的任務」頁的資料與回呼（Rust 端 pages/tasks*.rs 讀寫 TasksPageData）。
+// struct 都用 Tk 開頭，避免跟其他頁的 struct 撞名（同一個 crate 編譯）。
+import { IconItem } from "../../shared/index.slint";
+
+/// 清單的一欄（C# TaskColumnConfig）：width 0＝填滿剩下的寬度；resizable＝標題右邊有可以拖的線。
+export struct TkColumn {
+    key: string,
+    label: string,
+    width: length,
+    resizable: bool,
+}
+
+/// 清單的一列（C# TaskListRowVm）。due-tone：0 muted、1 錯誤（逾期）、2 警告（今天、明天到期）。
+export struct TkRow {
+    key: string,
+    title: string,
+    context: string,
+    status: string,
+    priority-text: string,
+    start-text: string,
+    start-hint: bool,
+    due-text: string,
+    due-tone: int,
+    project-text: string,
+    glyph: string,
+    tint: color,
+    has-project: bool,
+    timing: bool,
+    done: bool,
+    elapsed: string,
+}
+
+/// 樹狀檢視的一列（C# MyTreeProjectVm／MyTreeTaskVm）。has-row false：上層脈絡（不在這次的清單裡）。
+export struct TkTreeRow {
+    is-project: bool,
+    name: string,
+    count-text: string,
+    expanded: bool,
+    has-children: bool,
+    key: string,
+    title: string,
+    depth: int,
+    sub-text: string,
+    tip: string,
+    has-row: bool,
+    opacity: float,
+    row: TkRow,
+}
+
+/// 看板卡片（C# KanbanCardVm）。category：0 待處理、1 進行中、2 完成。
+export struct TkCard {
+    key: string,
+    project: string,
+    path: string,
+    title: string,
+    status: string,
+    category: int,
+    due-text: string,
+    due-tone: int,
+    running: bool,
+    elapsed: string,
+    show-timer: bool,
+    tip: string,
+}
+
+/// 狀態篩選選單的一項：kind 0 標題（停用）、1 勾選項、2 分隔線、3 清除篩選。
+export struct TkCheckItem {
+    kind: int,
+    text: string,
+    checked: bool,
+    enabled: bool,
+}
+
+/// 日曆的一格。index：從第一格起第幾天。
+export struct TkCalDay {
+    label: string,
+    in-month: bool,
+    weekend: bool,
+    today: bool,
+}
+
+/// 日曆、沒有日期清單、甘特圖上的任務條（C# ScheduleBar）。
+export struct TkBar {
+    key: string,
+    week: int,
+    column: int,
+    days: int,
+    lane: int,
+    from-before: bool,
+    to-after: bool,
+    show-key: bool,
+    title: string,
+    running: bool,
+    tint: color,
+    overdue: bool,
+    done: bool,
+    tip: string,
+}
+
+/// 日曆上放不下的「+N」。
+export struct TkMore {
+    week: int,
+    column: int,
+    text: string,
+    tip: string,
+}
+
+/// 選單的一項（「+N」的任務、同一層的任務…）。
+export struct TkPick {
+    key: string,
+    text: string,
+}
+
+/// 甘特圖的日期標題。
+export struct TkGanttDay {
+    day: string,
+    weekday: string,
+    month: string,
+    weekend: bool,
+    today: bool,
+}
+
+/// 甘特圖的一列。kind：0 條、1 不在畫面範圍（邊上標日期）、2 沒有預計日期（在這列拉出一段）。
+/// start、end：條從第幾天到第幾天（含）；preview：沒有日期的列正在拉出的那一段。
+export struct TkGanttRow {
+    key: string,
+    title: string,
+    name-tip: string,
+    done: bool,
+    kind: int,
+    start: int,
+    end: int,
+    bar: TkBar,
+    jump-text: string,
+    jump-before: bool,
+    jump-overdue: bool,
+    preview: bool,
+}
+
+/// 詳細的一個動作按鈕（測試結果的〔開始修〕〔送復驗〕…）。
+export struct TkAction {
+    id: string,
+    text: string,
+    tip: string,
+    primary: bool,
+}
+
+/// 子任務、測試結果。
+export struct TkChild {
+    key: string,
+    title: string,
+    status: string,
+}
+
+/// 展開區塊裡的一行。kind：0 小標題、1 一般、2 淡色說明、3 錯誤、4 任務連結列、5 粗體標題列。
+/// depth：縮排層數；dim：淡一點（已完成）。
+export struct TkLine {
+    kind: int,
+    key: string,
+    text: string,
+    meta: string,
+    depth: int,
+    dim: bool,
+}
+
+/// 相依關係的一列。kind：0 小標題、1 相依、2 關聯、3 淡色說明、4 錯誤。
+export struct TkDep {
+    kind: int,
+    key: string,
+    title: string,
+    meta: string,
+    rule: string,
+    blocking: bool,
+    removable: bool,
+}
+
+/// 文件。
+export struct TkDoc {
+    title: string,
+    text: string,
+}
+
+/// 聊天的一則（C# ChatRowVm）。
+export struct TkChat {
+    author: string,
+    time: string,
+    body: string,
+    poll-id: string,
+}
+
+/// 新增任務的專案樹一列（C# TreeNodeVm，攤平成清單）。
+export struct TkPickRow {
+    key: string,
+    title: string,
+    suffix: string,
+    depth: int,
+    expanded: bool,
+    has-children: bool,
+    picked: bool,
+    opacity: float,
+    tip: string,
+}
+
+/// 「清單欄位」對話框的一列。
+export struct TkColDraft {
+    key: string,
+    label: string,
+    visible: bool,
+    width-text: string,
+    is-title: bool,
+    can-up: bool,
+    can-down: bool,
+}
+
+export global TasksPageData {
+    in-out property <bool> loading;
+
+    // ───── 標題列、分頁、篩選 ─────
+    in property <[string]> tab-labels;
+    in-out property <int> tab-index;
+    in property <bool> tabs-visible: true;
+    in-out property <string> search-text;
+    in-out property <int> view-index;
+    /// 實際的顯示方式：0 清單、1 樹狀、2 看板、3 日曆、4 甘特（搜尋結果一律用清單）
+    in property <int> mode;
+    in property <[string]> sort-labels;
+    in-out property <int> sort-index;
+    in property <bool> status-filter-visible;
+    in property <string> status-filter-text: "狀態：全部 ▾";
+    in property <bool> status-filter-active;
+    in property <[TkCheckItem]> status-filter-items;
+    in property <[string]> project-labels;
+    in property <[IconItem]> project-icons;
+    in-out property <int> project-index;
+    in property <bool> project-active;
+    in property <[string]> done-days-labels;
+    in-out property <int> done-days-index: 1;
+    in property <bool> done-days-visible;
+    in-out property <bool> leaf-only;
+    in-out property <bool> hide-done;
+    in property <string> collapse-text: "⊟ 全部收合";
+    in property <string> list-message;
+
+    callback reload();
+    callback new-task();
+    callback tab-selected(int);
+    callback search-accepted(string);
+    callback search-escape();
+    callback view-selected(int);
+    callback sort-selected(int);
+    callback status-filter-opening();
+    callback status-filter-toggle(int);
+    callback project-selected(int);
+    callback done-days-selected(int);
+    callback leaf-only-toggled(bool);
+    callback hide-done-toggled(bool);
+    callback columns-open();
+    callback collapse-all();
+
+    // ───── 清單 ─────
+    in property <[TkColumn]> columns;
+    /// 有顯示編號欄（沒有時名稱前面帶編號）
+    in property <bool> key-column: true;
+    in property <[TkRow]> rows;
+    in-out property <int> selected-index: -1;
+    callback row-open(string);
+    callback row-timer(string);
+    callback copy-key(string);
+    callback column-resize(int, length);
+    callback column-resize-done();
+
+    // ───── 樹狀 ─────
+    in property <[TkTreeRow]> tree-rows;
+    in-out property <int> tree-selected: -1;
+    callback tree-toggle(int);
+
+    // ───── 看板 ─────
+    in property <[TkCard]> todo-cards;
+    in property <[TkCard]> doing-cards;
+    in property <[TkCard]> done-cards;
+    in property <string> todo-count;
+    in property <string> doing-count;
+    in property <string> done-count;
+    in property <bool> done-column-visible: true;
+
+    // ───── 日曆、甘特共用 ─────
+    in property <string> schedule-title;
+    in property <string> schedule-hint;
+    in property <string> schedule-prev-tip;
+    in property <string> schedule-next-tip;
+    /// 正在拖的任務（那條變淡）
+    in property <string> drag-key;
+    callback schedule-shift(int);
+    callback bar-press(string, bool, int);
+    callback bar-drag(string, int);
+    callback bar-release(string, bool);
+    callback bar-cancel();
+
+    // ───── 日曆 ─────
+    in property <int> cal-weeks: 5;
+    in property <int> cal-lanes: 3;
+    in property <[TkCalDay]> cal-days;
+    in property <[TkBar]> cal-bars;
+    in property <[TkMore]> cal-more;
+    in property <[TkBar]> cal-undated;
+    in property <string> cal-undated-title;
+    /// 拖拉時標出的日期範圍（格子的 index，含頭尾；-1 不標）
+    in property <int> cal-hl-from: -1;
+    in property <int> cal-hl-to: -1;
+    in property <[TkPick]> more-items;
+    callback cal-resized(length);
+    callback cal-more-clicked(int);
+    callback more-pick(string);
+
+    // ───── 甘特 ─────
+    in property <int> gantt-days: 42;
+    in property <length> gantt-day-width: 26px;
+    in property <int> gantt-today: -1;
+    in property <[TkGanttDay]> gantt-header;
+    in property <[TkGanttRow]> gantt-rows;
+    callback gantt-resized(length);
+    callback gantt-open(string);
+    callback gantt-jump(int);
+    callback gantt-drag(int, int, int);
+    callback gantt-draw-start(int, int);
+    callback gantt-draw-move(int, int);
+    callback gantt-release(int);
+
+    // ───── 彈窗 ─────
+    /// 0 沒有、1 任務詳細、2 新增任務
+    in property <int> dialog: 0;
+    in property <string> detail-empty: "讀取中…";
+    in property <bool> detail-ready;
+    /// 每次打開或換任務 +1（捲回最上面、焦點拉回彈窗）
+    in property <int> detail-serial;
+    callback close-dialog();
+    callback dialog-key(KeyEvent) -> bool;
+
+    // ───── 任務詳細 ─────
+    in property <string> d-path;
+    in property <string> d-key-text;
+    in-out property <string> d-title;
+    in property <string> d-approval;
+    in property <[string]> d-status-items;
+    in-out property <int> d-status-index;
+    in-out property <int> d-priority-index: -1;
+    in-out property <int> d-plan-start;
+    in-out property <int> d-plan-end;
+    in property <int> today;
+    in-out property <string> d-estimate;
+    in property <string> d-logged;
+    in property <bool> d-logged-over;
+    in property <string> d-logged-tip;
+    in property <string> d-actual;
+    in property <string> d-assignees;
+    in property <[string]> d-type-items;
+    in-out property <int> d-type-index;
+    in-out property <bool> d-category;
+    in property <string> d-timer-text;
+    in property <bool> d-timer-primary;
+    in property <bool> d-timer-enabled: true;
+    in property <string> d-timer-tip;
+    in property <bool> d-complete-enabled: true;
+    in property <string> d-pin-text;
+    in property <string> d-pin-tip;
+    in property <bool> d-pin-enabled: true;
+    in property <string> d-msg;
+    in property <int> d-msg-tone;
+    // 測試
+    /// 0 一般、1 測試任務、2 測試結果
+    in property <int> d-test-kind;
+    in property <string> d-test-line;
+    /// 測試結果那一行的顏色：0 一般、1 錯誤、2 淡色
+    in property <int> d-test-tone;
+    in property <bool> d-test-bold;
+    in property <string> d-test-parent;
+    in property <[TkAction]> d-test-actions;
+    in property <string> d-test-note;
+    in property <string> d-test-summary;
+    in property <float> d-test-progress;
+    in property <bool> d-test-has-progress;
+    in property <string> d-test-counts;
+    // 子任務
+    in property <bool> d-children-visible;
+    in property <string> d-children-header: "子任務";
+    in property <bool> d-result-filter-visible;
+    in-out property <string> d-result-filter;
+    in property <[string]> d-bucket-labels;
+    in-out property <int> d-bucket-index;
+    in property <[TkChild]> d-children;
+    in-out property <bool> d-ch-expanded;
+    in property <string> d-ch-header: "子任務的工時";
+    in property <[TkLine]> d-ch-lines;
+    in-out property <bool> d-tree-expanded;
+    in property <string> d-tree-header: "整棵子任務樹";
+    in property <[TkLine]> d-tree-lines;
+    // 備註
+    in property <string> d-note;
+    in property <bool> d-note-visible;
+    in property <bool> d-note-append-open;
+    in-out property <string> d-note-append-text;
+    in property <bool> d-note-append-busy;
+    /// 插入表格後的游標位置（位元組位移）
+    in property <int> d-note-cursor;
+    // 相依、附件、文件、異動紀錄
+    in-out property <bool> d-deps-expanded;
+    in property <[TkDep]> d-deps;
+    in property <bool> d-dep-form-visible;
+    in-out property <string> d-dep-other;
+    in-out property <int> d-dep-dir-index;
+    in property <[string]> d-dep-templates;
+    in-out property <int> d-dep-template-index;
+    in property <[string]> d-dep-quick;
+    in-out property <int> d-dep-quick-index;
+    in property <bool> d-dep-busy;
+    in-out property <bool> d-attach-expanded;
+    in property <[TkLine]> d-attach;
+    in property <bool> d-attach-web;
+    in property <bool> d-docs-visible;
+    in property <string> d-docs-header: "文件";
+    in-out property <bool> d-docs-expanded;
+    in property <[TkDoc]> d-docs;
+    in property <[TkLine]> d-docs-lines;
+    in-out property <bool> d-history-expanded;
+    in property <[TkLine]> d-history;
+    in property <bool> d-history-more;
+    // 聊天
+    in property <[TkChat]> d-chat;
+    in property <string> d-chat-empty;
+    in-out property <string> d-chat-text;
+    in property <bool> d-send-busy;
+
+    callback d-title-commit(string);
+    callback d-status-selected(int);
+    callback d-priority-selected(int);
+    callback d-dates-applied();
+    callback d-estimate-commit(string);
+    callback d-timer();
+    callback d-complete();
+    callback d-remind();
+    callback d-new-child();
+    callback d-pin();
+    callback d-move();
+    callback d-delete();
+    callback d-open-web();
+    callback d-category-toggled(bool);
+    callback d-type-selected(int);
+    callback d-test-action(string);
+    callback d-open(string);
+    callback d-add-test-result();
+    callback d-result-filter-edited(string);
+    callback d-bucket-selected(int);
+    callback d-ch-toggled(bool);
+    callback d-tree-toggled(bool);
+    callback d-note-append-toggle();
+    callback d-note-append-submit();
+    callback d-note-table(int, int);
+    callback d-deps-toggled(bool);
+    callback d-dep-remove(int);
+    callback d-dep-add();
+    callback d-dep-quick-selected(int);
+    callback d-attach-toggled(bool);
+    callback d-attach-open(int);
+    callback d-attach-web-open();
+    callback d-docs-toggled(bool);
+    callback d-history-toggled(bool);
+    callback d-history-load-more();
+    callback d-chat-send();
+    callback d-poll(string);
+
+    // ───── 新增任務 ─────
+    in property <string> c-title: "新增任務";
+    in property <[string]> c-project-labels;
+    in property <[IconItem]> c-project-icons;
+    in-out property <int> c-project-index: -1;
+    in-out property <string> c-filter;
+    in-out property <bool> c-hide-done;
+    in property <[TkPickRow]> c-tree;
+    in property <bool> c-root-picked: true;
+    in property <string> c-tree-message;
+    in property <string> c-parent-text;
+    in-out property <string> c-new-title;
+    in property <[string]> c-status-items;
+    in-out property <int> c-status-index: -1;
+    in-out property <int> c-priority-index: 0;
+    in-out property <int> c-start;
+    in-out property <int> c-end;
+    in-out property <string> c-estimate;
+    in-out property <bool> c-assign-me: true;
+    in-out property <bool> c-start-timer;
+    in property <bool> c-busy;
+    in property <string> c-msg;
+    in property <int> c-msg-tone;
+    in property <string> c-open-created;
+    /// 要捲到看得到的專案樹列（每次 +1 serial）
+    in property <int> c-scroll-row: -1;
+    in property <int> c-scroll-serial;
+    /// 每次打開 +1（焦點放到名稱）
+    in property <int> c-focus-serial;
+    callback c-project-selected(int);
+    callback c-filter-edited(string);
+    callback c-hide-done-toggled(bool);
+    callback c-pick(string);
+    callback c-toggle(int);
+    callback c-create();
+    callback c-cancel();
+    callback c-open-created-clicked();
+
+    // ───── 清單欄位 ─────
+    in property <bool> col-dialog;
+    in property <[TkColDraft]> col-draft;
+    in-out property <bool> col-code-only;
+    callback col-toggle(int, bool);
+    callback col-move(int, int);
+    callback col-width(int, string);
+    callback col-reset();
+    callback col-apply();
+    callback col-cancel();
+
+    // ───── 確認 ─────
+    in property <bool> confirm-visible;
+    in property <string> confirm-title;
+    in property <string> confirm-text;
+    in property <[string]> confirm-buttons;
+    callback confirm-picked(int);
+}

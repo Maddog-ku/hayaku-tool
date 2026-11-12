@@ -1,0 +1,44 @@
+[package]
+name = "hayakubar"
+description = "HayakuBar：Hayaku 工時工作列小工具"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "HayakuBar"
+path = "src/main.rs"
+
+[dependencies]
+# unstable-winit-030：面板、提示、摘要要在建立視窗時就設成「不搶焦點、不佔工作列、最上層」（winit 視窗屬性 hook）
+slint = { workspace = true, features = ["unstable-winit-030"] }
+hb-api.workspace = true
+hb-backend.workspace = true
+hb-win.workspace = true
+hb-claude.workspace = true
+hb-eip.workspace = true
+hb-core.workspace = true
+hb-slack.workspace = true
+hb-ui-kit.workspace = true
+hb-ui-common.workspace = true
+hb-ui-work.workspace = true
+chrono.workspace = true
+log.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+# Win32_Storage_Xps：--shot 截圖用的 PrintWindow
+windows = { workspace = true, features = ["Win32_Storage_Xps"] }
+raw-window-handle.workspace = true
+rfd.workspace = true
+image.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true }
+
+[build-dependencies]
+slint-build.workspace = true
+# 把圖示、manifest（PerMonitorV2、supportedOS）、版本資訊嵌進 HayakuBar.exe
+embed-resource = "3"

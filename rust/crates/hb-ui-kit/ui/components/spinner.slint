@@ -1,0 +1,36 @@
+// 載入中圓圈（設計稿 .spin：淡色圓環＋上方一段實色，0.8s 一圈）。
+import { Theme } from "../theme.slint";
+
+export component Spinner {
+    in property <color> color: Theme.ink;
+    in property <length> thickness: 2.5px;
+    in property <duration> period: 800ms;
+    width: 20px;
+    height: 20px;
+    property <float> turn: 0;
+    init => {
+        turn = 1;
+    }
+    animate turn {
+        duration: root.period;
+        iteration-count: -1;
+        easing: linear;
+    }
+    Rectangle {
+        border-radius: self.width / 2;
+        border-width: root.thickness;
+        border-color: root.color.with-alpha(0.25);
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        transform-rotation: root.turn * 360deg;
+        viewbox-width: root.width / 1px - root.thickness / 1px;
+        viewbox-height: self.viewbox-width;
+        // 90° 的圓弧：從正上方到右方
+        commands: "M " + (self.viewbox-width / 2) + " 0 A " + (self.viewbox-width / 2) + " " + (self.viewbox-width / 2) + " 0 0 1 " + self.viewbox-width + " " + (self.viewbox-width / 2);
+        stroke: root.color;
+        stroke-width: root.thickness;
+        stroke-line-cap: round;
+    }
+}

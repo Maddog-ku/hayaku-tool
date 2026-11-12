@@ -1,0 +1,113 @@
+// 從工作列工時上方滑上來的提示（對應 C# UI/ToastWindow.xaml）；滑鼠移上去時不會自動關閉。
+// 視窗就是卡片本身（沒有留陰影的透明邊）：卡片在視窗裡由下往上滑，視窗外的部分自然看不到（C# 外層 ClipToBounds）。
+import { Theme, Motion } from "@hb/index.slint";
+import { GlyphButton, SmallButton } from "widgets.slint";
+
+export struct ToastButton {
+    label: string,
+    primary: bool,
+    enabled: bool,
+}
+
+export component ToastWindow inherits Window {
+    title: "HayakuBar 通知";
+    icon: @image-url("../assets/app.ico");
+    no-frame: true;
+    always-on-top: true;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 12px;
+    width: 344px;
+    min-height: lay.preferred-height;
+    max-height: lay.preferred-height;
+
+    in property <string> title-text;
+    in property <string> message;
+    in property <[ToastButton]> actions;
+    /// 顯示後設 true：卡片滑上來
+    in property <bool> shown;
+    /// 收起：卡片滑回下緣（動畫結束由 Rust 關窗）
+    in property <bool> closing;
+    callback action(int);
+    callback close-clicked();
+    callback hover-changed(bool);
+    /// 內容的高度（還沒顯示時，Rust 用來先擺好位置）
+    out property <length> pref-h: lay.preferred-height;
+
+    property <length> offset: root.shown && !root.closing ? 0px : root.height;
+    animate offset {
+        duration: Theme.reduce-motion ? 0ms : (root.closing ? 240ms : 300ms);
+        easing: root.closing ? cubic-bezier(0.55, 0.055, 0.675, 0.19) : cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    card := Rectangle {
+        y: root.offset;
+        height: root.height;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.line;
+        hover-ta := TouchArea {
+            property <bool> over: self.has-hover;
+            changed over => {
+                root.hover-changed(self.over);
+            }
+        }
+        lay := HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 10px;
+            padding-top: 12px;
+            padding-bottom: 12px;
+            spacing: 10px;
+            VerticalLayout {
+                alignment: start;
+                padding-top: 1px;
+                Image {
+                    width: 20px;
+                    height: 20px;
+                    source: @image-url("../assets/app.ico");
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 3px;
+                Text {
+                    color: Theme.ink;
+                    text: root.title-text;
+                    font-size: 13px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                if root.message != "": Text {
+                    text: root.message;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.actions.length > 0: VerticalLayout {
+                    padding-top: 7px;
+                    FlexboxLayout {
+                        spacing: 6px;
+                        for a[i] in root.actions: SmallButton {
+                            text: a.label;
+                            primary: a.primary;
+                            enabled: a.enabled;
+                            clicked => {
+                                root.action(i);
+                            }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: start;
+                GlyphButton {
+                    text: "✕";
+                    color: Theme.muted;
+                    tip: "關閉";
+                    clicked => {
+                        root.close-clicked();
+                    }
+                }
+            }
+        }
+    }
+}

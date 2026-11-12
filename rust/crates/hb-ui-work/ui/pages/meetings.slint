@@ -1,0 +1,825 @@
+// 工作台「會議」頁（對應 C# UI/Work/MeetingsPage.xaml(.cs)、MeetingsPage.Detail.cs）。
+// 契約：匯出 global MeetingsPageData（Rust 端用 window.global::<MeetingsPageData>() 讀寫）與 component MeetingsPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 接下來／參加過的、加入並計時、離開、釘到托盤、取消、新增會議；點一場在右邊看詳細、修改、會議紀錄、檔案、白板。
+import { Theme, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
+import { FieldLabel, MutedText, StatusLine, PageTitle, PlainText, SelectField, RadioDot, TextArea } from "@hbc/index.slint";
+import { W3Check, PageButton, SmallButton, TipSegmented, ItemCard, CheckWrap, ConfirmOverlay, MdArea, SubtleBox, W3Group, CenterNote } from "w3-common.slint";
+
+/// 清單上的一場會議（C# MeetingListVm）。time-tone：0 一般、1 進行中（強調色）、2 過去（淡色）。
+export struct MeetingRow {
+    key: string,
+    title: string,
+    day: string,
+    time: string,
+    time-tone: int,
+    detail: string,
+    join: bool,
+    leave: bool,
+    cancel: bool,
+    pinned: bool,
+    pin-tip: string,
+    selected: bool,
+    busy: bool,
+}
+
+/// 詳細的「時間、專案、地點…」一列。
+export struct MeetInfo {
+    label: string,
+    value: string,
+}
+
+/// 詳細的參加者：state-accent＝會議中（強調色）。
+export struct MeetAttendee {
+    name: string,
+    state: string,
+    state-accent: bool,
+    logged: string,
+}
+
+/// 白板的「看白板」「圖片 N」按鈕。
+export struct MeetPreview {
+    text: string,
+    id: string,
+    name: string,
+}
+
+/// 可展開區塊裡的一塊。kind：0 淡色文字、1 粗體標題、2 淡底內文（max-h 高度上限）、3 檔案（可點）、4 說明小字、
+/// 5 白板按鈕列、6 純文字（白板上的字）、7 錯誤。
+export struct MeetBlock {
+    kind: int,
+    text: string,
+    meta: string,
+    id: string,
+    tip: string,
+    max-h: length,
+    buttons: [MeetPreview],
+}
+
+/// 可展開的區塊（會議紀錄、紀錄更新歷程、檔案、白板）：第一次展開才讀。
+export struct MeetSection {
+    title: string,
+    open: bool,
+    blocks: [MeetBlock],
+}
+
+export global MeetingsPageData {
+    in-out property <bool> loading;
+    // 清單
+    in-out property <int> tab: 0;
+    in-out property <[MeetingRow]> rows;
+    in-out property <string> empty-text;
+    in-out property <string> list-status;
+    in-out property <int> list-tone;
+    // 新增
+    in-out property <bool> form-open;
+    in-out property <[string]> projects;
+    in-out property <int> project-index: -1;
+    in-out property <string> title;
+    in-out property <string> date;
+    in-out property <string> start;
+    in-out property <string> end;
+    in-out property <string> location;
+    in-out property <string> note;
+    in-out property <[W3Check]> attendees;
+    in-out property <string> form-status;
+    in-out property <int> form-tone;
+    in-out property <bool> creating;
+    in-out property <int> focus-title;
+    // 詳細
+    in-out property <bool> detail-open;
+    in-out property <bool> detail-loaded;
+    in-out property <string> detail-message;
+    in-out property <bool> detail-error;
+    in-out property <string> detail-title;
+    in-out property <[MeetInfo]> info;
+    in-out property <bool> can-edit;
+    in-out property <string> pin-text;
+    in-out property <string> pin-tip;
+    in-out property <string> detail-status;
+    in-out property <int> detail-tone;
+    in-out property <[MeetAttendee]> people;
+    in-out property <[MeetSection]> sections;
+    in-out property <int> scroll-top;
+    // 修改
+    in-out property <bool> edit-open;
+    in-out property <string> edit-title;
+    in-out property <string> edit-date;
+    in-out property <string> edit-from;
+    in-out property <string> edit-to;
+    in-out property <string> edit-location;
+    in-out property <string> edit-note;
+    in-out property <[W3Check]> edit-people;
+    in-out property <string> edit-people-message;
+    in-out property <bool> edit-people-error;
+    in-out property <bool> edit-recurring;
+    in-out property <bool> edit-following;
+    in-out property <bool> saving;
+    // 確認
+    in-out property <bool> confirm-open;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+
+    callback tab-selected(int);
+    callback new-clicked();
+    callback cancel-form();
+    callback create();
+    callback project-selected(int);
+    callback attendee-toggled(int, bool);
+    callback card-clicked(int);
+    callback join(int);
+    callback leave(int);
+    callback pin-row(int);
+    callback open-row(int);
+    callback cancel-meeting(int);
+    callback close-detail();
+    callback edit-clicked();
+    callback pin-detail();
+    callback detail-web();
+    callback section-toggled(int, bool);
+    callback block-clicked(int, int);
+    callback preview(string, string);
+    callback edit-person-toggled(int, bool);
+    callback edit-save();
+    callback edit-cancel();
+    callback key-p();
+    callback confirm-ok();
+    callback confirm-cancel();
+    callback md-table(int) -> string;
+    callback md-insert(string, int, int, string) -> string;
+    callback md-cursor(string, int, int, string) -> int;
+}
+
+component Field {
+    in property <string> label;
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <string> font-family;
+    callback accepted();
+    forward-focus: input;
+    VerticalLayout {
+        spacing: 4px;
+        alignment: start;
+        FieldLabel {
+            text: root.label;
+        }
+        input := TextField {
+            height: 40px;
+            min-width: 40px;
+            text <=> root.text;
+            placeholder: root.placeholder;
+            font-size: Theme.fs-md;
+            accepted => {
+                root.accepted();
+            }
+        }
+    }
+}
+
+component MeetingCard inherits ItemCard {
+    in property <MeetingRow> data;
+    selected: data.selected;
+    clickable: true;
+    in property <int> index;
+    TipArea {
+        text: "點一下看詳細";
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                width: 110px;
+                alignment: center;
+                Text {
+                    text: root.data.day;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                }
+                Text {
+                    text: root.data.time;
+                    font-family: Theme.font-num;
+                    font-weight: 600;
+                    font-size: Theme.fs-base;
+                    color: root.data.time-tone == 1 ? Theme.accent : root.data.time-tone == 2 ? Theme.muted : Theme.ink;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.data.title;
+                    color: Theme.ink;
+                    font-weight: 600;
+                    font-size: Theme.fs-base;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.data.detail;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 2px;
+                if root.data.join: SmallButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "加入並計時";
+                    primary: true;
+                    enabled: !root.data.busy;
+                    clicked => {
+                        MeetingsPageData.join(root.index);
+                    }
+                }
+                if root.data.leave: SmallButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "離開";
+                    tip: "停止這場會議的計時";
+                    enabled: !root.data.busy;
+                    clicked => {
+                        MeetingsPageData.leave(root.index);
+                    }
+                }
+                SmallButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "📌";
+                    tip: root.data.pin-tip;
+                    opacity: root.data.pinned ? 1 : 0.3;
+                    clicked => {
+                        MeetingsPageData.pin-row(root.index);
+                    }
+                }
+                SmallButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "開啟";
+                    clicked => {
+                        MeetingsPageData.open-row(root.index);
+                    }
+                }
+                if root.data.cancel: SmallButton {
+                    y: (parent.height - self.height) / 2;
+                    text: root.data.busy ? "處理中…" : "取消會議";
+                    tip: "主辦、專案管理員才能取消；會通知參加者";
+                    enabled: !root.data.busy;
+                    clicked => {
+                        MeetingsPageData.cancel-meeting(root.index);
+                    }
+                }
+            }
+        }
+    }
+}
+
+component NewForm inherits Rectangle {
+    vertical-stretch: 0;
+    background: Theme.card;
+    border-radius: 22px;
+    border-width: 1px;
+    border-color: Theme.line;
+    property <int> focus-token: MeetingsPageData.focus-title;
+    changed focus-token => {
+        title-field.focus();
+    }
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        Text {
+            text: "新增會議";
+            color: Theme.ink;
+            font-weight: 600;
+            font-size: Theme.fs-base;
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                FieldLabel {
+                    text: "專案";
+                }
+                SelectField {
+                    height: 40px;
+                    items: MeetingsPageData.projects;
+                    current <=> MeetingsPageData.project-index;
+                    selected(i) => {
+                        MeetingsPageData.project-selected(i);
+                    }
+                }
+            }
+            title-field := Field {
+                horizontal-stretch: 2;
+                label: "標題";
+                placeholder: "例 週會、需求討論";
+                text <=> MeetingsPageData.title;
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Field {
+                horizontal-stretch: 1;
+                label: "日期";
+                placeholder: "今天、明天、11/5";
+                text <=> MeetingsPageData.date;
+            }
+            Field {
+                width: 90px;
+                label: "開始";
+                placeholder: "14:00";
+                text <=> MeetingsPageData.start;
+            }
+            Field {
+                width: 90px;
+                label: "結束";
+                placeholder: "15:00";
+                text <=> MeetingsPageData.end;
+            }
+            Field {
+                horizontal-stretch: 2;
+                label: "地點或連結（選填）";
+                placeholder: "會議室、Teams 連結…";
+                text <=> MeetingsPageData.location;
+            }
+        }
+        FieldLabel {
+            text: "參加者";
+        }
+        CheckWrap {
+            items: MeetingsPageData.attendees;
+            toggled(i, c) => {
+                MeetingsPageData.attendee-toggled(i, c);
+            }
+        }
+        FieldLabel {
+            text: "議程（選填）";
+        }
+        TextArea {
+            height: 70px;
+            text <=> MeetingsPageData.note;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            PageButton {
+                text: "建立";
+                primary: true;
+                busy: MeetingsPageData.creating;
+                clicked => {
+                    MeetingsPageData.create();
+                }
+            }
+            PageButton {
+                text: "取消";
+                clicked => {
+                    MeetingsPageData.cancel-form();
+                }
+            }
+        }
+        StatusLine {
+            text: MeetingsPageData.form-status;
+            tone: MeetingsPageData.form-tone;
+        }
+    }
+}
+
+component EditForm {
+    VerticalLayout {
+        spacing: 8px;
+        W3Group {
+            text: MeetingsPageData.can-edit ? "修改會議" : "修改會議紀錄";
+        }
+        if MeetingsPageData.can-edit: Field {
+            label: "名稱";
+            placeholder: "會議名稱";
+            text <=> MeetingsPageData.edit-title;
+        }
+        if MeetingsPageData.can-edit: HorizontalLayout {
+            spacing: 8px;
+            Field {
+                horizontal-stretch: 1.3;
+                label: "日期";
+                placeholder: "今天、明天、11/5";
+                text <=> MeetingsPageData.edit-date;
+            }
+            Field {
+                horizontal-stretch: 1;
+                label: "開始";
+                placeholder: "14:00";
+                text <=> MeetingsPageData.edit-from;
+            }
+            Field {
+                horizontal-stretch: 1;
+                label: "結束";
+                placeholder: "15:00";
+                text <=> MeetingsPageData.edit-to;
+            }
+        }
+        if MeetingsPageData.can-edit: Field {
+            label: "地點或連結";
+            placeholder: "會議室、Teams 連結…（空白＝清掉）";
+            text <=> MeetingsPageData.edit-location;
+        }
+        if MeetingsPageData.can-edit: FieldLabel {
+            text: "參加者";
+        }
+        if MeetingsPageData.can-edit && MeetingsPageData.edit-people-message != "": Text {
+            text: MeetingsPageData.edit-people-message;
+            color: MeetingsPageData.edit-people-error ? Theme.error : Theme.muted;
+            font-size: Theme.fs-sm;
+            wrap: word-wrap;
+        }
+        if MeetingsPageData.can-edit: CheckWrap {
+            items: MeetingsPageData.edit-people;
+            item-width: 130px;
+            toggled(i, c) => {
+                MeetingsPageData.edit-person-toggled(i, c);
+            }
+        }
+        if MeetingsPageData.can-edit && MeetingsPageData.edit-recurring: FieldLabel {
+            text: "這是重複會議，要改";
+        }
+        if MeetingsPageData.can-edit && MeetingsPageData.edit-recurring: HorizontalLayout {
+            spacing: 14px;
+            alignment: start;
+            RadioDot {
+                text: "只改這一場";
+                on: !MeetingsPageData.edit-following;
+                clicked => {
+                    MeetingsPageData.edit-following = false;
+                }
+            }
+            RadioDot {
+                text: "這一場和之後的";
+                on: MeetingsPageData.edit-following;
+                clicked => {
+                    MeetingsPageData.edit-following = true;
+                }
+            }
+        }
+        FieldLabel {
+            text: "會議紀錄（整份取代）";
+        }
+        MdArea {
+            height: 160px;
+            text <=> MeetingsPageData.edit-note;
+            placeholder: "會議紀錄（Markdown；從 Excel 貼上會變成表格）";
+            md-table(k) => {
+                return MeetingsPageData.md-table(k);
+            }
+            md-insert(t, a, b, x) => {
+                return MeetingsPageData.md-insert(t, a, b, x);
+            }
+            md-cursor(t, a, b, x) => {
+                return MeetingsPageData.md-cursor(t, a, b, x);
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            PageButton {
+                text: "儲存";
+                primary: true;
+                busy: MeetingsPageData.saving;
+                clicked => {
+                    MeetingsPageData.edit-save();
+                }
+            }
+            PageButton {
+                text: "取消";
+                clicked => {
+                    MeetingsPageData.edit-cancel();
+                }
+            }
+        }
+    }
+}
+
+component Expander {
+    in property <MeetSection> section;
+    in property <int> index;
+    VerticalLayout {
+        spacing: 6px;
+        Rectangle {
+            height: 30px;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.section.open ? "▾" : "▸";
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                    width: 14px;
+                }
+                Text {
+                    text: root.section.title;
+                    color: Theme.ink;
+                    font-weight: 600;
+                    font-size: Theme.fs-md;
+                    vertical-alignment: center;
+                }
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    MeetingsPageData.section-toggled(root.index, !root.section.open);
+                }
+            }
+        }
+        if root.section.open: VerticalLayout {
+            padding-left: 20px;
+            spacing: 4px;
+            for b[j] in root.section.blocks: VerticalLayout {
+                if b.kind == 0: MutedText {
+                    text: b.text;
+                }
+                if b.kind == 1: Text {
+                    text: b.text;
+                    color: Theme.ink;
+                    font-weight: 600;
+                    font-size: Theme.fs-md;
+                    wrap: word-wrap;
+                }
+                if b.kind == 2: SubtleBox {
+                    ScrollView {
+                        height: min(b.max-h, body.preferred-height);
+                        body := PlainText {
+                            text: b.text;
+                            width: parent.width - 8px;
+                        }
+                    }
+                }
+                if b.kind == 3: Rectangle {
+                    VerticalLayout {
+                        Text {
+                            text: b.text;
+                            color: Theme.accent-ink;
+                            font-size: Theme.fs-md;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: b.meta;
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            overflow: elide;
+                        }
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            MeetingsPageData.block-clicked(root.index, j);
+                        }
+                    }
+                    if b.tip != "": Rectangle {
+                        Tooltip {
+                            Tip {
+                                text: b.tip;
+                            }
+                        }
+                    }
+                }
+                if b.kind == 4: Text {
+                    text: b.text;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                if b.kind == 5: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    for p in b.buttons: SmallButton {
+                        text: p.text;
+                        clicked => {
+                            MeetingsPageData.preview(p.id, p.name);
+                        }
+                    }
+                }
+                if b.kind == 6: ScrollView {
+                    height: min(b.max-h, plain.preferred-height);
+                    plain := PlainText {
+                        text: b.text;
+                        width: parent.width - 8px;
+                    }
+                }
+                if b.kind == 7: Text {
+                    text: b.text;
+                    color: Theme.error;
+                    font-size: Theme.fs-md;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
+
+component Detail inherits Rectangle {
+    background: Theme.card;
+    border-radius: 22px;
+    border-width: 1px;
+    border-color: Theme.line;
+    property <int> top: MeetingsPageData.scroll-top;
+    changed top => {
+        sv.content-y = 0;
+    }
+    sv := ScrollView {
+        VerticalLayout {
+            padding: 18px;
+            padding-top: 14px;
+            spacing: 6px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: MeetingsPageData.detail-title;
+                    color: Theme.ink;
+                    font-size: 16px;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+                SmallButton {
+                    text: "✕";
+                    tip: "關閉詳細";
+                    clicked => {
+                        MeetingsPageData.close-detail();
+                    }
+                }
+            }
+            if MeetingsPageData.detail-message != "": Text {
+                text: MeetingsPageData.detail-message;
+                color: MeetingsPageData.detail-error ? Theme.error : Theme.muted;
+                font-size: Theme.fs-md;
+                wrap: word-wrap;
+            }
+            if MeetingsPageData.detail-loaded: VerticalLayout {
+                spacing: 6px;
+                VerticalLayout {
+                    padding-top: 6px;
+                    spacing: 4px;
+                    for line in MeetingsPageData.info: HorizontalLayout {
+                        Text {
+                            width: 44px;
+                            text: line.label;
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                        }
+                        Text {
+                            text: line.value;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-top: 8px;
+                    spacing: 6px;
+                    alignment: start;
+                    PageButton {
+                        text: MeetingsPageData.can-edit ? "✎ 修改" : "✎ 修改會議紀錄";
+                        tip: MeetingsPageData.can-edit ? "名稱、時間、地點、參加者、會議紀錄" : "時間、參加者只有主辦或專案管理員能改；會議紀錄參加者都能改";
+                        clicked => {
+                            MeetingsPageData.edit-clicked();
+                        }
+                    }
+                    PageButton {
+                        text: MeetingsPageData.pin-text;
+                        tip: MeetingsPageData.pin-tip;
+                        clicked => {
+                            MeetingsPageData.pin-detail();
+                        }
+                    }
+                    PageButton {
+                        text: "在網頁開啟 ↗";
+                        clicked => {
+                            MeetingsPageData.detail-web();
+                        }
+                    }
+                }
+                StatusLine {
+                    text: MeetingsPageData.detail-status;
+                    tone: MeetingsPageData.detail-tone;
+                }
+                if MeetingsPageData.edit-open: EditForm { }
+                W3Group {
+                    text: "參加者（" + MeetingsPageData.people.length + "）";
+                }
+                for a in MeetingsPageData.people: HorizontalLayout {
+                    spacing: 0px;
+                    Text {
+                        text: a.name;
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                    }
+                    if a.state != "": Text {
+                        text: "　" + a.state;
+                        color: a.state-accent ? Theme.accent : Theme.muted;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    if a.logged != "": Text {
+                        text: "　" + a.logged;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                }
+                if MeetingsPageData.people.length == 0: MutedText {
+                    text: "沒有參加者";
+                }
+                for s[i] in MeetingsPageData.sections: Expander {
+                    section: s;
+                    index: i;
+                }
+            }
+        }
+    }
+}
+
+export component MeetingsPage inherits Rectangle {
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(e) => {
+            if (e.text == "p" || e.text == "P") && !e.modifiers.control && !e.modifiers.alt && !e.modifiers.shift && !e.modifiers.meta {
+                MeetingsPageData.key-p();
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 18px;
+            padding-bottom: 16px;
+            spacing: 10px;
+            HorizontalLayout {
+                PageTitle {
+                    text: "會議";
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                if !MeetingsPageData.form-open: PageButton {
+                    text: "＋ 新增會議";
+                    primary: true;
+                    clicked => {
+                        MeetingsPageData.new-clicked();
+                    }
+                }
+            }
+            if MeetingsPageData.form-open: NewForm { }
+            HorizontalLayout {
+                alignment: start;
+                TipSegmented {
+                    items: ["接下來", "參加過的"];
+                    current <=> MeetingsPageData.tab;
+                    selected(i) => {
+                        MeetingsPageData.tab-selected(i);
+                    }
+                }
+            }
+            StatusLine {
+                text: MeetingsPageData.list-status;
+                tone: MeetingsPageData.list-tone;
+            }
+            HorizontalLayout {
+                spacing: 14px;
+                vertical-stretch: 1;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    ScrollView {
+                        VerticalLayout {
+                            spacing: 8px;
+                            padding-right: 6px;
+                            alignment: start;
+                            for row[i] in MeetingsPageData.rows: MeetingCard {
+                                data: row;
+                                index: i;
+                                clicked => {
+                                    keys.focus();
+                                    MeetingsPageData.card-clicked(i);
+                                }
+                            }
+                        }
+                    }
+                    if MeetingsPageData.empty-text != "": CenterNote {
+                        text: MeetingsPageData.empty-text;
+                    }
+                }
+                if MeetingsPageData.detail-open: Detail {
+                    horizontal-stretch: 1.2;
+                }
+            }
+        }
+    }
+    ConfirmOverlay {
+        open: MeetingsPageData.confirm-open;
+        title: MeetingsPageData.confirm-title;
+        message: MeetingsPageData.confirm-text;
+        ok => {
+            MeetingsPageData.confirm-ok();
+        }
+        cancel => {
+            MeetingsPageData.confirm-cancel();
+        }
+    }
+}

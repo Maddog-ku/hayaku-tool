@@ -1,0 +1,13 @@
+[package]
+name = "hb-win"
+description = "原生 Win32：工作列小工具、系統匣、快捷鍵、系統事件"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+windows.workspace = true
+tiny-skia.workspace = true
+ab_glyph.workspace = true
+log.workspace = true

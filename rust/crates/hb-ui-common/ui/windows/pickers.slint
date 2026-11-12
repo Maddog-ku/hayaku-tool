@@ -1,0 +1,351 @@
+// 清單挑選類的視窗：移動任務（C# UI/MoveTaskWindow.cs）與選擇任務（C# UI/TaskPickerWindow.xaml）。
+import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icons } from "@hb/index.slint";
+import { MutedText, StatusLine, CheckRow } from "../common.slint";
+import { DialogBody, DialogButtons } from "dialog.slint";
+
+export struct MoveRow {
+    text: string,
+    depth: int,
+    dim: bool,
+}
+
+export struct PickRow {
+    key: string,
+    title: string,
+    detail: string,
+    selected: bool,
+}
+
+/// 選取列：淡色底＋左邊橘色細條，滑過淡灰（設計稿清單的 active）。
+component ListRow {
+    in property <bool> selected;
+    in property <length> radius: 12px;
+    callback clicked(event: PointerEvent);
+    callback double-clicked();
+    Rectangle {
+        border-radius: root.radius;
+        background: root.selected ? Theme.selected : ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: 180ms; }
+    }
+    Rectangle {
+        x: 4px;
+        y: (root.height - self.height) / 2;
+        width: 3px;
+        height: root.selected ? root.height - 16px : 0px;
+        border-radius: 1.5px;
+        background: Theme.accent;
+        animate height {
+            duration: Motion.spring-dur;
+            easing: Motion.spring;
+        }
+    }
+    @children
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                root.clicked(e);
+            }
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+    }
+}
+
+export component MoveTaskWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> window-title;
+    in property <string> intro;
+    in-out property <string> filter;
+    in-out property <bool> hide-done;
+    in property <[MoveRow]> rows;
+    in-out property <int> current: 0;
+    in property <string> message;
+    /// 0 錯誤、2 警告、3 一般（讀取中…）
+    in property <int> message-tone: 3;
+    callback filter-edited(text: string);
+    callback hide-done-toggled(on: bool);
+    callback accept();
+    callback cancel();
+    public function focus-filter() {
+        filter-box.focus();
+    }
+    title: window-title;
+    width: 520px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    forward-focus: filter-box;
+    property <length> row-height: 30px;
+    function scroll-to-current() {
+        let top = root.current * root.row-height;
+        if top + list.content-y < 0 {
+            list.content-y = -top;
+        } else if top + root.row-height + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - top - root.row-height;
+        }
+    }
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            if e.text == Key.DownArrow && root.rows.length > 0 {
+                root.current = min(root.rows.length - 1, root.current + 1);
+                root.scroll-to-current();
+                return EventResult.accept;
+            }
+            if e.text == Key.UpArrow && root.rows.length > 0 {
+                root.current = max(0, root.current - 1);
+                root.scroll-to-current();
+                return EventResult.accept;
+            }
+            if e.text == Key.Return {
+                root.accept();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        MutedText {
+            text: root.intro;
+            font-size: Theme.fs-md;
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            filter-box := TextField {
+                height: 42px;
+                icon: Icons.search;
+                text <=> root.filter;
+                font-size: Theme.fs-md;
+                edited(t) => {
+                    root.filter-edited(t);
+                }
+            }
+            CheckRow {
+                y: (parent.height - self.height) / 2;
+                text: "不顯示完成及不處理";
+                checked <=> root.hide-done;
+                toggled(on) => {
+                    root.hide-done-toggled(on);
+                }
+            }
+        }
+        Rectangle {
+            height: 360px;
+            border-radius: Theme.radius-input;
+            background: Theme.fill;
+            list := ScrollView {
+                x: 6px;
+                y: 6px;
+                width: parent.width - 12px;
+                height: parent.height - 12px;
+                content-height: root.rows.length * root.row-height;
+                for r[i] in root.rows: ListRow {
+                    x: 0;
+                    y: i * root.row-height;
+                    width: list.visible-width - 4px;
+                    height: root.row-height;
+                    selected: i == root.current;
+                    clicked => {
+                        root.current = i;
+                    }
+                    double-clicked => {
+                        root.current = i;
+                        root.accept();
+                    }
+                    Text {
+                        x: 12px + r.depth * 18px;
+                        width: parent.width - self.x - 8px;
+                        text: r.text;
+                        color: Theme.ink;
+                        opacity: r.dim ? 0.55 : 1;
+                        font-size: Theme.fs-md;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+        StatusLine {
+            text: root.message;
+            tone: root.message-tone;
+        }
+        DialogButtons {
+            Button {
+                text: "移到這裡";
+                kind: ButtonKind.primary;
+                clicked => {
+                    root.accept();
+                }
+            }
+            Button {
+                text: "取消";
+                kind: ButtonKind.secondary;
+                clicked => {
+                    root.cancel();
+                }
+            }
+        }
+    }
+}
+
+export component TaskPickerWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> prompt;
+    in-out property <string> search;
+    in property <[PickRow]> rows;
+    in-out property <int> current: -1;
+    callback search-edited(text: string);
+    /// 點了第 index 列（ctrl、shift：多選時加選、範圍選）
+    callback row-clicked(index: int, ctrl: bool, shift: bool);
+    callback move-current(delta: int);
+    callback accept();
+    callback cancel();
+    public function focus-search() {
+        search-box.focus();
+    }
+    title: "選擇任務";
+    preferred-width: 480px;
+    preferred-height: 520px;
+    min-width: 360px;
+    min-height: 360px;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: search-box;
+    property <length> row-height: 48px;
+    function scroll-to-current() {
+        let top = root.current * root.row-height;
+        if top + list.content-y < 0 {
+            list.content-y = -top;
+        } else if top + root.row-height + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - top - root.row-height;
+        }
+    }
+    changed current => {
+        root.scroll-to-current();
+    }
+    FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            if e.text == Key.DownArrow {
+                root.move-current(1);
+                return EventResult.accept;
+            }
+            if e.text == Key.UpArrow {
+                root.move-current(-1);
+                return EventResult.accept;
+            }
+            if e.text == Key.Return {
+                root.accept();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        VerticalLayout {
+            padding: 18px;
+            spacing: 8px;
+            Text {
+                text: root.prompt;
+                color: Theme.ink;
+                font-size: Theme.fs-base;
+                font-weight: 700;
+                wrap: word-wrap;
+            }
+            Text {
+                text: "搜尋，或直接輸入任務編號（例 F2P-97）";
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+            }
+            search-box := TextField {
+                height: 44px;
+                icon: Icons.search;
+                text <=> root.search;
+                font-size: Theme.fs-md;
+                edited(t) => {
+                    root.search-edited(t);
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: Theme.radius-input;
+                background: Theme.fill;
+                list := ScrollView {
+                    x: 6px;
+                    y: 6px;
+                    width: parent.width - 12px;
+                    height: parent.height - 12px;
+                    content-height: root.rows.length * root.row-height;
+                    for r[i] in root.rows: ListRow {
+                        x: 0;
+                        y: i * root.row-height;
+                        width: list.visible-width - 4px;
+                        height: root.row-height;
+                        selected: r.selected;
+                        clicked(e) => {
+                            root.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                        }
+                        double-clicked => {
+                            root.accept();
+                        }
+                        VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 10px;
+                            alignment: center;
+                            spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: r.key;
+                                    color: Theme.ink;
+                                    font-size: Theme.fs-md;
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: r.title;
+                                    color: Theme.ink;
+                                    font-size: Theme.fs-md;
+                                    overflow: elide;
+                                }
+                            }
+                            Text {
+                                text: r.detail;
+                                color: Theme.muted;
+                                font-size: 11px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+            DialogButtons {
+                Button {
+                    text: "確定";
+                    kind: ButtonKind.primary;
+                    clicked => {
+                        root.accept();
+                    }
+                }
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+            }
+        }
+    }
+}

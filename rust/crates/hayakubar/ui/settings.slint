@@ -1,0 +1,1679 @@
+// 設定（對應 C# UI/SettingsWindow.xaml）：左側分頁、右側卡片，改了立刻生效。
+// 最後多一頁「關於」放 Slint 的 AboutSlint（Slint 免版稅授權的要求）。
+import { AboutSlint } from "std-widgets.slint";
+import { Theme, Motion, Toggle, Dropdown, Segmented, TextField, ScrollView, Pill, Tone } from "@hb/index.slint";
+import { ColorKeys, LinkButton, CheckRow, NavItem, InfoCard, GroupLabel, PageTitle, FieldLabel } from "@hbc/index.slint";
+import { Hint, SmallButton, GlyphButton } from "widgets.slint";
+
+/// 主資料夾裡的一個專案（C# ProjectItem）。
+export struct ProjectRow {
+    name: string,
+    path: string,
+    detail: string,
+    detail-color: int,
+    /// 圓點：0 line、2 run、3 claude
+    dot-color: int,
+    enabled: bool,
+    auto-create: bool,
+}
+
+/// 一個主資料夾（C# RepoItem）。
+export struct RepoCard {
+    name: string,
+    path: string,
+    enabled: bool,
+    auto-create: bool,
+    include-subprojects: bool,
+    hooks-text: string,
+    hooks-color: int,
+    hooks-action: string,
+    activity-text: string,
+    activity-color: int,
+    activity-visible: bool,
+    projects-header: string,
+    projects: [ProjectRow],
+}
+
+/// 卡片（C# Card 樣式）。
+component SettingCard inherits Rectangle {
+    in property <length> pad-x: 18px;
+    in property <length> pad-y: 15px;
+    background: Theme.card;
+    border-radius: 18px;
+    lay := VerticalLayout {
+        padding-left: root.pad-x;
+        padding-right: root.pad-x;
+        padding-top: root.pad-y;
+        padding-bottom: root.pad-y;
+        spacing: 0px;
+        @children
+    }
+}
+
+/// 卡片左邊的標題＋說明（C# SettingText／CardTitle／CardDesc）。
+component SettingText {
+    in property <string> title;
+    in property <string> desc;
+    in property <bool> bold;
+    horizontal-stretch: 1;
+    VerticalLayout {
+        spacing: 3px;
+        alignment: center;
+        Text {
+            color: Theme.ink;
+            text: root.title;
+            font-size: 13.5px;
+            font-weight: root.bold ? 700 : 600;
+            wrap: word-wrap;
+        }
+        if root.desc != "": Text {
+            text: root.desc;
+            color: Theme.muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+}
+
+/// 說明文字（C# CardDesc）。
+component Desc inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    wrap: word-wrap;
+}
+
+/// 開關卡片：左邊標題說明、右邊開關。
+component ToggleCard inherits SettingCard {
+    in property <string> title;
+    in property <string> desc;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    HorizontalLayout {
+        spacing: 16px;
+        SettingText {
+            title: root.title;
+            desc: root.desc;
+        }
+        VerticalLayout {
+            alignment: center;
+            Toggle {
+                checked <=> root.checked;
+                enabled: root.enabled;
+                toggled(v) => {
+                    root.toggled(v);
+                }
+            }
+        }
+    }
+}
+
+/// 頁面容器：標題＋卡片，卡片之間留 10px。
+component Page inherits VerticalLayout {
+    in property <string> title;
+    spacing: 10px;
+    if root.title != "": Text {
+        color: Theme.ink;
+        text: root.title;
+        font-size: 22px;
+        font-weight: 700;
+        height: self.preferred-height + 6px;
+        vertical-alignment: top;
+    }
+    @children
+}
+
+/// 錄製快捷鍵的框（C# HotkeyBox：唯讀，按下組合鍵就套用）。
+component HotkeyBox {
+    in property <string> text;
+    callback key(KeyEvent) -> bool;
+    width: 160px;
+    height: 36px;
+    forward-focus: fs;
+    Rectangle {
+        border-radius: 12px;
+        background: fs.has-focus ? Theme.card : Theme.fill;
+        border-width: 1.5px;
+        border-color: fs.has-focus ? Theme.ink : transparent;
+        animate background, border-color { duration: 200ms; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+        }
+    }
+    Text {
+        color: Theme.ink;
+        text: root.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 12.5px;
+        font-weight: 600;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            root.key(e) ? EventResult.accept : EventResult.reject
+        }
+    }
+    Hint {
+        text: "點這裡後按下組合鍵，例 Win+Shift+H";
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "HayakuBar 設定";
+    icon: @image-url("../assets/app.ico");
+    preferred-width: 800px;
+    preferred-height: 600px;
+    min-width: 680px;
+    min-height: 480px;
+    background: Theme.bg;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+
+    in-out property <int> page;
+    in property <string> nav-user;
+    in property <string> version-text;
+
+    // 帳號
+    in property <string> avatar-text: "?";
+    in property <string> account-name;
+    in property <string> account-detail;
+    in property <string> account-button: "登入";
+    in property <bool> account-primary: true;
+    in property <bool> account-enabled: true;
+
+    // 工作列
+    in-out property <int> anchor-index: 3;
+    in-out property <int> layout-index: 1;
+    in-out property <string> offset-text: "0";
+
+    // 上下班
+    in-out property <bool> auto-schedule;
+    in property <string> schedule-text;
+
+    // Claude
+    in-out property <bool> claude-enabled;
+    in-out property <bool> claude-only-work;
+
+    // EIP
+    in property <bool> eip-logged-in;
+    in property <string> eip-account-text;
+    in-out property <string> eip-account;
+    in-out property <string> eip-password;
+    in property <bool> eip-test-enabled: true;
+    in property <string> eip-status;
+    in property <int> eip-status-color: 1;
+    in-out property <bool> eip-sync;
+    in property <string> eip-sync-status;
+    in property <int> eip-sync-color: 1;
+    in property <bool> eip-sync-enabled;
+
+    // Slack
+    in property <bool> slack-connected;
+    in property <string> slack-account-text;
+    in property <bool> slack-test-enabled: true;
+    in-out property <bool> slack-forward;
+    in property <string> slack-live;
+    in property <int> slack-live-color: 1;
+    in-out property <string> slack-bot;
+    in-out property <string> slack-app;
+    in-out property <string> slack-user;
+    in property <bool> slack-connect-enabled: true;
+    in property <string> slack-status;
+    in property <int> slack-status-color: 1;
+
+    // 專案
+    in property <[RepoCard]> repos;
+
+    // 一般
+    in-out property <int> theme-index;
+    in-out property <int> panel-height-index;
+    in property <string> hotkey-text;
+    in-out property <int> meeting-lead-index;
+    in-out property <bool> meeting-alerts;
+    in-out property <bool> meeting-all-projects;
+    in-out property <bool> meeting-pauses-others;
+    in-out property <bool> reminder-alerts;
+    in-out property <int> popup-seconds-index;
+    in-out property <bool> notification-alerts;
+    in-out property <bool> quiet-when-busy;
+    in-out property <bool> prompt-unfilled;
+    in-out property <bool> startup;
+    in-out property <bool> sync-only-work;
+    in-out property <int> poll-index;
+    in property <string> mcp-stats;
+    in property <string> data-dir;
+
+    callback page-selected(int);
+    // 帳號
+    callback account-clicked();
+    callback open-web();
+    callback web-setting(string);
+    // 工作列
+    callback anchor-changed(int);
+    callback layout-changed(int);
+    callback offset-commit();
+    callback offset-reset();
+    // 開關（哪一個由 Rust 讀屬性）
+    callback toggled();
+    // EIP
+    callback eip-login();
+    callback eip-logout();
+    callback eip-sync-toggled(bool);
+    callback eip-sync-now();
+    // Slack
+    callback slack-copy-manifest();
+    callback slack-open-apps();
+    callback slack-connect();
+    callback slack-test();
+    callback slack-logout();
+    callback slack-forward-toggled(bool);
+    // 專案
+    callback discover(length, length);
+    callback add-repo();
+    callback repo-toggle(int, string, bool);
+    callback project-toggle(int, int, string, bool);
+    callback hooks(int);
+    callback remove-repo(int);
+    callback redetect(int);
+    // 一般
+    callback theme-changed(int);
+    callback panel-height-changed(int);
+    callback hotkey-key(KeyEvent) -> bool;
+    callback hotkey-default();
+    callback meeting-lead-changed(int);
+    callback popup-seconds-changed(int);
+    callback startup-toggled(bool);
+    callback poll-changed(int);
+    callback open-data-dir();
+
+    property <[string]> nav: ["帳號", "工作列", "上下班", "專案", "Claude Code", "EIP 請假", "Slack", "一般", "關於"];
+
+    HorizontalLayout {
+        // ---- 導覽 ----
+        VerticalLayout {
+            width: 210px;
+            padding-left: 14px;
+            padding-right: 10px;
+            padding-top: 18px;
+            padding-bottom: 14px;
+            spacing: 2px;
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-bottom: 18px;
+                spacing: 10px;
+                Image {
+                    width: 32px;
+                    height: 32px;
+                    source: @image-url("../assets/app.ico");
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Text {
+                        color: Theme.ink;
+                        text: "HayakuBar";
+                        font-weight: 700;
+                        font-size: 14px;
+                    }
+                    Text {
+                        text: root.nav-user;
+                        color: Theme.muted;
+                        font-size: 11px;
+                        overflow: elide;
+                    }
+                }
+            }
+            for item[i] in root.nav: NavItem {
+                text: item;
+                selected: i == root.page;
+                clicked => {
+                    root.page = i;
+                    root.page-selected(i);
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+            }
+            Text {
+                text: root.version-text;
+                color: Theme.muted;
+                font-size: 11px;
+                x: 8px;
+            }
+        }
+
+        // ---- 內容 ----
+        sv := ScrollView {
+            content-height: content.preferred-height;
+            content := VerticalLayout {
+                x: 0;
+                width: min(sv.visible-width, 720px + 52px);
+                padding-left: 24px;
+                padding-right: 28px;
+                padding-top: 20px;
+                padding-bottom: 20px;
+
+                // ===== 帳號 =====
+                if root.page == 0: Page {
+                    title: "帳號";
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 14px;
+                            Rectangle {
+                                width: 44px;
+                                height: 44px;
+                                border-radius: 22px;
+                                background: Theme.fill;
+                                Text {
+                                    color: Theme.ink;
+                                    text: root.avatar-text;
+                                    font-size: 17px;
+                                    font-weight: 700;
+                                }
+                            }
+                            SettingText {
+                                title: root.account-name;
+                                desc: root.account-detail;
+                                bold: true;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    height: 32px;
+                                    horizontal-padding: 18px;
+                                    text: root.account-button;
+                                    primary: root.account-primary;
+                                    enabled: root.account-enabled;
+                                    clicked => {
+                                        root.account-clicked();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "連線方式";
+                                desc: "以 Hayaku「已連線的應用程式」授權，工具不會碰到密碼；可隨時在 Hayaku「我的 › 已連線的應用程式」撤銷。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "開啟 Hayaku";
+                                    clicked => {
+                                        root.open-web();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        SettingText {
+                            title: "Hayaku 個人設定";
+                            desc: "這些設定 Hayaku 還沒開放給應用程式改，點了直接開網頁的那一頁。";
+                        }
+                        FlexboxLayout {
+                            padding-top: 8px;
+                            spacing: 16px;
+                            Rectangle {
+                                width: l1.preferred-width;
+                                height: l1.preferred-height;
+                                l1 := LinkButton {
+                                    text: "基本資料與偏好";
+                                    clicked => {
+                                        root.web-setting("/me");
+                                    }
+                                }
+                                Hint {
+                                    text: "頭像、顯示名稱、職稱、工時顯示單位、同一時間只能有一個進行中任務";
+                                }
+                            }
+                            Rectangle {
+                                width: l2.preferred-width;
+                                height: l2.preferred-height;
+                                l2 := LinkButton {
+                                    text: "外觀";
+                                    clicked => {
+                                        root.web-setting("/me?tab=appearance");
+                                    }
+                                }
+                                Hint {
+                                    text: "網頁的淺色、暗色、跟隨系統";
+                                }
+                            }
+                            Rectangle {
+                                width: l3.preferred-width;
+                                height: l3.preferred-height;
+                                l3 := LinkButton {
+                                    text: "工作時間";
+                                    clicked => {
+                                        root.web-setting("/me?tab=work-time");
+                                    }
+                                }
+                                Hint {
+                                    text: "依工作時間自動暫停計時（午休、下班）";
+                                }
+                            }
+                            Rectangle {
+                                width: l4.preferred-width;
+                                height: l4.preferred-height;
+                                l4 := LinkButton {
+                                    text: "通知";
+                                    clicked => {
+                                        root.web-setting("/me?tab=notifications");
+                                    }
+                                }
+                                Hint {
+                                    text: "通知量、各類通知要不要推播、提醒的預設方式、Hayaku 的 Slack 開通";
+                                }
+                            }
+                            Rectangle {
+                                width: l5.preferred-width;
+                                height: l5.preferred-height;
+                                l5 := LinkButton {
+                                    text: "安全";
+                                    clicked => {
+                                        root.web-setting("/me?tab=security");
+                                    }
+                                }
+                                Hint {
+                                    text: "兩步驟驗證";
+                                }
+                            }
+                            Rectangle {
+                                width: l6.preferred-width;
+                                height: l6.preferred-height;
+                                l6 := LinkButton {
+                                    text: "已連線的應用程式";
+                                    clicked => {
+                                        root.web-setting("/me?tab=claude");
+                                    }
+                                }
+                                Hint {
+                                    text: "Claude Code、HayakuBar 等已授權的應用程式，可以中斷連線";
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== 工作列 =====
+                if root.page == 1: Page {
+                    title: "工作列";
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "顯示位置";
+                                desc: "放不下時會自動移到不會蓋到圖示的地方。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Dropdown {
+                                    width: 190px;
+                                    items: ["最左邊", "工作列圖示左側", "工作列圖示右側", "通知區域左側"];
+                                    current <=> root.anchor-index;
+                                    selected(i) => {
+                                        root.anchor-changed(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "顯示方式";
+                                desc: "一排比較寬、好讀；兩排比較窄，適合空間不多時。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Segmented {
+                                    items: ["一排", "兩排"];
+                                    current <=> root.layout-index;
+                                    selected(i) => {
+                                        root.layout-changed(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "位置微調";
+                                desc: "正數往右、負數往左。也可以直接在工作列上左右拖曳工時。";
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: end;
+                                offset-box := TextField {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 76px;
+                                    height: 36px;
+                                    font-size: 13px;
+                                    radius: 12px;
+                                    text <=> root.offset-text;
+                                    property <bool> focused: self.has-focus;
+                                    changed focused => {
+                                        if !self.focused {
+                                            root.offset-commit();
+                                        }
+                                    }
+                                    accepted => {
+                                        root.offset-commit();
+                                    }
+                                }
+                                Text {
+                                    text: "px";
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    padding-left: 4px;
+                                    SmallButton {
+                                        text: "重設";
+                                        clicked => {
+                                            root.offset-reset();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    InfoCard {
+                        Desc {
+                            text: "在工作列的工時上按右鍵，也可以切換位置和顯示方式。";
+                        }
+                    }
+                }
+
+                // ===== 上下班 =====
+                if root.page == 2: Page {
+                    title: "上下班";
+                    ToggleCard {
+                        title: "依班表自動上下班";
+                        desc: "班表、請假、國定假日都以 Hayaku 為準。";
+                        checked <=> root.auto-schedule;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    SettingCard {
+                        SettingText {
+                            title: "今天的班表";
+                        }
+                        Text {
+                            text: root.schedule-text;
+                            color: Theme.muted;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+                    }
+                    GroupLabel {
+                        text: "自動做的事";
+                        height: self.preferred-height + 12px;
+                        vertical-alignment: bottom;
+                    }
+                    InfoCard {
+                        GridLayout {
+                            spacing-horizontal: 18px;
+                            spacing-vertical: 6px;
+                            Row {
+                                Text {
+                                    color: Theme.ink;
+                                    text: "上班時間到";
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    color: Theme.ink;
+                                    text: "恢復上次那組任務開始計時";
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Row {
+                                Text {
+                                    color: Theme.ink;
+                                    text: "休息開始";
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    color: Theme.ink;
+                                    text: "全部暫停";
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Row {
+                                Text {
+                                    color: Theme.ink;
+                                    text: "休息結束";
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    color: Theme.ink;
+                                    text: "自動恢復休息前在跑的任務";
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Row {
+                                Text {
+                                    color: Theme.ink;
+                                    text: "下班時間到";
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    color: Theme.ink;
+                                    text: "全部停止";
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Row {
+                                Text {
+                                    color: Theme.ink;
+                                    text: "手動";
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    color: Theme.ink;
+                                    text: "面板上的「上班／下班」隨時可按；按了下班當天就不再自動上班。";
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== 專案 =====
+                if root.page == 3: Page {
+                    title: "";
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            color: Theme.ink;
+                            horizontal-stretch: 1;
+                            text: "專案";
+                            font-size: 22px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            discover-btn := SmallButton {
+                                height: 32px;
+                                text: "從最近的 session 加入 ▾";
+                                tip: "列出 Claude Code（CLI 與桌面版）最近用過的資料夾";
+                                clicked => {
+                                    root.discover(self.absolute-position.x, self.absolute-position.y + self.height);
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            SmallButton {
+                                height: 32px;
+                                text: "＋ 選擇資料夾";
+                                primary: true;
+                                clicked => {
+                                    root.add-repo();
+                                }
+                            }
+                        }
+                    }
+                    Desc {
+                        text: "加入放專案的主資料夾（例 D:\\repo）就好，裡面的專案會自動偵測、各自計時。";
+                        font-size: 13px;
+                    }
+                    for r[i] in root.repos: SettingCard {
+                        HorizontalLayout {
+                            spacing: 12px;
+                            // 資料夾圖示（C# RepoCard 的 Path）
+                            VerticalLayout {
+                                alignment: center;
+                                Path {
+                                    width: 20px;
+                                    height: 17px;
+                                    viewbox-width: 20;
+                                    viewbox-height: 17;
+                                    commands: "M1,3 C1,2 1.6,1.5 2.5,1.5 L7,1.5 L9,3.5 L17.5,3.5 C18.4,3.5 19,4.1 19,5 L19,14 C19,14.9 18.4,15.5 17.5,15.5 L2.5,15.5 C1.6,15.5 1,14.9 1,14 Z";
+                                    fill: Theme.folder;
+                                    stroke: Theme.accent;
+                                    stroke-width: 1.2px;
+                                }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    alignment: center;
+                                    Text {
+                                        color: Theme.ink;
+                                        text: r.name;
+                                        font-size: 13.5px;
+                                        font-weight: 700;
+                                    }
+                                    Text {
+                                        text: r.path;
+                                        color: Theme.muted;
+                                        font-size: 12px;
+                                        overflow: elide;
+                                    }
+                                }
+                                Hint {
+                                    text: r.path;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 46px;
+                                    height: 28px;
+                                    Toggle {
+                                        checked: r.enabled;
+                                        toggled(v) => {
+                                            root.repo-toggle(i, "enabled", v);
+                                        }
+                                    }
+                                    Hint {
+                                        text: "啟用／停用整個主資料夾的自動計時";
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-top: 12px;
+                            spacing: 6px;
+                            Rectangle {
+                                width: auto-root.preferred-width;
+                                auto-root := CheckRow {
+                                    text: "自動建立任務";
+                                    checked: r.auto-create;
+                                    enabled: r.enabled;
+                                    tip: "在這個資料夾本身（不含裡面的專案）開的 Claude session 改了程式、又對應不到任務時，跳提示問要不要建立任務";
+                                    toggled(v) => {
+                                        root.repo-toggle(i, "auto-create", v);
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                text: r.hooks-text;
+                                color: ColorKeys.color(r.hooks-color);
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                width: 4px;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: r.hooks-action;
+                                    clicked => {
+                                        root.hooks(i);
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "移除";
+                                    clicked => {
+                                        root.remove-repo(i);
+                                    }
+                                }
+                            }
+                        }
+                        if r.activity-visible: VerticalLayout {
+                            padding-top: 10px;
+                            Rectangle {
+                                background: Theme.fill;
+                                border-radius: 10px;
+                                min-height: act.preferred-height + 14px;
+                                act := Text {
+                                    x: 10px;
+                                    width: parent.width - 20px;
+                                    text: r.activity-text;
+                                    color: ColorKeys.color(r.activity-color);
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            padding-top: 12px;
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.line;
+                            }
+                            HorizontalLayout {
+                                padding-top: 10px;
+                                spacing: 8px;
+                                Text {
+                                    color: Theme.ink;
+                                    horizontal-stretch: 1;
+                                    text: r.projects-header;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: "自動偵測";
+                                    color: Theme.muted;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 46px;
+                                        height: 28px;
+                                        Toggle {
+                                            checked: r.include-subprojects;
+                                            toggled(v) => {
+                                                root.repo-toggle(i, "include", v);
+                                            }
+                                        }
+                                        Hint {
+                                            text: "自動找出裡面的專案（git repo，或 Claude 開過 session 的子資料夾）";
+                                        }
+                                    }
+                                }
+                                GlyphButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "重新偵測";
+                                    clicked => {
+                                        root.redetect(i);
+                                    }
+                                }
+                            }
+                            if r.include-subprojects && r.projects.length > 0: Desc {
+                                text: "每個專案各自計時，可個別停用；勾「自動建立任務」的專案，Claude 改了程式卻對應不到任務時會問你要不要建立。";
+                                height: self.preferred-height + 8px;
+                                vertical-alignment: center;
+                            }
+                            if r.include-subprojects: VerticalLayout {
+                                for p[j] in r.projects: HorizontalLayout {
+                                    padding-top: 5px;
+                                    padding-bottom: 5px;
+                                    spacing: 0px;
+                                    Rectangle {
+                                        width: 16px;
+                                        Rectangle {
+                                            x: 0;
+                                            width: 8px;
+                                            height: 8px;
+                                            border-radius: 4px;
+                                            background: p.dot-color == 0 ? Theme.line : ColorKeys.color(p.dot-color);
+                                        }
+                                    }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 1px;
+                                            Text {
+                                                color: Theme.ink;
+                                                text: p.name;
+                                                font-weight: 700;
+                                            }
+                                            Text {
+                                                text: p.detail;
+                                                color: ColorKeys.color(p.detail-color);
+                                                font-size: 12px;
+                                                overflow: elide;
+                                            }
+                                        }
+                                        Hint {
+                                            text: p.path;
+                                        }
+                                    }
+                                    Rectangle {
+                                        width: 12px;
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: proj-auto.preferred-width;
+                                            height: proj-auto.preferred-height;
+                                            proj-auto := CheckRow {
+                                                text: "自動建立任務";
+                                                checked: p.auto-create;
+                                                enabled: p.enabled;
+                                                tip: "Claude 在這個專案改了程式、又對應不到任務時，跳提示問要不要建立任務（只是問問題不會跳）";
+                                                toggled(v) => {
+                                                    root.project-toggle(i, j, "auto-create", v);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        width: 14px;
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: 46px;
+                                            height: 28px;
+                                            Toggle {
+                                                checked: p.enabled;
+                                                toggled(v) => {
+                                                    root.project-toggle(i, j, "enabled", v);
+                                                }
+                                            }
+                                            Hint {
+                                                text: "這個專案要不要自動計時";
+                                            }
+                                        }
+                                    }
+                                }
+                                if r.projects.length == 0: Desc {
+                                    text: "沒有偵測到專案。子資料夾要是 git repo，或 Claude 曾在裡面開過 session。";
+                                    height: self.preferred-height + 6px;
+                                    vertical-alignment: bottom;
+                                }
+                            }
+                        }
+                    }
+                    if root.repos.length == 0: SettingCard {
+                        pad-y: 22px;
+                        Text {
+                            text: "還沒有加入資料夾。按「選擇資料夾」加入主資料夾，或「從最近的 session 加入」挑 Claude 用過的資料夾。";
+                            color: Theme.muted;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                    GroupLabel {
+                        text: "關於 Hooks";
+                        height: self.preferred-height + 12px;
+                        vertical-alignment: bottom;
+                    }
+                    InfoCard {
+                        Desc {
+                            text: "選用。沒裝也會讀 session 紀錄；裝了會寫進主資料夾和各專案的 .claude/settings.local.json，送出指令就會馬上開始計時。";
+                        }
+                    }
+                }
+
+                // ===== Claude Code =====
+                if root.page == 4: Page {
+                    title: "Claude Code";
+                    ToggleCard {
+                        title: "自動計時";
+                        desc: "Claude 在「專案」頁的資料夾裡有動作時，為對應任務開始計時，之後持續計時到休息、下班或手動暫停。";
+                        checked <=> root.claude-enabled;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    ToggleCard {
+                        title: "只在上班時間自動計時";
+                        desc: "下班後或休息時 Claude 有動作不會開始計時（你有手動計時在跑時除外）。";
+                        checked <=> root.claude-only-work;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    GroupLabel {
+                        text: "怎麼判斷是哪個任務";
+                        height: self.preferred-height + 12px;
+                        vertical-alignment: bottom;
+                    }
+                    InfoCard {
+                        VerticalLayout {
+                            spacing: 8px;
+                            Text {
+                                color: Theme.ink;
+                                text: "依序看：面板上手動指定 → 對話裡提到的任務編號 → git 分支名稱（例 feature/F2P-97-xxx）。都偵測不到就不計時，可在面板的 Claude 區按「選擇」指定這個 session 的任務。";
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                color: Theme.ink;
+                                text: "在「專案」頁勾了「自動建立任務」的專案：Claude 開始改程式、卻對應不到任務時，會跳提示問要不要建立任務（只是問問題、規劃不會跳，同一個 session 只問一次）。建立時專案會自動選好，你選專案樹上的位置、狀態與預計起訖，建好後就為這個 session 計時。";
+                                wrap: word-wrap;
+                            }
+                            Desc {
+                                text: "CLI 和桌面版的 session 都存在 %USERPROFILE%\\.claude\\projects，兩邊都會偵測到。要監看哪些資料夾、停用哪些專案，在「專案」頁設定。";
+                            }
+                        }
+                    }
+                }
+
+                // ===== EIP 請假 =====
+                if root.page == 5: Page {
+                    title: "EIP 請假";
+                    SettingCard {
+                        if root.eip-logged-in: HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "EIP 帳號";
+                                desc: root.eip-account-text;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Pill {
+                                    text: "✓ 已登入";
+                                    tone: Tone.run;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "登出";
+                                    tip: "刪掉存在這台電腦的 EIP 帳密，之後不再同步請假";
+                                    clicked => {
+                                        root.eip-logout();
+                                    }
+                                }
+                            }
+                        }
+                        if !root.eip-logged-in: VerticalLayout {
+                            spacing: 0px;
+                            SettingText {
+                                title: "EIP 帳號";
+                                desc: "用來讀取你在公司 EIP 的請假紀錄。帳密用 Windows 加密存在這台電腦，只有你的 Windows 帳號解得開。";
+                            }
+                            HorizontalLayout {
+                                padding-top: 12px;
+                                spacing: 12px;
+                                VerticalLayout {
+                                    spacing: 4px;
+                                    FieldLabel {
+                                        text: "帳號";
+                                    }
+                                    TextField {
+                                        height: 36px;
+                                        font-size: 13px;
+                                        radius: 12px;
+                                        text <=> root.eip-account;
+                                        accepted => {
+                                            root.eip-login();
+                                        }
+                                    }
+                                }
+                                VerticalLayout {
+                                    spacing: 4px;
+                                    FieldLabel {
+                                        text: "密碼";
+                                    }
+                                    TextField {
+                                        height: 36px;
+                                        font-size: 13px;
+                                        radius: 12px;
+                                        input-type: InputType.password;
+                                        text <=> root.eip-password;
+                                        accepted => {
+                                            root.eip-login();
+                                        }
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                padding-top: 12px;
+                                alignment: end;
+                                SmallButton {
+                                    height: 32px;
+                                    horizontal-padding: 18px;
+                                    text: "登入";
+                                    primary: true;
+                                    enabled: root.eip-test-enabled;
+                                    tip: "實際登入 EIP 一次，成功才會儲存";
+                                    clicked => {
+                                        root.eip-login();
+                                    }
+                                }
+                            }
+                        }
+                        if root.eip-status != "": Text {
+                            text: root.eip-status;
+                            color: ColorKeys.color(root.eip-status-color);
+                            font-size: 12px;
+                            wrap: word-wrap;
+                            height: self.preferred-height + 10px;
+                            vertical-alignment: bottom;
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "上班前、下班時同步請假到 Hayaku";
+                                desc: "每天上班前 15 分鐘和下班時各讀一次 EIP 的假單（待審和核准），今天到下一個上班日有請假就登記到 Hayaku；請好幾天的會整段登記。早上臨時請了整天假，就不會自動上班；那天沒開電腦的，下次會補登（最多 7 天）。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Toggle {
+                                    checked <=> root.eip-sync;
+                                    enabled: root.eip-logged-in;
+                                    toggled(v) => {
+                                        root.eip-sync-toggled(v);
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-top: 12px;
+                            spacing: 16px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: root.eip-sync-status;
+                                color: ColorKeys.color(root.eip-sync-color);
+                                font-size: 12px;
+                                wrap: word-wrap;
+                                vertical-alignment: center;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "立即同步";
+                                    enabled: root.eip-sync-enabled;
+                                    tip: "現在就讀 EIP，登記今天到下一個上班日的請假（下班後才在 EIP 補請的假用這個）";
+                                    clicked => {
+                                        root.eip-sync-now();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    InfoCard {
+                        VerticalLayout {
+                            spacing: 8px;
+                            Desc {
+                                text: "按「登入」會實際登入 EIP 一次，成功才會儲存；帳密錯誤不會存。按「登出」會刪掉存在這台電腦的帳密。";
+                            }
+                            Desc {
+                                text: "同步的時間：有上班的日子，依班表下班時間到或按了下班時；那天電腦沒開到下班的話，下一個上班日補做。請假、放假、週末不會同步，也不會自動跟 Hayaku 要任何資料（按 ⟳ 才會）。Hayaku 那段時間已經有請假（例如你手動登記過）就不重複登記。";
+                            }
+                            Desc {
+                                text: "EIP 那邊駁回、抽單或銷假時，只取消當初由同步建立的請假，你手動登記的不會動。同步建立的請假，備註會寫 EIP 單號與假別。";
+                            }
+                        }
+                    }
+                }
+
+                // ===== Slack =====
+                if root.page == 6: Page {
+                    title: "Slack";
+                    if root.slack-connected: SettingCard {
+                        HorizontalLayout {
+                            spacing: 8px;
+                            SettingText {
+                                title: "Slack App";
+                                desc: root.slack-account-text;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Pill {
+                                    text: "✓ 已連線";
+                                    tone: Tone.run;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "送測試訊息";
+                                    enabled: root.slack-test-enabled;
+                                    clicked => {
+                                        root.slack-test();
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "中斷連線";
+                                    tip: "刪掉存在這台電腦的 Slack 金鑰，之後不再傳到 Slack";
+                                    clicked => {
+                                        root.slack-logout();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.slack-connected: SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "把通知傳到 Slack";
+                                desc: "要你動手處理的一律傳：待我審核（核准、核准並關注、駁回）、測試結果待復驗（通過、退回）、測試結果被退回（開始修並計時）。其他通知只在螢幕鎖定時傳（標為已讀、封存）。電腦上的提示照樣跳。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Toggle {
+                                    checked <=> root.slack-forward;
+                                    toggled(v) => {
+                                        root.slack-forward-toggled(v);
+                                    }
+                                }
+                            }
+                        }
+                        if root.slack-live != "": Text {
+                            text: root.slack-live;
+                            color: ColorKeys.color(root.slack-live-color);
+                            font-size: 12px;
+                            wrap: word-wrap;
+                            height: self.preferred-height + 12px;
+                            vertical-alignment: bottom;
+                        }
+                    }
+                    if !root.slack-connected: SettingCard {
+                        SettingText {
+                            title: "1. 在 Slack 建立 App";
+                            desc: "按「複製 App 設定」，再按「開啟 Slack App 管理頁」→ Create New App → From a manifest → 選公司的工作區 → 貼上 → Create。";
+                        }
+                        HorizontalLayout {
+                            padding-top: 10px;
+                            spacing: 8px;
+                            alignment: end;
+                            SmallButton {
+                                text: "複製 App 設定";
+                                tip: "App 名稱、私訊權限、Socket Mode 與按鈕互動都已經設好";
+                                clicked => {
+                                    root.slack-copy-manifest();
+                                }
+                            }
+                            SmallButton {
+                                text: "開啟 Slack App 管理頁";
+                                clicked => {
+                                    root.slack-open-apps();
+                                }
+                            }
+                        }
+                    }
+                    if !root.slack-connected: SettingCard {
+                        VerticalLayout {
+                            spacing: 4px;
+                            SettingText {
+                                title: "2. 貼上金鑰";
+                                desc: "金鑰用 Windows 加密存在這台電腦，只有你的 Windows 帳號解得開。";
+                            }
+                            FieldLabel {
+                                text: "Bot User OAuth Token（xoxb- 開頭）";
+                                height: self.preferred-height + 10px;
+                                vertical-alignment: bottom;
+                            }
+                            TextField {
+                                height: 36px;
+                                font-size: 13px;
+                                radius: 12px;
+                                input-type: InputType.password;
+                                text <=> root.slack-bot;
+                                accepted => {
+                                    root.slack-connect();
+                                }
+                            }
+                            Desc {
+                                text: "App 左邊「Install App」→ Install to Workspace（工作區要管理員核准的話會變成送出申請，核准後再回來）→ 複製 Bot User OAuth Token。";
+                                font-size: 11.5px;
+                            }
+                            FieldLabel {
+                                text: "App-Level Token（xapp- 開頭）";
+                                height: self.preferred-height + 10px;
+                                vertical-alignment: bottom;
+                            }
+                            TextField {
+                                height: 36px;
+                                font-size: 13px;
+                                radius: 12px;
+                                input-type: InputType.password;
+                                text <=> root.slack-app;
+                                accepted => {
+                                    root.slack-connect();
+                                }
+                            }
+                            Desc {
+                                text: "「Basic Information」→ App-Level Tokens → Generate Token and Scopes，名稱隨意，加 connections:write → Generate → 複製。用來接收你在 Slack 按的按鈕。";
+                                font-size: 11.5px;
+                            }
+                            FieldLabel {
+                                text: "你的 Slack 成員 ID（U 開頭）";
+                                height: self.preferred-height + 10px;
+                                vertical-alignment: bottom;
+                            }
+                            TextField {
+                                height: 36px;
+                                font-size: 13px;
+                                radius: 12px;
+                                text <=> root.slack-user;
+                                accepted => {
+                                    root.slack-connect();
+                                }
+                            }
+                            Desc {
+                                text: "在 Slack 點自己的頭像 → 個人檔案 → ⋮ → 複製成員 ID。訊息會私訊給這個人。";
+                                font-size: 11.5px;
+                            }
+                            HorizontalLayout {
+                                padding-top: 8px;
+                                alignment: end;
+                                SmallButton {
+                                    height: 32px;
+                                    horizontal-padding: 18px;
+                                    text: "連線並送測試訊息";
+                                    primary: true;
+                                    enabled: root.slack-connect-enabled;
+                                    tip: "檢查兩組金鑰、私訊你一則測試訊息，都成功才會儲存";
+                                    clicked => {
+                                        root.slack-connect();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.slack-status != "": Text {
+                        x: 2px;
+                        text: root.slack-status;
+                        color: ColorKeys.color(root.slack-status-color);
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    InfoCard {
+                        VerticalLayout {
+                            spacing: 8px;
+                            Desc {
+                                text: "訊息會出現在 Slack 左邊「應用程式」的 HayakuBar 裡。";
+                            }
+                            Desc {
+                                text: "HayakuBar 是用 Slack 的 Socket Mode 主動連到 Slack，不需要對外開放的網址；但電腦要開著、HayakuBar 要在跑，Slack 上按的按鈕才會有反應。";
+                            }
+                            Desc {
+                                text: "只用同步已經抓到的通知判斷，不會多跟 Hayaku 要資料。在 Slack 處理了，電腦上那則提示會關掉；在 HayakuBar 或網頁先處理了，Slack 那則訊息會改成「已在 HayakuBar 或網頁處理」、按鈕拿掉。傳過的訊息保留 7 天，重開程式後按鈕也能用。";
+                            }
+                        }
+                    }
+                }
+
+                // ===== 一般 =====
+                if root.page == 7: Page {
+                    title: "一般";
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "外觀";
+                                desc: "面板與設定頁的深淺色；工作列上的工時固定跟著工作列。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Dropdown {
+                                    width: 170px;
+                                    items: ["跟隨 Windows", "淺色", "深色"];
+                                    current <=> root.theme-index;
+                                    selected(i) => {
+                                        root.theme-changed(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "面板高度";
+                                desc: "固定高度時切換分頁不會跳動，內容放不下會捲動；「跟著內容」會依分頁內容伸縮。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Dropdown {
+                                    width: 170px;
+                                    items: ["矮（360）", "中（440）", "高（520）", "更高（600）", "跟著內容"];
+                                    current <=> root.panel-height-index;
+                                    selected(i) => {
+                                        root.panel-height-changed(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "開關面板的快捷鍵";
+                                desc: "點輸入框後直接按下想要的組合鍵；按 Backspace 取消快捷鍵。";
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: end;
+                                VerticalLayout {
+                                    alignment: center;
+                                    HotkeyBox {
+                                        text: root.hotkey-text;
+                                        key(e) => {
+                                            root.hotkey-key(e)
+                                        }
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    SmallButton {
+                                        text: "預設";
+                                        clicked => {
+                                            root.hotkey-default();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    GroupLabel {
+                        text: "提醒與通知";
+                        height: self.preferred-height + 12px;
+                        vertical-alignment: bottom;
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 14px;
+                            SettingText {
+                                title: "會議開始前提醒";
+                                desc: "從工作列的工時上方跳出提示，可一鍵「加入並計時」。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Dropdown {
+                                    width: 130px;
+                                    items: ["開始時", "前 1 分鐘", "前 3 分鐘", "前 5 分鐘", "前 10 分鐘", "前 15 分鐘"];
+                                    current <=> root.meeting-lead-index;
+                                    selected(i) => {
+                                        root.meeting-lead-changed(i);
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Toggle {
+                                    checked <=> root.meeting-alerts;
+                                    toggled => {
+                                        root.toggled();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ToggleCard {
+                        title: "也提醒我專案裡的其他會議";
+                        desc: "你看得到的專案裡、你還不是參加者的會議也會提醒並列在面板上；按「加入並計時」會自動把你加為參加者。";
+                        checked <=> root.meeting-all-projects;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    ToggleCard {
+                        title: "加入會議時暫停其他計時";
+                        desc: "按「加入並計時」時先暫停正在跑的其他計時；按「離開會議」（或在網頁上離開、停掉會議計時）後自動恢復。";
+                        checked <=> root.meeting-pauses-others;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    ToggleCard {
+                        title: "提醒到點時跳出提示";
+                        desc: "Hayaku 的提醒到了就跳出，可選「10 分鐘後再提醒」。";
+                        checked <=> root.reminder-alerts;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 14px;
+                            SettingText {
+                                title: "有新通知時跳出提示";
+                                desc: "所有提示都從工作列的工時上方滑出來，停留的秒數套用到全部提示（滑鼠移上去會停住）；會議、提醒這類要你處理的會停到你關掉。新通知可直接標為已讀。";
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 140px;
+                                    height: 46px;
+                                    Dropdown {
+                                        items: ["停留 3 秒", "停留 5 秒", "停留 8 秒", "停留 15 秒", "不自動收回"];
+                                        enabled: root.notification-alerts;
+                                        current <=> root.popup-seconds-index;
+                                        selected(i) => {
+                                            root.popup-seconds-changed(i);
+                                        }
+                                    }
+                                    Hint {
+                                        text: "提示停留多久後自動收回";
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Toggle {
+                                    checked <=> root.notification-alerts;
+                                    toggled => {
+                                        root.toggled();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ToggleCard {
+                        title: "全螢幕或簡報時先不跳提示";
+                        desc: "全螢幕、簡報、Windows 的勿擾時段或鎖定螢幕時先把提示存起來，結束後再一起跳出；會議快開始的提示照樣跳。";
+                        checked <=> root.quiet-when-busy;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    ToggleCard {
+                        title: "下班時工時沒滿提示補登";
+                        desc: "按下班時今天還沒滿應出勤，提示框會多一個「補登工時」。";
+                        checked <=> root.prompt-unfilled;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    GroupLabel {
+                        text: "其他";
+                        height: self.preferred-height + 12px;
+                        vertical-alignment: bottom;
+                    }
+                    ToggleCard {
+                        title: "開機時自動啟動";
+                        desc: "登入 Windows 後自動開啟 HayakuBar。";
+                        checked <=> root.startup;
+                        toggled(v) => {
+                            root.startup-toggled(v);
+                        }
+                    }
+                    ToggleCard {
+                        title: "只在上班時間自動同步";
+                        desc: "下班、休息、請假、放假時不自動跟 Hayaku 要資料；還有計時在跑（加班）時照常同步。打開面板或按 ⟳ 仍會同步。";
+                        checked <=> root.sync-only-work;
+                        toggled => {
+                            root.toggled();
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 4px;
+                                SettingText {
+                                    title: "同步頻率";
+                                    desc: "多久跟 Hayaku 同步一次計時資料；面板、工作台沒開、Claude 也沒在動時會放慢成兩倍。";
+                                }
+                                Desc {
+                                    text: root.mcp-stats;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Dropdown {
+                                    width: 140px;
+                                    items: ["每 15 秒", "每 30 秒", "每 1 分鐘", "每 2 分鐘"];
+                                    current <=> root.poll-index;
+                                    selected(i) => {
+                                        root.poll-changed(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 16px;
+                            SettingText {
+                                title: "紀錄與設定檔";
+                                desc: root.data-dir;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                SmallButton {
+                                    text: "開啟資料夾";
+                                    clicked => {
+                                        root.open-data-dir();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== 關於 =====
+                if root.page == 8: Page {
+                    title: "關於";
+                    SettingCard {
+                        HorizontalLayout {
+                            spacing: 14px;
+                            Image {
+                                width: 40px;
+                                height: 40px;
+                                source: @image-url("../assets/app.ico");
+                            }
+                            SettingText {
+                                title: "HayakuBar";
+                                desc: root.version-text + " · Hayaku 工時工作列小工具";
+                                bold: true;
+                            }
+                        }
+                    }
+                    SettingCard {
+                        SettingText {
+                            title: "使用的介面套件";
+                            desc: "介面以 Slint 製作（免版稅授權）。";
+                        }
+                        HorizontalLayout {
+                            padding-top: 10px;
+                            alignment: start;
+                            AboutSlint { }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

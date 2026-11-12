@@ -1,0 +1,216 @@
+// 工作台「我的任務」頁（對應 C# UI/Work/TasksPage.xaml(.cs)、TasksPage.*.cs）。
+// 契約：匯出 global TasksPageData（Rust 端用 window.global::<TasksPageData>() 讀寫）與 component TasksPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 分頁清單、搜尋、樹狀、看板、日曆、甘特（拖拉改預計日期）；點任務跳出詳細（直接改狀態、日期、工時）、新增任務。
+import { Theme, Motion } from "@hb/index.slint";
+import { PageTitle } from "@hbc/index.slint";
+import { SmallButton, GlyphButton, TipSegmented, HintBox, Modal, ConfirmDialog } from "../shared/index.slint";
+import { TasksPageData } from "tasks/data.slint";
+import { ListView, TreeView, KanbanView } from "tasks/list.slint";
+import { CalendarView } from "tasks/calendar.slint";
+import { GanttView } from "tasks/gantt.slint";
+import { DetailView } from "tasks/detail.slint";
+import { CreateView } from "tasks/create.slint";
+import { FilterBar, ColumnsDialog } from "tasks/toolbar.slint";
+
+export { TasksPageData }
+
+export component TasksPage inherits Rectangle {
+    page-fs := FocusScope {
+        // Esc 關掉彈窗（C# PreviewKeyDown：焦點在哪裡都一樣）
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape {
+                if TasksPageData.confirm-visible {
+                    TasksPageData.confirm-picked(TasksPageData.confirm-buttons.length - 1);
+                    return EventResult.accept;
+                }
+                if TasksPageData.col-dialog {
+                    TasksPageData.col-cancel();
+                    return EventResult.accept;
+                }
+                if TasksPageData.dialog != 0 {
+                    TasksPageData.close-dialog();
+                    return EventResult.accept;
+                }
+            }
+            EventResult.reject
+        }
+        VerticalLayout {
+            padding-left: 26px;
+            padding-right: 26px;
+            padding-top: 20px;
+            padding-bottom: 16px;
+            spacing: 0px;
+
+            // 標題、重新整理、新增任務
+            HorizontalLayout {
+                spacing: 6px;
+                PageTitle {
+                    text: "我的任務";
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                GlyphButton {
+                    y: (parent.height - self.height) / 2;
+                    glyph: "⟳";
+                    font-size: 16px;
+                    size: 34px;
+                    tip: "重新整理";
+                    clicked => {
+                        TasksPageData.reload();
+                    }
+                }
+                SmallButton {
+                    y: (parent.height - self.height) / 2;
+                    text: "＋ 新增任務";
+                    kind: 0;
+                    horizontal-padding: 16px;
+                    clicked => {
+                        TasksPageData.new-task();
+                    }
+                }
+            }
+
+            // 分頁、搜尋（看板不分分頁）
+            HorizontalLayout {
+                padding-top: 14px;
+                padding-bottom: 10px;
+                spacing: 12px;
+                if TasksPageData.tabs-visible: TipSegmented {
+                    items: TasksPageData.tab-labels;
+                    current: TasksPageData.tab-index;
+                    selected(i) => {
+                        TasksPageData.tab-selected(i);
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                search := HintBox {
+                    max-width: 320px;
+                    min-width: 220px;
+                    horizontal-stretch: 1;
+                    text <=> TasksPageData.search-text;
+                    placeholder: "🔍 搜尋任務編號或名稱，按 Enter（也找備註、留言）";
+                    accepted(t) => {
+                        TasksPageData.search-accepted(t);
+                    }
+                    key-intercept(e) => {
+                        if e.text == Key.Escape {
+                            TasksPageData.search-escape();
+                            return EventResult.accept;
+                        }
+                        EventResult.reject
+                    }
+                }
+            }
+
+            // 清單卡片（看板沒有外框）
+            card := Rectangle {
+                vertical-stretch: 1;
+                border-radius: 22px;
+                border-width: TasksPageData.mode == 2 ? 0px : 1px;
+                border-color: Theme.line;
+                background: transparent;
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-left: TasksPageData.mode == 2 ? 0px : 10px;
+                    padding-right: TasksPageData.mode == 2 ? 0px : 10px;
+                    padding-bottom: TasksPageData.mode == 2 ? 0px : 8px;
+                    spacing: 8px;
+                    FilterBar {
+                        wrap: card.width < 1000px;
+                    }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        if TasksPageData.mode == 0: ListView {
+                            width: parent.width;
+                            height: parent.height;
+                            key-column: TasksPageData.key-column;
+                        }
+                        if TasksPageData.mode == 1: TreeView {
+                            width: parent.width;
+                            height: parent.height;
+                        }
+                        if TasksPageData.mode == 2: KanbanView {
+                            width: parent.width;
+                            height: parent.height;
+                        }
+                        if TasksPageData.mode == 3: CalendarView {
+                            width: parent.width;
+                            height: parent.height;
+                        }
+                        if TasksPageData.mode == 4: GanttView {
+                            width: parent.width;
+                            height: parent.height;
+                        }
+                        if TasksPageData.list-message != "": Text {
+                            x: 20px;
+                            width: parent.width - 40px;
+                            text: TasksPageData.list-message;
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            wrap: word-wrap;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 任務詳細／新增任務的彈窗：點外面的空白、✕ 或 Esc 關閉
+        if TasksPageData.dialog != 0: Modal {
+            width: parent.width;
+            height: parent.height;
+            max-card-width: TasksPageData.dialog == 2 ? 1040px : 700px;
+            close => {
+                TasksPageData.close-dialog();
+            }
+            card-clicked => {
+                dlg-fs.focus();
+            }
+            dlg-fs := FocusScope {
+                // 打開、換任務時焦點拉回彈窗（↑↓、R 才有作用）
+                property <int> serial: TasksPageData.detail-serial;
+                changed serial => {
+                    self.focus();
+                }
+                init => {
+                    self.focus();
+                }
+                key-pressed(e) => {
+                    if self.has-focus && TasksPageData.dialog-key(e) {
+                        return EventResult.accept;
+                    }
+                    EventResult.reject
+                }
+                if TasksPageData.dialog == 1: DetailView {
+                    width: parent.width;
+                    height: parent.height;
+                    focus-dialog => {
+                        dlg-fs.focus();
+                    }
+                }
+                if TasksPageData.dialog == 2: CreateView {
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+        }
+        if TasksPageData.col-dialog: ColumnsDialog {
+            width: parent.width;
+            height: parent.height;
+        }
+        if TasksPageData.confirm-visible: ConfirmDialog {
+            width: parent.width;
+            height: parent.height;
+            title: TasksPageData.confirm-title;
+            text: TasksPageData.confirm-text;
+            buttons: TasksPageData.confirm-buttons;
+            picked(i) => {
+                TasksPageData.confirm-picked(i);
+            }
+        }
+    }
+}

@@ -1,0 +1,268 @@
+// 工作台「筆記」頁（對應 C# UI/Work/NotesPage.cs）。
+// 契約：匯出 global NotesPageData（Rust 端用 window.global::<NotesPageData>() 讀寫）與 component NotesPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 我的筆記本：左邊筆記清單（可搜尋頁名與內容），右邊看選中那頁的 Markdown 與待辦；可以新增一頁、在選中那頁最後附加內容。
+import { Theme, ScrollView, TextField } from "@hb/index.slint";
+import { StatusLine, PageTitle } from "@hbc/index.slint";
+import { W3Row, PageButton, RowList, MdArea, Reader, W3Group } from "w3-common.slint";
+
+export global NotesPageData {
+    in-out property <bool> loading;
+    in-out property <string> search;
+    in-out property <[W3Row]> rows;
+    in-out property <int> current: -1;
+    in-out property <string> list-message;
+    in-out property <string> status;
+    in-out property <int> status-tone;
+    in-out property <string> title;
+    in-out property <string> meta;
+    in-out property <string> content;
+    in-out property <bool> content-visible;
+    in-out property <string> content-message: "左邊選一頁筆記";
+    in-out property <bool> append-visible;
+    in-out property <string> append-text;
+    in-out property <bool> appending;
+    in-out property <bool> create-open;
+    in-out property <string> new-title;
+    in-out property <string> new-body;
+    in-out property <bool> creating;
+    in-out property <int> focus-new-title;
+    in-out property <int> focus-append;
+
+    callback search-accepted();
+    callback search-escape();
+    callback row-selected(int);
+    callback append();
+    callback create();
+    callback add();
+    callback cancel-create();
+    callback reload();
+    callback web();
+    callback md-table(int) -> string;
+    callback md-insert(string, int, int, string) -> string;
+    callback md-cursor(string, int, int, string) -> int;
+}
+
+export component NotesPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 6px;
+            PageTitle {
+                text: "筆記";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            PageButton {
+                text: "＋ 新增筆記";
+                primary: true;
+                clicked => {
+                    NotesPageData.add();
+                }
+            }
+            PageButton {
+                text: "⟳ 重新整理";
+                clicked => {
+                    NotesPageData.reload();
+                }
+            }
+            PageButton {
+                text: "在網頁開啟 ↗";
+                tip: "整理資料夾、刪除、移動請到網頁";
+                clicked => {
+                    NotesPageData.web();
+                }
+            }
+        }
+        StatusLine {
+            text: NotesPageData.status;
+            tone: NotesPageData.status-tone;
+        }
+        if NotesPageData.create-open: Rectangle {
+            vertical-stretch: 0;
+            background: Theme.card;
+            border-radius: 22px;
+            border-width: 1px;
+            border-color: Theme.line;
+            property <int> focus-token: NotesPageData.focus-new-title;
+            init => {
+                title-input.focus();
+            }
+            changed focus-token => {
+                title-input.focus();
+            }
+            VerticalLayout {
+                padding: 16px;
+                spacing: 6px;
+                W3Group {
+                    text: "新增筆記（只有你看得到）";
+                }
+                title-input := TextField {
+                    height: 40px;
+                    font-size: Theme.fs-md;
+                    placeholder: "名稱";
+                    text <=> NotesPageData.new-title;
+                }
+                body-input := MdArea {
+                    height: 110px;
+                    placeholder: "內容（Markdown，可以先空著）";
+                    text <=> NotesPageData.new-body;
+                    md-table(k) => {
+                        return NotesPageData.md-table(k);
+                    }
+                    md-insert(t, a, b, x) => {
+                        return NotesPageData.md-insert(t, a, b, x);
+                    }
+                    md-cursor(t, a, b, x) => {
+                        return NotesPageData.md-cursor(t, a, b, x);
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    PageButton {
+                        text: "建立";
+                        primary: true;
+                        busy: NotesPageData.creating;
+                        clicked => {
+                            NotesPageData.create();
+                        }
+                    }
+                    PageButton {
+                        text: "取消";
+                        clicked => {
+                            NotesPageData.cancel-create();
+                        }
+                    }
+                    PageButton {
+                        text: "▦ 表格";
+                        tip: "插入表格（Markdown）；從 Excel 複製貼上也會自動變成表格";
+                        clicked => {
+                            body-input.insert-template();
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 18px;
+            vertical-stretch: 1;
+            VerticalLayout {
+                width: 300px;
+                spacing: 6px;
+                TextField {
+                    height: 40px;
+                    font-size: Theme.fs-md;
+                    placeholder: "🔍 搜尋頁名與內容（Enter）";
+                    text <=> NotesPageData.search;
+                    accepted => {
+                        NotesPageData.search-accepted();
+                    }
+                    key-intercept(e) => {
+                        if e.text == Key.Escape {
+                            NotesPageData.search-escape();
+                            return accept;
+                        }
+                        reject
+                    }
+                }
+                if NotesPageData.list-message != "": Text {
+                    text: NotesPageData.list-message;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                RowList {
+                    vertical-stretch: 1;
+                    rows: NotesPageData.rows;
+                    current: NotesPageData.current;
+                    selected(i) => {
+                        NotesPageData.current = i;
+                        NotesPageData.row-selected(i);
+                    }
+                }
+            }
+            ScrollView {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 4px;
+                    padding-right: 10px;
+                    alignment: start;
+                    if NotesPageData.title != "": Text {
+                        text: NotesPageData.title;
+                        color: Theme.ink;
+                        font-size: 18px;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                    }
+                    if NotesPageData.meta != "": Text {
+                        text: NotesPageData.meta;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    Rectangle {
+                        height: 10px;
+                    }
+                    if !NotesPageData.content-visible && NotesPageData.content-message != "": Text {
+                        text: NotesPageData.content-message;
+                        color: Theme.muted;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+                    if NotesPageData.content-visible: Reader {
+                        text: NotesPageData.content;
+                    }
+                    if NotesPageData.append-visible: VerticalLayout {
+                        padding-top: 12px;
+                        spacing: 6px;
+                        property <int> focus-token: NotesPageData.focus-append;
+                        changed focus-token => {
+                            append-input.focus();
+                        }
+                        W3Group {
+                            text: "附加內容";
+                        }
+                        append-input := MdArea {
+                            height: 110px;
+                            placeholder: "要加在這頁最後的內容（Markdown，不會取代原本的內容）";
+                            text <=> NotesPageData.append-text;
+                            md-table(k) => {
+                                return NotesPageData.md-table(k);
+                            }
+                            md-insert(t, a, b, x) => {
+                                return NotesPageData.md-insert(t, a, b, x);
+                            }
+                            md-cursor(t, a, b, x) => {
+                                return NotesPageData.md-cursor(t, a, b, x);
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            PageButton {
+                                text: "附加到這頁";
+                                primary: true;
+                                busy: NotesPageData.appending;
+                                clicked => {
+                                    NotesPageData.append();
+                                }
+                            }
+                            PageButton {
+                                text: "▦ 表格";
+                                tip: "插入表格（Markdown）；從 Excel 複製貼上也會自動變成表格";
+                                clicked => {
+                                    append-input.insert-template();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

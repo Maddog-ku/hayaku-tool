@@ -1,0 +1,332 @@
+// 面板、提示、設定共用的小元件（對應 C# App.xaml 的 SectionTitle、IconButton、FlatButton、Badge、ClickRow、StatusPill 樣式）。
+// 外觀照微互動元件牆的風格：淺灰底、ink 主色、按下縮放、滑過變色；色票都用 hb-ui-kit 的 Theme。
+import { Theme, Motion, Tip } from "@hb/index.slint";
+
+/// 滑過時的說明泡泡（包在任何元件裡；空字串不顯示）。
+export component Hint {
+    in property <string> text;
+    width: 100%;
+    height: 100%;
+    if root.text != "": Rectangle {
+        Tooltip {
+            Tip {
+                text: root.text;
+            }
+        }
+    }
+}
+
+/// 區塊標題（C# SectionTitle：11px、muted、上 10 下 4）；右邊可放提示文字或「＋ 新增」連結。
+export component SectionHeader {
+    in property <string> text;
+    in property <string> hint;
+    in property <string> link;
+    callback link-clicked();
+    HorizontalLayout {
+        padding-top: 12px;
+        padding-bottom: 5px;
+        spacing: 8px;
+        Text {
+            text: root.text;
+            color: Theme.muted;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            vertical-alignment: bottom;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            color: Theme.faint;
+            font-size: 10.5px;
+            vertical-alignment: bottom;
+        }
+        if root.link != "": Rectangle {
+            width: link-text.preferred-width + 8px;
+            link-text := Text {
+                text: root.link;
+                color: link-ta.has-hover ? Theme.accent : Theme.accent-ink;
+                font-size: 11px;
+                font-weight: 600;
+                vertical-alignment: bottom;
+            }
+            link-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.link-clicked();
+                }
+            }
+        }
+    }
+}
+
+/// 只有一個符號或幾個字的透明按鈕（C# IconButton）：滑過出現淡底，按下縮放。
+export component GlyphButton {
+    in property <string> text;
+    in property <color> color: Theme.ink;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 600;
+    /// 平常的不透明度（⋯ 平常淡、滑過整列才清楚）
+    in property <float> rest-opacity: 1;
+    in property <bool> strong-hover: false;
+    callback clicked();
+    out property <bool> hovered: ta.has-hover;
+    height: 26px;
+    min-width: 26px;
+    preferred-width: max(26px, lbl.preferred-width + 14px);
+    horizontal-stretch: 0;
+    opacity: !root.enabled ? 0.4 : (ta.has-hover || root.strong-hover ? 1 : root.rest-opacity);
+    animate opacity { duration: 150ms; }
+    Rectangle {
+        transform-scale: ta.pressed ? 0.88 : 1;
+        animate transform-scale {
+            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+            easing: ta.pressed ? Motion.press : Motion.spring;
+        }
+        border-radius: 8px;
+        background: ta.has-hover && root.enabled ? Theme.hover : transparent;
+        animate background { duration: 150ms; }
+        lbl := Text {
+            text: root.text;
+            color: root.color;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
+/// 小按鈕（C# FlatButton／PrimaryButton 的面板尺寸）：primary 是 ink 底，否則淺灰底。
+export component SmallButton {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    in property <length> font-size: 12px;
+    in property <length> horizontal-padding: 12px;
+    callback clicked();
+    height: 28px;
+    preferred-width: lbl.preferred-width + 2 * root.horizontal-padding;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
+    opacity: root.enabled ? 1 : 0.45;
+    Rectangle {
+        transform-scale: ta.pressed ? 0.94 : 1;
+        animate transform-scale {
+            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+            easing: ta.pressed ? Motion.press : Motion.spring;
+        }
+        border-radius: self.height / 2;
+        background: root.primary ? Theme.ink : Theme.fill;
+        Rectangle {
+            border-radius: parent.border-radius;
+            background: ta.has-hover && root.enabled ? (root.primary ? Theme.on-ink.with-alpha(0.12) : Theme.ink.with-alpha(0.06)) : transparent;
+            animate background { duration: 150ms; }
+        }
+        lbl := Text {
+            text: root.text;
+            color: root.primary ? Theme.on-ink : Theme.ink;
+            font-size: root.font-size;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
+/// 數字徽章（C# Badge：分頁上的逾期數、未讀數）。
+export component CountBadge {
+    in property <string> text;
+    in property <color> background: Theme.accent;
+    in property <color> foreground: #FFFFFF;
+    visible: root.text != "";
+    height: 16px;
+    min-width: 16px;
+    preferred-width: max(16px, lbl.preferred-width + 8px);
+    horizontal-stretch: 0;
+    Rectangle {
+        border-radius: 8px;
+        background: root.background;
+    }
+    lbl := Text {
+        text: root.text;
+        color: root.foreground;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// 任務列上的狀態（C# StatusPill）：點一下改狀態。
+export component StatusChip {
+    in property <string> text;
+    callback clicked(x: length, y: length);
+    height: 18px;
+    preferred-width: lbl.preferred-width + 14px;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
+    Rectangle {
+        border-radius: 9px;
+        background: ta.has-hover ? Theme.selected : Theme.fill;
+        animate background { duration: 150ms; }
+    }
+    lbl := Text {
+        text: root.text;
+        color: Theme.muted;
+        font-size: 10.5px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked(self.absolute-position.x + self.width, self.absolute-position.y);
+        }
+    }
+    Hint {
+        text: "點一下改狀態";
+    }
+}
+
+/// 可點的列（C# ClickRow：滑過變色）；左鍵 clicked、右鍵 right-clicked（視窗座標）。
+export component ClickRow {
+    in property <length> padding-x: 8px;
+    in property <length> padding-y: 4px;
+    in property <string> tip;
+    out property <bool> hovered: ta.has-hover;
+    callback clicked();
+    callback right-clicked(x: length, y: length);
+    min-height: lay.min-height;
+    preferred-height: lay.preferred-height;
+    Rectangle {
+        border-radius: 10px;
+        background: ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: 120ms; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.right-clicked(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+    lay := HorizontalLayout {
+        padding-left: root.padding-x;
+        padding-right: root.padding-x;
+        padding-top: root.padding-y;
+        padding-bottom: root.padding-y;
+        spacing: 4px;
+        @children
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
+/// 淡底的摘要卡片（C# 今天分頁的 DueCard／ReviewCard／TestCard：SubtleBrush 底、右邊 ›）。
+export component SummaryCard {
+    in property <string> tip;
+    callback clicked();
+    min-height: max(34px, sum.min-height);
+    preferred-height: max(34px, sum.preferred-height);
+    Rectangle {
+        border-radius: 12px;
+        background: ta.has-hover ? Theme.hover : Theme.fill;
+        animate background { duration: 150ms; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    sum := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 6px;
+        @children
+        Text {
+            text: "›";
+            color: Theme.muted;
+            font-size: 14px;
+            vertical-alignment: center;
+        }
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
+/// 小標籤（C# ChipToggle：任務分頁、通知分類的篩選）：選取時 ink 底。
+export component MiniChip {
+    in property <string> text;
+    in property <bool> selected;
+    in property <string> tip;
+    callback clicked();
+    height: 24px;
+    preferred-width: lbl.preferred-width + 20px;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
+    Rectangle {
+        transform-scale: ta.pressed ? 0.92 : 1;
+        animate transform-scale {
+            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+            easing: ta.pressed ? Motion.press : Motion.spring;
+        }
+        border-radius: self.height / 2;
+        background: root.selected ? Theme.ink : (ta.has-hover ? Theme.hover : transparent);
+        border-width: 1px;
+        border-color: root.selected ? Theme.ink : Theme.line;
+        animate background, border-color { duration: 200ms; }
+        lbl := Text {
+            text: root.text;
+            color: root.selected ? Theme.on-ink : Theme.ink;
+            font-size: 11.5px;
+            font-weight: root.selected ? 600 : 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Hint {
+        text: root.tip;
+    }
+}

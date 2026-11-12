@@ -1,0 +1,71 @@
+// 勾選框（打勾筆畫由左往右畫出、勾選時彈一下）與待辦項目（加刪除線由左往右劃過）。
+import { Theme, Motion } from "../theme.slint";
+import { Icon, Icons } from "icons.slint";
+
+export component Checkbox {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback toggled(checked: bool);
+    width: 20px;
+    height: 20px;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: label;
+    accessible-action-default => { ta.clicked(); }
+    property <float> pop: 1;
+    property <bool> snap;
+    changed checked => {
+        if checked {
+            snap = true;
+            pop = 0.6;
+            snap = false;
+            pop = 1;
+        }
+    }
+    animate pop {
+        duration: snap ? 0ms : Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    // 打勾筆畫的繪製進度（以由左往右的裁切模擬 stroke-dashoffset）
+    property <float> draw: checked ? 1 : 0;
+    animate draw {
+        duration: root.checked ? 350ms : 150ms;
+        delay: root.checked ? 50ms : 0ms;
+        easing: Motion.out;
+    }
+    Rectangle {
+        transform-scale: root.pop;
+        border-radius: 7px;
+        background: root.checked ? Theme.ink : transparent;
+        border-width: root.checked ? 0px : 1.5px;
+        border-color: Theme.faint;
+        animate background { duration: 250ms; }
+        Rectangle {
+            x: 3.5px;
+            y: 3.5px;
+            width: 13px * root.draw;
+            height: 13px;
+            clip: true;
+            Icon {
+                x: 0;
+                y: 0;
+                width: 13px;
+                height: 13px;
+                path: Icons.check;
+                color: Theme.on-ink;
+                weight: 3;
+            }
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}

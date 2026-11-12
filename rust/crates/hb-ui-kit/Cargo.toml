@@ -1,0 +1,11 @@
+[package]
+name = "hb-ui-kit"
+description = "共用 Slint 元件與主題（微互動元件牆風格）；其他 crate 用 library path `@hb` 匯入 ui/ 底下的 .slint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+slint.workspace = true
+

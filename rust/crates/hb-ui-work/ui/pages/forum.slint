@@ -1,0 +1,311 @@
+// 工作台「論壇」頁（對應 C# UI/Work/ForumPage.cs）。
+// 契約：匯出 global ForumPageData（Rust 端用 window.global::<ForumPageData>() 讀寫）與 component ForumPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 選專案 → 頻道（論壇）→ 左邊貼文清單（置頂在最上面，可只看未解決）→ 右邊貼文內容與回應；可以回覆、發新文。
+import { Theme, ScrollView, TextField } from "@hb/index.slint";
+import { StatusLine, PageTitle, SelectField, CheckRow, ProjectIcon } from "@hbc/index.slint";
+import { W3Row, PageButton, RowList, MdArea, Reader, SubtleBox, W3Group } from "w3-common.slint";
+
+/// 一則回應：head 是「作者・多久前」。
+export struct ForumReply {
+    head: string,
+    body: string,
+}
+
+export global ForumPageData {
+    in-out property <bool> loading;
+    in-out property <[string]> projects;
+    in-out property <int> project-index: -1;
+    in-out property <string> project-glyph;
+    in-out property <color> project-tint;
+    in-out property <[string]> channels;
+    in-out property <int> channel-index: -1;
+    in-out property <bool> unsolved;
+    in-out property <string> status;
+    in-out property <int> status-tone;
+    in-out property <string> left-message;
+    in-out property <[W3Row]> posts;
+    in-out property <int> post-current: -1;
+    in-out property <string> title;
+    in-out property <string> meta;
+    in-out property <string> right-message: "左邊選一篇貼文";
+    in-out property <bool> right-visible: true;
+    in-out property <string> body;
+    in-out property <bool> body-visible;
+    in-out property <bool> thread-visible;
+    in-out property <string> replies-head;
+    in-out property <[ForumReply]> replies;
+    in-out property <string> reply-text;
+    in-out property <bool> replying;
+    in-out property <int> focus-reply;
+    in-out property <bool> create-open;
+    in-out property <string> create-label;
+    in-out property <string> new-title;
+    in-out property <string> new-body;
+    in-out property <bool> creating;
+    in-out property <int> focus-new-title;
+
+    callback project-selected(int);
+    callback channel-selected(int);
+    callback unsolved-toggled(bool);
+    callback post-selected(int);
+    callback reply();
+    callback create();
+    callback add();
+    callback cancel-create();
+    callback reload();
+    callback web();
+    callback new-title-edited(string);
+    callback md-table(int) -> string;
+    callback md-insert(string, int, int, string) -> string;
+    callback md-cursor(string, int, int, string) -> int;
+}
+
+export component ForumPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 6px;
+            PageTitle {
+                text: "論壇";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            PageButton {
+                text: "＋ 發文";
+                primary: true;
+                clicked => {
+                    ForumPageData.add();
+                }
+            }
+            PageButton {
+                text: "⟳ 重新整理";
+                clicked => {
+                    ForumPageData.reload();
+                }
+            }
+            PageButton {
+                text: "在網頁開啟 ↗";
+                tip: "標籤、標成已解決、置頂、編輯請到網頁";
+                clicked => {
+                    ForumPageData.web();
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            if ForumPageData.project-glyph != "": ProjectIcon {
+                y: (parent.height - self.height) / 2;
+                glyph: ForumPageData.project-glyph;
+                tint: ForumPageData.project-tint;
+                size: 22px;
+            }
+            SelectField {
+                width: 240px;
+                height: 40px;
+                items: ForumPageData.projects;
+                current <=> ForumPageData.project-index;
+                selected(i) => {
+                    ForumPageData.project-selected(i);
+                }
+            }
+            SelectField {
+                width: 180px;
+                height: 40px;
+                items: ForumPageData.channels;
+                current <=> ForumPageData.channel-index;
+                selected(i) => {
+                    ForumPageData.channel-selected(i);
+                }
+            }
+            CheckRow {
+                y: (parent.height - self.height) / 2;
+                text: "只看未解決";
+                checked <=> ForumPageData.unsolved;
+                toggled(c) => {
+                    ForumPageData.unsolved-toggled(c);
+                }
+            }
+        }
+        StatusLine {
+            text: ForumPageData.status;
+            tone: ForumPageData.status-tone;
+        }
+        if ForumPageData.create-open: Rectangle {
+            vertical-stretch: 0;
+            background: Theme.card;
+            border-radius: 22px;
+            border-width: 1px;
+            border-color: Theme.line;
+            property <int> focus-token: ForumPageData.focus-new-title;
+            init => {
+                title-input.focus();
+            }
+            changed focus-token => {
+                title-input.focus();
+            }
+            VerticalLayout {
+                padding: 16px;
+                spacing: 6px;
+                Text {
+                    text: ForumPageData.create-label;
+                    color: Theme.ink;
+                    font-weight: 600;
+                    font-size: Theme.fs-md;
+                }
+                title-input := TextField {
+                    height: 40px;
+                    font-size: Theme.fs-md;
+                    placeholder: "標題（1～120 字）";
+                    text <=> ForumPageData.new-title;
+                    edited(t) => {
+                        ForumPageData.new-title-edited(t);
+                    }
+                }
+                MdArea {
+                    height: 110px;
+                    placeholder: "內文（Markdown，可以空著、可用 @帳號）";
+                    text <=> ForumPageData.new-body;
+                    md-table(k) => {
+                        return ForumPageData.md-table(k);
+                    }
+                    md-insert(t, a, b, x) => {
+                        return ForumPageData.md-insert(t, a, b, x);
+                    }
+                    md-cursor(t, a, b, x) => {
+                        return ForumPageData.md-cursor(t, a, b, x);
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    PageButton {
+                        text: "發文";
+                        primary: true;
+                        busy: ForumPageData.creating;
+                        clicked => {
+                            ForumPageData.create();
+                        }
+                    }
+                    PageButton {
+                        text: "取消";
+                        clicked => {
+                            ForumPageData.cancel-create();
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 18px;
+            vertical-stretch: 1;
+            VerticalLayout {
+                width: 320px;
+                spacing: 6px;
+                if ForumPageData.left-message != "": Text {
+                    text: ForumPageData.left-message;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                RowList {
+                    vertical-stretch: 1;
+                    rows: ForumPageData.posts;
+                    current: ForumPageData.post-current;
+                    selected(i) => {
+                        ForumPageData.post-current = i;
+                        ForumPageData.post-selected(i);
+                    }
+                }
+            }
+            ScrollView {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 4px;
+                    padding-right: 10px;
+                    alignment: start;
+                    if ForumPageData.title != "": Text {
+                        text: ForumPageData.title;
+                        color: Theme.ink;
+                        font-size: 18px;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                    }
+                    if ForumPageData.meta != "": Text {
+                        text: ForumPageData.meta;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    Rectangle {
+                        height: 10px;
+                    }
+                    if ForumPageData.right-visible: Text {
+                        text: ForumPageData.right-message;
+                        color: Theme.muted;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+                    if ForumPageData.body-visible: Reader {
+                        text: ForumPageData.body;
+                    }
+                    if ForumPageData.thread-visible: VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 8px;
+                        W3Group {
+                            text: ForumPageData.replies-head;
+                        }
+                        for r in ForumPageData.replies: SubtleBox {
+                            Text {
+                                text: r.head;
+                                color: Theme.muted;
+                                font-size: 11px;
+                            }
+                            Reader {
+                                text: r.body;
+                            }
+                        }
+                    }
+                    if ForumPageData.thread-visible: VerticalLayout {
+                        padding-top: 12px;
+                        spacing: 6px;
+                        property <int> focus-token: ForumPageData.focus-reply;
+                        changed focus-token => {
+                            reply-input.focus();
+                        }
+                        reply-input := MdArea {
+                            height: 100px;
+                            placeholder: "回覆這篇（Markdown，可用 @帳號）";
+                            text <=> ForumPageData.reply-text;
+                            md-table(k) => {
+                                return ForumPageData.md-table(k);
+                            }
+                            md-insert(t, a, b, x) => {
+                                return ForumPageData.md-insert(t, a, b, x);
+                            }
+                            md-cursor(t, a, b, x) => {
+                                return ForumPageData.md-cursor(t, a, b, x);
+                            }
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            PageButton {
+                                text: "回覆";
+                                primary: true;
+                                busy: ForumPageData.replying;
+                                clicked => {
+                                    ForumPageData.reply();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
