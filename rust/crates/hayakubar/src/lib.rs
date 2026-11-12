@@ -63,7 +63,13 @@ pub fn run() {
     hb_backend::mcp::mcp_stats::start();
 
     // 面板、提示、摘要建立時就設好「無邊框、最上層、不佔工作列、不搶焦點」
-    if let Err(e) = slint::BackendSelector::new().with_winit_window_attributes_hook(popup::attributes_hook).select() {
+    // 畫面都是小面板與提示：用軟體繪圖，省掉 OpenGL 繪圖的記憶體（C# RenderMode.SoftwareOnly）；
+    // 有設 SLINT_BACKEND 時照環境變數（除錯用）
+    let mut selector = slint::BackendSelector::new().with_winit_window_attributes_hook(popup::attributes_hook);
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        selector = selector.backend_name("winit".into()).renderer_name("software".into());
+    }
+    if let Err(e) = selector.select() {
         log::error!("無法啟動介面: {e}");
         return;
     }

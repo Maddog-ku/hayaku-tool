@@ -288,17 +288,19 @@
 
 ## 開發
 
-需要 .NET 10 SDK。
+v2.0.0 起改用 **Rust** 改寫（`rust/`，介面用 [Slint](https://slint.dev)）；`src/`、`tests/` 的 C# 版暫時保留對照，不再發佈。
+需要 Rust（`stable-x86_64-pc-windows-msvc`）與 VS 2022 Build Tools（C++ 工作負載）。
 
 ```powershell
-dotnet build
-dotnet test
-dotnet run --project src\HayakuBar
-.\publish.ps1                  # 輸出 publish\HayakuBar.exe（需要 .NET 10 Desktop Runtime）
-.\publish.ps1 -SelfContained   # 不需要安裝 .NET（約 70MB）
+cd rust
+cargo test --workspace
+cargo run -p hayakubar                     # 除錯版
+cd ..
+.\publish.ps1                              # 輸出 publish\rust\HayakuBar.exe，建完刪掉 rust\target
+.\publish.ps1 -KeepTarget                  # 保留 rust\target，下次建置比較快
 ```
 
-HayakuBar 正在執行時會鎖住 `bin\Debug` 裡的 exe，建置前先結束它（或用 `dotnet test --artifacts-path <暫存資料夾>` 把建置輸出放到別處）。
+HayakuBar 正在執行時會鎖住自己的 exe，覆蓋前先結束它。crate 分工與改寫規則見 [`rust/README.md`](rust/README.md)。
 
 ### 參與開發
 
@@ -307,13 +309,13 @@ HayakuBar 正在執行時會鎖住 `bin\Debug` 裡的 exe，建置前先結束�
 
 ### 發佈新版本
 
-1. 改 `src/HayakuBar/HayakuBar.csproj` 的 `<Version>`，commit 並 push。
-2. 推一個同版本的 tag，GitHub Actions（`.github/workflows/release.yml`）會跑測試、打包成單一 exe（不用裝 .NET），
+1. 改 `rust/Cargo.toml` 的 `[workspace.package] version`，commit 並 push。
+2. 推一個同版本的 tag，GitHub Actions（`.github/workflows/release.yml`）會檢查版本號、跑測試、建置 Rust 版單一 exe（不用裝 .NET），
    並建立 Release 附上 `HayakuBar.exe` 給使用者下載：
 
 ```powershell
-git tag v1.0.4
-git push origin v1.0.4
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 也可以在 GitHub 的 Actions › Release › Run workflow 輸入版本號手動發佈。
@@ -355,6 +357,8 @@ git push origin v1.0.4
 
 ## 程式結構
 
+v2.0.0 起發佈的是 `rust/`（各 crate 對應下面的 C# 資料夾，說明見 [`rust/README.md`](rust/README.md)）；以下是保留對照的 C# 版結構。
+
 ```
 src/HayakuBar
 ├─ Auth/      OAuthClient（動態註冊、PKCE、refresh）、TokenStore（DPAPI）
@@ -380,6 +384,15 @@ tests/HayakuBar.Tests   xUnit 單元測試
 ```
 
 ## 版本紀錄
+
+### v2.0.0
+- **全面改寫成 Rust**（`rust/`）：功能、畫面文字、設定檔都跟 v1.9.1 一樣，`%APPDATA%\HayakuBar` 的設定、登入、EIP、Slack 資料直接沿用，不用重新登入。
+- 介面改用 Slint，外觀換成卡片式的新風格（淺色／深色）；工作列上的工時照舊嵌在工作列裡。
+- 執行檔從約 67MB 變成約 48MB，一樣不用安裝 .NET；介面用軟體繪圖（跟 v1.9.1 一樣）省記憶體。
+- 修正工時紀錄頁修改、移動紀錄失敗時，錯誤訊息一閃就被重新讀取清掉、看不到的問題。
+- 「設定 › 關於」新增版本與 Slint 授權標示。
+- 已知差異：確認視窗畫在頁面裡（不是系統對話框）；面板、提示沒有陰影；少數符號（例如 🗓）顯示成方框；
+  工作台左側導覽在視窗不夠高時要往下捲才看得到最後幾頁。
 
 ### v1.9.1
 - 工作台「請假」與「EIP 請假紀錄」合併成一頁：左邊選單只剩「請假」，右上切換 **Hayaku**（Hayaku 上所有人的請假與出差，可以登記、取消）
