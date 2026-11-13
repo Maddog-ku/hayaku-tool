@@ -1,0 +1,3 @@
+# 舊版 C# WPF（src/、tests/）已停止維護，不算進 GitHub 的語言統計
+src/** linguist-vendored
+tests/** linguist-vendored

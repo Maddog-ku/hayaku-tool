@@ -102,7 +102,8 @@ export component DetailView {
     }
     sv := ScrollView {
         visible: TasksPageData.detail-ready;
-        content-height: body.preferred-height + 24px;
+        // 上面留 18（body 的 y）、下面留 24
+        content-height: body.preferred-height + 18px + 24px;
         content-width: self.visible-width;
         TouchArea {
             clicked => {
@@ -112,6 +113,9 @@ export component DetailView {
         body := VerticalLayout {
             x: root.pad-left;
             y: 18px;
+            // 一定要給高度：layout 沒給高度時會撐滿捲動內容（content-height），加上 y 的 18 就超出捲動範圍，
+            // 捲到底時最下面的聊天送出列被切掉一截
+            height: self.preferred-height;
             width: sv.visible-width - root.pad-left - root.pad-right;
             spacing: 0px;
 

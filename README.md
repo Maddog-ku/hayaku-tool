@@ -296,7 +296,7 @@ Windows 關閉「顯示動畫」（設定 › 協助工具 › 視覺效果 › 
 
 ## 開發
 
-v2.0.0 起改用 **Rust** 改寫（`rust/`，介面用 [Slint](https://slint.dev)）；`src/`、`tests/` 的 C# 版暫時保留對照，不再發佈。
+v2.0.0 起改用 **Rust** 改寫（`rust/`，介面用 [Slint](https://slint.dev)）；`src/`、`tests/` 是**舊版（C# WPF，v1.9.1 以前）**，已停止維護、不再發佈，只保留對照。
 需要 Rust（`stable-x86_64-pc-windows-msvc`）與 VS 2022 Build Tools（C++ 工作負載）。
 
 ```powershell
@@ -391,9 +391,13 @@ rust/crates
 └─ hayakubar     執行檔：App 接線、面板、HoverCard、提示、設定、啟動參數；assets/ 放 app.ico、app.manifest
 ```
 
-C# 版（`src/HayakuBar`、`tests/HayakuBar.Tests`）暫時保留對照，不再發佈；每個 Rust 模組開頭都註明對應的 C# 檔。
+**舊版**：C# WPF 版（`src/HayakuBar`、`tests/HayakuBar.Tests`）已停止維護、不再發佈，只保留對照；每個 Rust 模組開頭都註明對應的 C# 檔。
 
 ## 版本紀錄
+
+### v2.1.1
+- 修正**任務詳細最下面的聊天送出列被切掉一截**（視窗小、內容長時捲到底看不完整；v2.0.1 記為已知問題）：內容區沒給高度被撐滿捲動範圍、又往下偏 18px；現在捲到底送出列完整，下方留 24px。
+- C# 版（`src/`、`tests/`）標示為**舊版**（已停止維護、不再發佈，只保留對照），GitHub 的語言統計不再算進舊版 C#。
 
 ### v2.1.0
 跟上 Hayaku 1.5.3／1.5.4：
@@ -425,7 +429,7 @@ C# 版（`src/HayakuBar`、`tests/HayakuBar.Tests`）暫時保留對照，不再
   通知與 Claude Code 列被擠出視窗、設定頁縮小時按鈕被切、工作台各頁篩選列與按鈕被擠出卡片、看板與會議卡片被切等；
   被省略的文字滑過可以看完整內容。
 - 工作台左側導覽放不下時，上下緣有漸層並顯示捲軸，用 Ctrl+數字切到看不到的頁面時會自動捲過去。
-- 已知問題：視窗很小又有很長的聊天時，任務詳細最下面的送出列可能被切到一部分，把視窗拉大即可。
+- 已知問題：視窗很小又有很長的聊天時，任務詳細最下面的送出列可能被切到一部分，把視窗拉大即可（v2.1.1 已修正）。
 
 ### v2.0.0
 - **全面改寫成 Rust**（`rust/`）：功能、畫面文字、設定檔都跟 v1.9.1 一樣，`%APPDATA%\HayakuBar` 的設定、登入、EIP、Slack 資料直接沿用，不用重新登入。
