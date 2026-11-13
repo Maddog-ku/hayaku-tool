@@ -148,12 +148,19 @@ impl Panel {
         let paused_model = Rc::new(VecModel::default());
         ui.set_running(ModelRc::from(running_model.clone()));
         ui.set_paused(ModelRc::from(paused_model.clone()));
+        let slide = WindowSlide::new();
+        let weak_ui = ui.as_weak();
+        slide.set_on_reveal(move || {
+            if let Some(u) = weak_ui.upgrade() {
+                u.set_repaint_token(u.get_repaint_token().wrapping_add(1));
+            }
+        });
         let inner = Rc::new_cyclic(|me| PanelInner {
             engine: engine.clone(),
             ui,
             tick: slint::Timer::default(),
             search_delay: slint::Timer::default(),
-            slide: WindowSlide::new(),
+            slide,
             s: RefCell::new(State {
                 task_tab: TimerEngine::ALL_TAB.to_owned(),
                 notify_filter: "all".to_owned(),
@@ -367,6 +374,7 @@ impl PanelInner {
                         if let Some(p) = me.upgrade()
                             && p.s.borrow().shown
                         {
+                            p.log_size("大小改變");
                             p.reposition();
                         }
                     });
@@ -564,6 +572,20 @@ impl PanelInner {
             let (x, y) = self.slide.position();
             self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
         }
+    }
+
+    /// 診斷用（面板跑版：一圈深色空白、底部錯位）：記下原生視窗、Slint 視窗與內容高度，對不上時才看得出是哪個沒跟上。
+    fn log_size(&self, reason: &str) {
+        let window = self.ui.window();
+        let slint_size = window.size();
+        let scale = window.scale_factor();
+        let content = (self.ui.get_pref_h() * scale).round() as i32;
+        let native = popup::outer_size(window);
+        log::info!(
+            "面板{reason}：原生視窗 {native:?}，Slint 視窗 {}x{}，內容高度 {content}（縮放 {scale}）",
+            slint_size.width,
+            slint_size.height
+        );
     }
 
     /// C# Reposition：從工作列工時正上方出現；動畫途中大小變了就換目標，接著播。

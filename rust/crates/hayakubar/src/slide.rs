@@ -163,6 +163,9 @@ struct Inner {
     /// 目前有裁切
     clipped: Cell<bool>,
     done: RefCell<Option<Done>>,
+    /// 裁切變了（露出更多或拿掉）：要整個視窗重畫。被裁掉的部分 Windows 畫圖時會跳過，
+    /// 之後露出來時 Slint 只補畫有變動的地方，那塊就一直是空白（面板、提示一圈深色、底部錯位）
+    on_reveal: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
 /// 一個視窗的進出場動畫。
@@ -172,6 +175,18 @@ pub struct WindowSlide(Rc<Inner>);
 impl WindowSlide {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 裁切變了就呼叫（呼叫端讓視窗整個重畫，見 widgets.slint 的 FullRepaint）。
+    pub fn set_on_reveal(&self, f: impl Fn() + 'static) {
+        *self.0.on_reveal.borrow_mut() = Some(Rc::new(f));
+    }
+
+    fn revealed(&self) {
+        let f = self.0.on_reveal.borrow().clone();
+        if let Some(f) = f {
+            f();
+        }
     }
 
     /// 現在正在滑動或平移。
@@ -401,6 +416,7 @@ impl WindowSlide {
         }
         set_region(h, visible, w, ht, s.radius.get());
         s.clipped.set(true);
+        self.revealed();
     }
 
     fn clear_clip(&self) {
@@ -413,6 +429,7 @@ impl WindowSlide {
                 SetWindowRgn(h, None, true);
             }
         }
+        self.revealed();
     }
 }
 

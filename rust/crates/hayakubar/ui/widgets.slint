@@ -489,3 +489,28 @@ export component WrapText {
         wrap: word-wrap;
     }
 }
+
+/// 把整個視窗標成要重畫。軟體繪圖只重畫有變動的元件：滑出動畫用視窗裁切遮住還沒長出來的部分，
+/// Windows 畫圖時會跳過被裁掉的地方；之後露出來時沒有元件變動就不會補畫，看起來是一圈深色空白、底部錯位
+/// （面板、提示）。裁切變了 Rust 就把 token 加一（WindowSlide::set_on_reveal），視窗大小變了也重畫。
+/// 放在視窗的第一個子元素（墊在最底下）、蓋滿整個視窗；底色只在完全透明與 1/255 之間切換，看不出來。
+export component FullRepaint inherits Rectangle {
+    in property <length> win-width;
+    in property <length> win-height;
+    in property <int> token;
+    property <bool> flip;
+    changed token => {
+        self.flip = !self.flip;
+    }
+    changed win-width => {
+        self.flip = !self.flip;
+    }
+    changed win-height => {
+        self.flip = !self.flip;
+    }
+    x: 0;
+    y: 0;
+    width: self.win-width;
+    height: self.win-height;
+    background: self.flip ? #00000001 : #00000000;
+}

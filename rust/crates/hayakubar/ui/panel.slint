@@ -2,7 +2,7 @@
 // 資料都由 Rust（src/panel/）填；選單（⋯、右鍵、改狀態、稍後）用原生選單，這裡只回報按鈕位置（視窗座標）。
 import { Theme, Motion, Spinner, Checkbox, TextField, TipArea } from "@hb/index.slint";
 import { DayTimeline, DayTimelineModel, ColorKeys, LinkButton, CheckRow } from "@hbc/index.slint";
-import { Hint, SectionHeader, GlyphButton, SmallButton, CountBadge, StatusChip, ClickRow, SummaryCard, MiniChip, FadeText, WrapText } from "widgets.slint";
+import { Hint, SectionHeader, GlyphButton, SmallButton, CountBadge, StatusChip, ClickRow, SummaryCard, MiniChip, FadeText, WrapText, FullRepaint } from "widgets.slint";
 
 /// 計時中／今天做過的一列（C# TaskRowVm）。
 export struct TaskRow {
@@ -679,6 +679,13 @@ export component PanelWindow inherits Window {
     width: 432px;
     min-height: body.preferred-height;
     max-height: body.preferred-height;
+    // 視窗大小變了整個重畫（見 FullRepaint）；要是第一個子元素
+    in-out property <int> repaint-token;
+    FullRepaint {
+        win-width: root.width;
+        win-height: root.height;
+        token: root.repaint-token;
+    }
 
     // ---- 標題與今天工時 ----
     in property <string> user-text: "Hayaku";
