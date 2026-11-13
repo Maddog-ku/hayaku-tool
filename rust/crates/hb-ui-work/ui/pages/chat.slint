@@ -1,0 +1,301 @@
+// 工作台「聊天」頁（對應 C# UI/Work/ChatPage.xaml(.cs)）。
+// 契約：匯出 global ChatPageData（Rust 端用 window.global::<ChatPageData>() 讀寫）與 component ChatPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 專案頻道與任務聊天，讀訊息、送訊息；開著時每 20 秒更新。
+import { Theme, ScrollView, TextField } from "@hb/index.slint";
+import { FieldLabel, StatusLine, PageTitle, LinkButton } from "@hbc/index.slint";
+import { W3Row, PageButton, SmallButton, RowList, MdArea, Reader, CenterNote } from "w3-common.slint";
+import { Appear } from "../shared/anim.slint";
+
+/// 一則訊息（C# ChatRowVm）；poll-id 不是空的才有「看投票結果」。
+export struct ChatMsg {
+    author: string,
+    time: string,
+    body: string,
+    poll-id: string,
+}
+
+export global ChatPageData {
+    in-out property <bool> loading;
+    in-out property <string> task-input;
+    in-out property <[W3Row]> channels;
+    in-out property <int> channel-index: -1;
+    in-out property <string> channel-empty: "讀取中…";
+    in-out property <string> conv-title: "選一個對話";
+    in-out property <string> conv-subtitle;
+    in-out property <bool> has-conv;
+    in-out property <[ChatMsg]> messages;
+    in-out property <string> message-empty: "從左邊選頻道，或輸入任務編號打開任務的聊天";
+    in-out property <string> input-hint: "輸入訊息（可用 @帳號 提及），Enter 送出、Shift+Enter 換行";
+    in-out property <string> message-text;
+    in-out property <bool> sending;
+    in-out property <string> status;
+    in-out property <int> status-tone;
+    /// 加一就捲到最下面
+    in-out property <int> scroll-end;
+    /// 目前捲在最下面（Slint 端維護，Rust 讀）
+    in-out property <bool> at-end: true;
+    in-out property <int> focus-input;
+
+    callback task-entered();
+    callback channel-selected(int);
+    callback send();
+    callback reload();
+    callback web();
+    callback poll(string);
+    callback md-table(int) -> string;
+    callback md-insert(string, int, int, string) -> string;
+    callback md-cursor(string, int, int, string) -> int;
+}
+
+export component ChatPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 16px;
+        spacing: 10px;
+        PageTitle {
+            text: "聊天";
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            vertical-stretch: 1;
+            // 對話清單
+            Rectangle {
+                width: 250px;
+                background: Theme.card;
+                border-radius: 22px;
+                border-width: 1px;
+                border-color: Theme.line;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 6px;
+                    FieldLabel {
+                        text: "任務聊天";
+                    }
+                    TextField {
+                        height: 40px;
+                        font-size: Theme.fs-md;
+                        text <=> ChatPageData.task-input;
+                        placeholder: "輸入任務編號，按 Enter";
+                        accepted => {
+                            ChatPageData.task-entered();
+                        }
+                    }
+                    FieldLabel {
+                        text: "專案頻道";
+                    }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        RowList {
+                            width: parent.width;
+                            height: parent.height;
+                            rows: ChatPageData.channels;
+                            current: ChatPageData.channel-index;
+                            selected(i) => {
+                                ChatPageData.channel-index = i;
+                                ChatPageData.channel-selected(i);
+                            }
+                        }
+                        if ChatPageData.channel-empty != "": Text {
+                            x: 4px;
+                            y: 4px;
+                            width: parent.width - 8px;
+                            text: ChatPageData.channel-empty;
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+            // 訊息
+            Rectangle {
+                horizontal-stretch: 1;
+                background: Theme.card;
+                border-radius: 22px;
+                border-width: 1px;
+                border-color: Theme.line;
+                VerticalLayout {
+                    HorizontalLayout {
+                        padding-left: 18px;
+                        padding-right: 12px;
+                        padding-top: 14px;
+                        padding-bottom: 8px;
+                        spacing: 6px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            Text {
+                                text: ChatPageData.conv-title;
+                                color: Theme.ink;
+                                font-size: 15px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: ChatPageData.conv-subtitle;
+                                color: Theme.muted;
+                                font-size: 11px;
+                            }
+                        }
+                        SmallButton {
+                            y: (parent.height - self.height) / 2;
+                            text: "⟳";
+                            tip: "重新整理";
+                            enabled: ChatPageData.has-conv;
+                            clicked => {
+                                ChatPageData.reload();
+                            }
+                        }
+                        SmallButton {
+                            y: (parent.height - self.height) / 2;
+                            text: "在網頁開啟 ↗";
+                            enabled: ChatPageData.has-conv;
+                            clicked => {
+                                ChatPageData.web();
+                            }
+                        }
+                    }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        property <int> token: ChatPageData.scroll-end;
+                        changed token => {
+                            sv.content-y = min(0px, sv.visible-height - sv.content-height);
+                            ChatPageData.at-end = true;
+                        }
+                        sv := ScrollView {
+                            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                            content-width: self.visible-width;
+                            scrolled => {
+                                ChatPageData.at-end = -self.content-y >= self.content-height - self.visible-height - 4px;
+                            }
+                            VerticalLayout {
+                                padding-left: 18px;
+                                padding-right: 14px;
+                                padding-top: 4px;
+                                padding-bottom: 4px;
+                                spacing: 12px;
+                                alignment: start;
+                                for m[ai] in ChatPageData.messages: Appear {
+                                    index: ai;
+                                    stagger: 30ms;
+                                    VerticalLayout {
+                                        spacing: 3px;
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            alignment: start;
+                                            Text {
+                                                text: m.author;
+                                                color: Theme.ink;
+                                                font-weight: 600;
+                                                font-size: Theme.fs-md;
+                                                // 名字很長時省略，不把訊息撐出右邊
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: m.time;
+                                                color: Theme.muted;
+                                                font-size: 11px;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            Rectangle {
+                                                background: Theme.fill;
+                                                border-radius: 16px;
+                                                max-width: body.preferred-width + 28px;
+                                                horizontal-stretch: 1;
+                                                HorizontalLayout {
+                                                    padding-left: 14px;
+                                                    padding-right: 14px;
+                                                    padding-top: 8px;
+                                                    padding-bottom: 8px;
+                                                    body := Reader {
+                                                        text: m.body;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // 不用 if：for 裡的 if 子元素高度不會算進捲動範圍，最後一則的連結會捲不到
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            visible: m.poll-id != "";
+                                            height: m.poll-id != "" ? self.preferred-height : 0px;
+                                            LinkButton {
+                                                text: "看投票結果";
+                                                clicked => {
+                                                    ChatPageData.poll(m.poll-id);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if ChatPageData.message-empty != "": CenterNote {
+                            // 寬度跟著外框，長的訊息換行置中
+                            x: 16px;
+                            width: parent.width - 32px;
+                            height: parent.height;
+                            text: ChatPageData.message-empty;
+                        }
+                    }
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.line;
+                    }
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            property <int> focus-token: ChatPageData.focus-input;
+                            changed focus-token => {
+                                input.focus();
+                            }
+                            input := MdArea {
+                                horizontal-stretch: 1;
+                                height: 64px;
+                                text <=> ChatPageData.message-text;
+                                placeholder: ChatPageData.input-hint;
+                                enabled: ChatPageData.has-conv;
+                                tables: false;
+                                enter-sends: true;
+                                send => {
+                                    ChatPageData.send();
+                                }
+                                md-table(k) => {
+                                    return ChatPageData.md-table(k);
+                                }
+                                md-insert(t, a, b, x) => {
+                                    return ChatPageData.md-insert(t, a, b, x);
+                                }
+                                md-cursor(t, a, b, x) => {
+                                    return ChatPageData.md-cursor(t, a, b, x);
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: end;
+                                PageButton {
+                                    text: "送出";
+                                    primary: true;
+                                    enabled: ChatPageData.has-conv;
+                                    busy: ChatPageData.sending;
+                                    clicked => {
+                                        ChatPageData.send();
+                                    }
+                                }
+                            }
+                        }
+                        StatusLine {
+                            text: ChatPageData.status;
+                            tone: ChatPageData.status-tone;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

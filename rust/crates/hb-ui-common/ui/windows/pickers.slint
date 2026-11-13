@@ -1,0 +1,455 @@
+// 清單挑選類的視窗：移動任務（C# UI/MoveTaskWindow.cs）與選擇任務（C# UI/TaskPickerWindow.xaml）。
+import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icons, Stagger, Tip } from "@hb/index.slint";
+import { MutedText, StatusLine, CheckRow } from "../common.slint";
+import { DialogBody, DialogButtons, DialogFade, DialogMotion, Section, ListIntro } from "dialog.slint";
+
+export struct MoveRow {
+    text: string,
+    depth: int,
+    dim: bool,
+}
+
+/// 選擇任務的一列。跟上 Hayaku 1.5.4（C# 版沒有）：header＝分組標題（最近填過、指派給我的）；
+/// detail 寫所屬專案、上層與狀態；disabled 的灰掉、reason 寫原因；top、height 是在清單裡的位置（列高不一樣）。
+export struct PickRow {
+    key: string,
+    title: string,
+    detail: string,
+    selected: bool,
+    header: bool,
+    disabled: bool,
+    reason: string,
+    top: length,
+    height: length,
+}
+
+/// 選取列：淡色底＋左邊橘色細條（彈出），滑過淡灰（設計稿清單的 active）。
+component ListRow {
+    in property <bool> selected;
+    in property <length> radius: 12px;
+    /// 滑過的提示（文字被截掉時放完整文字）；空字串不顯示
+    in property <string> tip;
+    callback clicked(event: PointerEvent);
+    callback double-clicked();
+    Rectangle {
+        border-radius: root.radius;
+        background: root.selected ? Theme.selected : ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: 180ms; }
+    }
+    Rectangle {
+        x: 4px;
+        y: (root.height - self.height) / 2;
+        width: 3px;
+        height: root.selected ? root.height - 16px : 0px;
+        border-radius: 1.5px;
+        background: Theme.accent;
+        animate height {
+            duration: Motion.spring-dur;
+            easing: Motion.spring;
+        }
+    }
+    @children
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                root.clicked(e);
+            }
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+        if root.tip != "": Tooltip {
+            Tip {
+                text: root.tip;
+                max-bubble-width: 420px;
+            }
+        }
+    }
+}
+
+export component MoveTaskWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> window-title;
+    in property <string> intro;
+    in-out property <string> filter;
+    in-out property <bool> hide-done;
+    in property <[MoveRow]> rows;
+    in-out property <int> current: 0;
+    in property <string> message;
+    /// 0 錯誤、2 警告、3 一般（讀取中…）
+    in property <int> message-tone: 3;
+    callback filter-edited(text: string);
+    callback hide-done-toggled(on: bool);
+    callback accept();
+    callback cancel();
+    public function focus-filter() {
+        filter-box.focus();
+    }
+    title: window-title;
+    width: 520px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    forward-focus: filter-box;
+    property <length> row-height: 30px;
+    function scroll-to-current() {
+        let top = root.current * root.row-height;
+        if top + list.content-y < 0 {
+            list.content-y = -top;
+        } else if top + root.row-height + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - top - root.row-height;
+        }
+    }
+    // 清單依序浮現：開窗、讀好、篩選字或「不顯示完成」改變時重播
+    intro := ListIntro {
+        key: root.filter + "|" + (root.hide-done ? "1" : "0") + "|" + (root.rows.length > 0 ? "1" : "0");
+    }
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        capture-key-pressed(e) => {
+            if DialogMotion.closing {
+                return EventResult.accept;
+            }
+            if e.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            if e.text == Key.DownArrow && root.rows.length > 0 {
+                root.current = min(root.rows.length - 1, root.current + 1);
+                root.scroll-to-current();
+                return EventResult.accept;
+            }
+            if e.text == Key.UpArrow && root.rows.length > 0 {
+                root.current = max(0, root.current - 1);
+                root.scroll-to-current();
+                return EventResult.accept;
+            }
+            if e.text == Key.Return {
+                root.accept();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        Section {
+            index: 0;
+            MutedText {
+                text: root.intro;
+                font-size: Theme.fs-md;
+            }
+        }
+        Section {
+            index: 1;
+            HorizontalLayout {
+                spacing: 12px;
+                filter-box := TextField {
+                    height: 42px;
+                    icon: Icons.search;
+                    text <=> root.filter;
+                    font-size: Theme.fs-md;
+                    edited(t) => {
+                        root.filter-edited(t);
+                    }
+                }
+                CheckRow {
+                    y: (parent.height - self.height) / 2;
+                    text: "不顯示完成及不處理";
+                    checked <=> root.hide-done;
+                    toggled(on) => {
+                        root.hide-done-toggled(on);
+                    }
+                }
+            }
+        }
+        Section {
+            index: 2;
+            Rectangle {
+                height: 360px;
+                border-radius: Theme.radius-input;
+                background: Theme.fill;
+                list := ScrollView {
+                    x: 6px;
+                    y: 6px;
+                    width: parent.width - 12px;
+                    height: parent.height - 12px;
+                    content-height: root.rows.length * root.row-height;
+                    for r[i] in root.rows: ListRow {
+                        property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                        x: 0;
+                        y: i * root.row-height + (1 - self.a) * Motion.rise;
+                        opacity: self.a;
+                        width: list.visible-width - 4px;
+                        height: root.row-height;
+                        selected: i == root.current;
+                        // 名稱被截掉時，滑過顯示完整文字
+                        tip: row-text.preferred-width > row-text.width ? r.text : "";
+                        clicked => {
+                            root.current = i;
+                        }
+                        double-clicked => {
+                            root.current = i;
+                            root.accept();
+                        }
+                        row-text := Text {
+                            x: 12px + r.depth * 18px;
+                            width: parent.width - self.x - 8px;
+                            text: r.text;
+                            color: Theme.ink;
+                            opacity: r.dim ? 0.55 : 1;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+        StatusLine {
+            text: root.message;
+            tone: root.message-tone;
+        }
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: "移到這裡";
+                    kind: ButtonKind.primary;
+                    clicked => {
+                        root.accept();
+                    }
+                }
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component TaskPickerWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> prompt;
+    in-out property <string> search;
+    in property <[PickRow]> rows;
+    /// 清單的總高度（每列 top＋height 的最後一個）
+    in property <length> list-height;
+    in-out property <int> current: -1;
+    callback search-edited(text: string);
+    /// 點了第 index 列（ctrl、shift：多選時加選、範圍選）
+    callback row-clicked(index: int, ctrl: bool, shift: bool);
+    callback move-current(delta: int);
+    callback accept();
+    callback cancel();
+    public function focus-search() {
+        search-box.focus();
+    }
+    title: "選擇任務";
+    preferred-width: 520px;
+    preferred-height: 560px;
+    min-width: 360px;
+    min-height: 360px;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: search-box;
+    // 依序浮現用的平均列高
+    property <length> row-height: 48px;
+    function scroll-to-current() {
+        if root.current < 0 || root.current >= root.rows.length {
+            return;
+        }
+        let top = root.rows[root.current].top;
+        let h = root.rows[root.current].height;
+        // 往上捲時連分組標題一起露出來
+        let head = root.current > 0 && root.rows[root.current - 1].header ? root.rows[root.current - 1].height : 0px;
+        if top - head + list.content-y < 0 {
+            list.content-y = -(top - head);
+        } else if top + h + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - top - h;
+        }
+    }
+    changed current => {
+        root.scroll-to-current();
+    }
+    // 清單依序浮現：開窗或搜尋字改變時重播（點選只重建列，不重播）
+    intro := ListIntro {
+        key: root.search;
+    }
+    FocusScope {
+        capture-key-pressed(e) => {
+            if DialogMotion.closing {
+                return EventResult.accept;
+            }
+            if e.text == Key.Escape {
+                root.cancel();
+                return EventResult.accept;
+            }
+            if e.text == Key.DownArrow {
+                root.move-current(1);
+                return EventResult.accept;
+            }
+            if e.text == Key.UpArrow {
+                root.move-current(-1);
+                return EventResult.accept;
+            }
+            if e.text == Key.Return {
+                root.accept();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        DialogFade {
+            VerticalLayout {
+                padding: 18px;
+                spacing: 8px;
+                Section {
+                    index: 0;
+                    Text {
+                        text: root.prompt;
+                        color: Theme.ink;
+                        font-size: Theme.fs-base;
+                        font-weight: 700;
+                        wrap: word-wrap;
+                        // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                        min-width: 0px;
+                    }
+                }
+                Section {
+                    index: 0;
+                    Text {
+                        text: "搜尋，或直接輸入任務編號（例 F2P-97）";
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                    }
+                }
+                Section {
+                    index: 1;
+                    search-box := TextField {
+                        height: 44px;
+                        icon: Icons.search;
+                        text <=> root.search;
+                        font-size: Theme.fs-md;
+                        edited(t) => {
+                            root.search-edited(t);
+                        }
+                    }
+                }
+                Section {
+                    index: 2;
+                    vertical-stretch: 1;
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: Theme.radius-input;
+                        background: Theme.fill;
+                        list := ScrollView {
+                            x: 6px;
+                            y: 6px;
+                            width: parent.width - 12px;
+                            height: parent.height - 12px;
+                            content-height: root.list-height;
+                            // 分組標題（最近填過、指派給我的）
+                            for r[i] in root.rows: Text {
+                                property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                                visible: r.header;
+                                x: 12px;
+                                y: r.top + (1 - self.a) * Motion.rise;
+                                opacity: self.a;
+                                width: list.visible-width - 24px;
+                                height: r.header ? r.height : 0px;
+                                text: r.header ? r.title : "";
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                                font-weight: 600;
+                                vertical-alignment: bottom;
+                            }
+                            for r[i] in root.rows: ListRow {
+                                property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                                visible: !r.header;
+                                x: 0;
+                                y: r.top + (1 - self.a) * Motion.rise;
+                                opacity: self.a * (r.disabled ? 0.5 : 1);
+                                width: list.visible-width - 4px;
+                                height: r.header ? 0px : r.height;
+                                selected: r.selected;
+                                // 名稱被截掉時，滑過顯示完整名稱；不能選的顯示原因
+                                tip: r.disabled ? r.reason : title-text.preferred-width > title-text.width ? r.title : "";
+                                clicked(e) => {
+                                    root.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                }
+                                double-clicked => {
+                                    if !r.disabled {
+                                        root.accept();
+                                    }
+                                }
+                                VerticalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 10px;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        Text {
+                                            text: r.key;
+                                            color: Theme.ink;
+                                            font-size: Theme.fs-md;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                        }
+                                        title-text := Text {
+                                            horizontal-stretch: 1;
+                                            text: r.title;
+                                            color: Theme.ink;
+                                            font-size: Theme.fs-md;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        if r.disabled: Text {
+                                            text: r.reason;
+                                            color: Theme.warn;
+                                            font-size: Theme.fs-sm;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    Text {
+                                        text: r.detail;
+                                        color: Theme.muted;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    index: 3;
+                    DialogButtons {
+                        Button {
+                            text: "確定";
+                            kind: ButtonKind.primary;
+                            clicked => {
+                                root.accept();
+                            }
+                        }
+                        Button {
+                            text: "取消";
+                            kind: ButtonKind.secondary;
+                            clicked => {
+                                root.cancel();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

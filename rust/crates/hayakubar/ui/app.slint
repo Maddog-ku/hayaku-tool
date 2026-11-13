@@ -1,0 +1,8 @@
+// HayakuBar 程式主體的 Slint 入口：面板、滑鼠停留的摘要、提示、設定。
+// Theme（深淺色）與 DayTimelineModel 一起 export，Rust 端才拿得到型別。
+export { Theme } from "@hb/index.slint";
+export { DayTimelineModel } from "@hbc/index.slint";
+export { PanelWindow, TaskRow, PinRow, MyTaskRow, RepoRow, MeetingRow, TodoRow, ReminderRow, NotifRow, PickRow, FilterChip, PanelTab } from "panel.slint";
+export { HoverCard, HoverRow } from "hover.slint";
+export { ToastWindow, ToastButton } from "toast.slint";
+export { SettingsWindow, RepoCard, ProjectRow } from "settings.slint";

@@ -1,0 +1,129 @@
+// 共用的小動畫元件：文字替換、出現（浮上＋淡入、依序出現）、清單依序浮現的進度、假陰影。
+// 程式固定用軟體繪圖：不能用 transform-scale／transform-rotation（畫不出來）、drop-shadow 也畫不出來，
+// 這裡的動畫只用位移、大小、透明度、顏色與 clip。
+import { Theme, Motion } from "../theme.slint";
+
+/// 文字替換：text 改變時新字從下方 8px 滑入並淡入（柔和彈簧）。
+export component SwapText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    in property <length> font-size: Theme.fs-md;
+    in property <int> font-weight: 400;
+    /// 空字串時用視窗預設字型
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: center;
+    in property <TextOverflow> overflow: elide;
+    in property <TextWrap> wrap: no-wrap;
+    property <string> shown;
+    property <float> t: 1;
+    property <bool> snap;
+    init => {
+        shown = text;
+    }
+    changed text => {
+        shown = text;
+        snap = true;
+        t = 0;
+        snap = false;
+        t = 1;
+    }
+    animate t {
+        duration: snap ? 0ms : Motion.soft-dur;
+        easing: Motion.soft;
+    }
+    min-height: txt.preferred-height;
+    preferred-width: txt.preferred-width;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        y: Theme.reduce-motion ? 0px : (1 - root.t) * 8px;
+        opacity: clamp(root.t, 0, 1);
+        text: root.shown;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+        wrap: root.wrap;
+    }
+}
+
+/// 出現動畫的外層：shown 為 true 時（建立時就是 true 也算）內容從下方 rise 浮上來並淡入；
+/// index 決定延遲（index × Motion.stagger，最多算到 12），一組區塊就會依序出現。shown 變回 false 時直接淡出（不延遲）。
+/// 內容用 VerticalLayout 排（spacing 可設）；大小跟著內容。reduce-motion 時不位移、不延遲，只淡入 120ms。
+export component Reveal {
+    in property <bool> shown: true;
+    in property <int> index: 0;
+    in property <length> spacing: 0px;
+    in property <length> rise: Motion.rise;
+    /// 目前的出現進度 0–1（給子元素做額外效果）
+    out property <float> progress: t;
+    property <float> t: 0;
+    init => {
+        if root.shown {
+            root.t = 1;
+        }
+    }
+    changed shown => {
+        root.t = root.shown ? 1 : 0;
+    }
+    animate t {
+        duration: Motion.enter-dur;
+        delay: root.shown ? Motion.stagger * min(max(root.index, 0), 12) : 0ms;
+        easing: Motion.enter;
+    }
+    // 預設不吃掉多出來的高度（要撐滿的區塊自己設 vertical-stretch: 1）
+    vertical-stretch: 0;
+    min-width: lay.min-width;
+    min-height: lay.min-height;
+    max-width: lay.max-width;
+    max-height: lay.max-height;
+    preferred-width: lay.preferred-width;
+    preferred-height: lay.preferred-height;
+    Rectangle {
+        y: (1 - root.t) * root.rise;
+        height: root.height;
+        opacity: root.t;
+        lay := VerticalLayout {
+            spacing: root.spacing;
+            @children
+        }
+    }
+}
+
+/// 清單依序浮現：整份清單共用一個進度 t（0→1，線性，約 520ms），第 index 列在 t 的某一段裡淡入。
+/// 用法：列的 opacity ＝ Stagger.at(t, i)，y 再加 (1 − Stagger.at(t, i)) × Motion.rise。
+/// 進度由清單所在的視窗在「打開或結果變了」時從 0 重播到 1，所以只是選取改變（列被重建）不會再播一次。
+export global Stagger {
+    /// 第 index 列（從畫面上第一列算起）在整體進度 t 時的出現程度 0–1（已套減速曲線）；第 10 列以後一起出現。
+    pure public function at(t: float, index: int) -> float {
+        let i = min(max(index, 0), 10);
+        let p = clamp((t - i * 0.055) / 0.42, 0, 1);
+        return 1 - (1 - p) * (1 - p) * (1 - p);
+    }
+}
+
+/// 假陰影（軟體繪圖畫不出 drop-shadow）：在元素後面疊三層往外擴、往下偏的半透明圓角矩形。
+/// 放在要有陰影的元素前面、同樣的位置與大小；strength 0–1 控制深淺（可以拿來做動畫，0 時看不到）。
+/// 繼承 Rectangle（本身透明）：沒給寬高時跟一般矩形一樣撐滿父元素。之前沒給寬度時寬度是 0、被置中，
+/// 三層圓角矩形縮成上下兩端各一個小灰點（日曆、下拉清單打開時上緣與下緣正中間的點）。
+export component SoftShadow inherits Rectangle {
+    in property <length> radius;
+    in property <float> strength: 1;
+    in property <length> offset-y: 3px;
+    /// 最外層往外擴多少
+    in property <length> spread: 6px;
+    property <float> base: Theme.dark ? 0.22 : 0.045;
+    for k in 3: Rectangle {
+        property <length> e: root.spread * (k + 1) / 3;
+        x: -self.e;
+        y: -self.e + root.offset-y * (k + 1) / 3;
+        width: root.width + 2 * self.e;
+        height: root.height + 2 * self.e;
+        border-radius: root.radius + self.e;
+        background: #000000.with-alpha(root.base * root.strength * (3 - k) / 3);
+    }
+}

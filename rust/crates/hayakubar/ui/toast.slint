@@ -1,0 +1,155 @@
+// 從工作列工時上方滑上來的提示（對應 C# UI/ToastWindow.xaml）；滑鼠移上去時不會自動關閉。
+// 視窗就是卡片本身（沒有留陰影的透明邊）：進出場由 Rust 移動原生視窗並裁切（src/slide.rs），
+// 這裡只負責關閉時內容淡出、停留倒數的進度條。
+import { Theme, Motion } from "@hb/index.slint";
+import { GlyphButton, SmallButton, WrapText } from "widgets.slint";
+
+export struct ToastButton {
+    label: string,
+    primary: bool,
+    enabled: bool,
+}
+
+// Slint 的 if／for 裡直接放 FlexboxLayout 時，換行後的高度會少算（捲動區最後幾列捲不到、提示的按鈕被切掉）；
+// 包成「繼承 VerticalLayout、FlexboxLayout 寫在元件裡面」的元件，高度才會照實際寬度算。
+/// 提示的按鈕，放不下時換到下一排。
+component ActionFlow inherits VerticalLayout {
+    in property <[ToastButton]> actions;
+    callback action(int);
+    FlexboxLayout {
+        spacing: 6px;
+        for a[i] in root.actions: SmallButton {
+            text: a.label;
+            primary: a.primary;
+            enabled: a.enabled;
+            clicked => {
+                root.action(i);
+            }
+        }
+    }
+}
+
+export component ToastWindow inherits Window {
+    title: "HayakuBar 通知";
+    icon: @image-url("../assets/app.ico");
+    no-frame: true;
+    always-on-top: true;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 12px;
+    width: 344px;
+    min-height: lay.preferred-height;
+    max-height: lay.preferred-height;
+
+    in property <string> title-text;
+    in property <string> message;
+    in property <[ToastButton]> actions;
+    /// 收起：內容淡出（視窗由 Rust 滑出去，動畫結束關窗）
+    in property <bool> closing;
+    /// 顯示停留倒數的進度條（要按掉才關的提示不顯示）
+    in property <bool> countdown-visible;
+    callback action(int);
+    callback close-clicked();
+    callback hover-changed(bool);
+    /// 內容的高度（還沒顯示時，Rust 用來先擺好位置）
+    out property <length> pref-h: lay.preferred-height;
+
+    // 停留倒數：剩下的比例（1 → 0，線性）；滑鼠移上去時停住
+    property <float> remain: 1;
+    property <duration> remain-dur;
+    animate remain {
+        duration: root.remain-dur;
+        easing: linear;
+    }
+    /// 從 from（剩下的比例）開始倒數，ms 毫秒後到 0
+    public function run-countdown(from: float, ms: int) {
+        root.remain-dur = 0ms;
+        root.remain = from;
+        // 關閉「顯示動畫」時倒數條不畫，也不跑動畫（不持續重畫）
+        root.remain-dur = Theme.reduce-motion ? 0ms : ms * 1ms;
+        root.remain = 0;
+    }
+    /// 停在 at（剩下的比例）
+    public function pause-countdown(at: float) {
+        root.remain-dur = 0ms;
+        root.remain = at;
+    }
+
+    card := Rectangle {
+        height: root.height;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.line;
+        opacity: root.closing ? 0 : 1;
+        animate opacity {
+            duration: Theme.reduce-motion ? 0ms : 200ms;
+            easing: Motion.out;
+        }
+        hover-ta := TouchArea {
+            property <bool> over: self.has-hover;
+            changed over => {
+                root.hover-changed(self.over);
+            }
+        }
+        lay := HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 10px;
+            // 上內距 7＋左邊兩欄各自再留 5：右上角 ✕（26px，字在按鈕裡垂直置中）才跟標題第一行同一條中線
+            padding-top: 7px;
+            padding-bottom: 12px;
+            spacing: 10px;
+            VerticalLayout {
+                alignment: start;
+                padding-top: 6px;
+                Image {
+                    width: 20px;
+                    height: 20px;
+                    source: @image-url("../assets/app.ico");
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                padding-top: 5px;
+                spacing: 3px;
+                WrapText {
+                    color: Theme.ink;
+                    text: root.title-text;
+                    font-size: 13px;
+                    font-weight: 700;
+                }
+                if root.message != "": WrapText {
+                    text: root.message;
+                    color: Theme.muted;
+                }
+                if root.actions.length > 0: VerticalLayout {
+                    padding-top: 7px;
+                    ActionFlow {
+                        actions: root.actions;
+                        action(i) => {
+                            root.action(i);
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: start;
+                GlyphButton {
+                    text: "✕";
+                    color: Theme.muted;
+                    tip: "關閉";
+                    clicked => {
+                        root.close-clicked();
+                    }
+                }
+            }
+        }
+        // 停留倒數（卡片下緣，從右往左縮）
+        if root.countdown-visible && !Theme.reduce-motion: Rectangle {
+            x: 0;
+            y: parent.height - self.height;
+            width: parent.width * clamp(root.remain, 0, 1);
+            height: 2px;
+            background: Theme.accent.with-alpha(0.55);
+        }
+    }
+}

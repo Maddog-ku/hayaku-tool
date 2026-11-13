@@ -1,0 +1,51 @@
+// 提示泡泡：ink 底小圓角泡泡，出現時以彈簧從下方浮上來並淡入。
+// Slint 內建 Tooltip 負責 hover 延遲、定位與疊在最上層；這裡只提供外觀（Tip）與包裝（TipArea）。
+import { Theme, Motion } from "../theme.slint";
+
+/// 泡泡外觀；可直接放在 Slint 內建 `Tooltip { Tip { text: "..."; } }` 裡。
+export component Tip {
+    in property <string> text;
+    in property <length> max-bubble-width: 260px;
+    property <float> t: 0;
+    init => {
+        t = 1;
+    }
+    animate t {
+        duration: Theme.reduce-motion ? 120ms : 450ms;
+        easing: Motion.spring;
+    }
+    width: min(root.max-bubble-width, txt.preferred-width + 20px);
+    height: txt.preferred-height + 12px;
+    // 浮出：從下方 4px 浮上來並淡入（軟體繪圖不支援 transform-scale；reduce-motion 時只淡入）
+    Rectangle {
+        y: Theme.reduce-motion ? 0px : (1 - root.t) * 4px;
+        opacity: clamp(root.t * 1.5, 0, 1);
+        border-radius: 8px;
+        background: Theme.ink;
+        txt := Text {
+            x: 10px;
+            width: parent.width - 20px;
+            text: root.text;
+            color: Theme.on-ink;
+            font-size: Theme.fs-sm;
+            font-weight: 500;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// 包住任何元件，滑過時顯示提示。用法：`TipArea { text: "說明"; Button { text: "按鈕"; } }`
+export component TipArea {
+    in property <string> text;
+    HorizontalLayout {
+        @children
+    }
+    if root.text != "": Rectangle {
+        Tooltip {
+            Tip {
+                text: root.text;
+            }
+        }
+    }
+}

@@ -1,0 +1,63 @@
+// 開關：拇指以彈簧滑動，移動途中被拉寬、壓扁（果凍感，峰值 1.28×0.86）；按住時拇指拉長、滑過時底色變深。
+import { Theme, Motion } from "../theme.slint";
+
+export component Toggle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback toggled(checked: bool);
+    width: 46px;
+    height: 28px;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: switch;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: label;
+    accessible-action-default => { ta.clicked(); }
+    property <float> pos: checked ? 1 : 0;
+    animate pos {
+        duration: Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    // 移動途中的拉伸量：中段最大，兩端為 0
+    property <float> stretch: Theme.reduce-motion ? 0 : clamp(4 * root.pos * (1 - root.pos), 0, 1);
+    // 按住時拇指往行進方向拉長 5px（iOS 開關的手感），放開以彈簧回去
+    property <length> press-w: ta.pressed ? 5px : 0px;
+    animate press-w {
+        duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+        easing: ta.pressed ? Motion.press : Motion.spring;
+    }
+    Rectangle {
+        border-radius: self.height / 2;
+        background: root.checked ? Theme.ink : ta.has-hover && root.enabled ? Theme.faint : Theme.line;
+        animate background { duration: 350ms; }
+    }
+    // 拇指的陰影（軟體繪圖畫不出 drop-shadow：用一圈半透明的圓往下偏 1px）
+    Rectangle {
+        width: knob.width + 2px;
+        height: knob.height + 2px;
+        x: knob.x - 1px;
+        y: knob.y;
+        border-radius: self.height / 2;
+        background: #0E0F13.with-alpha(Theme.dark ? 0.35 : 0.12);
+    }
+    knob := Rectangle {
+        property <length> w: 22px * (1 + 0.28 * root.stretch) + root.press-w;
+        property <length> h: 22px * (1 - 0.14 * root.stretch);
+        width: self.w;
+        height: self.h;
+        x: 3px + 18px * root.pos - (22px * (1 + 0.28 * root.stretch) - 22px) / 2 - root.press-w * root.pos;
+        y: (root.height - self.h) / 2;
+        border-radius: self.h / 2;
+        background: root.checked ? Theme.on-ink : Theme.knob;
+        animate background { duration: 350ms; }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}

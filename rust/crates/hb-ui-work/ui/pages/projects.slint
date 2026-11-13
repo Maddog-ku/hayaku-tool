@@ -1,0 +1,541 @@
+// 工作台「專案」頁（對應 C# UI/Work/ProjectsPage.cs）：任一個專案的全部任務，樹狀顯示、視圖、篩選、批次修改。
+// 契約：匯出 global ProjectsPageData（Rust 端用 window.global::<ProjectsPageData>() 讀寫）與 component ProjectsPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+//
+// 右鍵選單：@hbc 的 TaskMenuArea 綁在整個視窗共用的 TaskMenuState global（外框分派給「我的任務」）；為了不跟別頁互相蓋掉，
+// 這裡放一份同樣的選單（ProjectsMenuArea，項目文字照 C# TaskMenu），內容綁在 ProjectsPageData 上，
+// 欄位與回呼名稱跟 TaskMenuState 一樣，Rust 用 hb_ui_common::wire_task_menu! 接上。
+import { Theme, ScrollView, Checkbox, Tip, TipArea } from "@hb/index.slint";
+import { CheckRow, SelectField, StatusLine } from "@hbc/index.slint";
+import { W2, W2Button, W2Small, W2Input, W2Link, W2Project, W2ProjectSelect, W2Title } from "w2-common.slint";
+import { Appear } from "../shared/anim.slint";
+
+/// 清單的一列（C# Row）。
+export struct ProjectsRow {
+    key: string,
+    /// 標題（測試類任務前面有圖示，TaskText.Title）
+    title: string,
+    tip: string,
+    depth: int,
+    has-children: bool,
+    open: bool,
+    checked: bool,
+    is-category: bool,
+    /// 測試任務底下的測試結果數量（🐞 ✓ 🔧 🧪）
+    results: string,
+    results-tip: string,
+    done: bool,
+    status: string,
+    in-progress: bool,
+    assignees: string,
+    assignees-tip: string,
+    due: string,
+    due-tip: string,
+    overdue: bool,
+}
+
+export global ProjectsPageData {
+    in-out property <bool> loading;
+    in-out property <[W2Project]> projects;
+    in-out property <int> project-index;
+    in-out property <[string]> views;
+    in-out property <int> view-index;
+    in-out property <string> filter;
+    in-out property <[string]> type-items;
+    in-out property <int> type-index;
+    in-out property <bool> hide-done;
+    in-out property <bool> mine;
+    in-out property <bool> leaf-only;
+    in-out property <bool> overdue-only;
+    in-out property <string> summary;
+    in-out property <string> status-text;
+    in-out property <int> status-tone;
+    in-out property <[ProjectsRow]> rows;
+    in-out property <bool> batch-visible;
+    in-out property <string> batch-text;
+    in-out property <[string]> batch-statuses;
+    in-out property <int> batch-status-index: -1;
+    in-out property <[string]> priorities;
+    in-out property <int> batch-priority-index: -1;
+    in-out property <[string]> batch-types;
+    in-out property <int> batch-type-index: -1;
+    /// 執行中的批次按鈕（status、priority、type；C# Inputs.Run 把按鈕換成「處理中…」）
+    in-out property <string> busy-button;
+    callback project-selected(index: int);
+    callback view-selected(index: int);
+    callback filters-changed();
+    callback hide-done-toggled(on: bool);
+    callback refresh();
+    callback create();
+    callback batch-create();
+    callback open-web();
+    callback toggle-row(index: int);
+    callback check-row(index: int, checked: bool);
+    callback copy-key(key: string);
+    callback open-task(key: string);
+    callback apply-status();
+    callback apply-priority();
+    callback apply-type();
+    callback apply-template();
+    callback clear-selection();
+
+    // ---- 右鍵選單（跟 hb-ui-common TaskMenuState 一樣的欄位，給 wire_task_menu!）----
+    in-out property <string> key;
+    in-out property <string> start-title: "▶  開始計時";
+    in-out property <string> pin-title: "📌  釘到托盤";
+    in-out property <bool> pin-enabled: true;
+    in-out property <string> status-title: "⇄  改狀態";
+    in-out property <[string]> status-items;
+    in-out property <bool> status-ready;
+    in-out property <string> status-note: "讀取中…";
+    in-out property <int> show-serial;
+    callback opening(key: string);
+    callback action(key: string, id: string);
+    callback pick-status(key: string, index: int);
+}
+
+/// 任務列的右鍵選單（同 @hbc TaskMenuArea，綁 ProjectsPageData）。
+component ProjectsMenuArea {
+    in property <string> key;
+    property <Point> pos;
+    property <bool> waiting;
+    property <int> serial: ProjectsPageData.show-serial;
+    changed serial => {
+        if root.waiting && ProjectsPageData.key == root.key {
+            root.waiting = false;
+            cma.show(root.pos);
+        }
+    }
+    public function open-at(abs: Point) {
+        root.pos = { x: abs.x - root.absolute-position.x, y: abs.y - root.absolute-position.y };
+        root.waiting = true;
+        ProjectsPageData.opening(root.key);
+    }
+    out property <bool> hovered: menu-ta.has-hover;
+    menu-ta := TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+            }
+        }
+    }
+    @children
+    cma := ContextMenuArea {
+        enabled: false;
+        Menu {
+            MenuItem {
+                title: ProjectsPageData.start-title;
+                activated => { ProjectsPageData.action(root.key, "start"); }
+            }
+            MenuItem {
+                title: ProjectsPageData.pin-title;
+                enabled: ProjectsPageData.pin-enabled;
+                activated => { ProjectsPageData.action(root.key, "pin"); }
+            }
+            Menu {
+                title: ProjectsPageData.status-title;
+                if !ProjectsPageData.status-ready: MenuItem {
+                    title: ProjectsPageData.status-note;
+                    enabled: false;
+                }
+                for s[i] in ProjectsPageData.status-items: MenuItem {
+                    title: s;
+                    activated => { ProjectsPageData.pick-status(root.key, i); }
+                }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "☰  查看詳細";
+                activated => { ProjectsPageData.action(root.key, "open"); }
+            }
+            MenuItem {
+                title: "⧉  複製編號";
+                activated => { ProjectsPageData.action(root.key, "copy-key"); }
+            }
+            MenuItem {
+                title: "🔗  複製連結";
+                activated => { ProjectsPageData.action(root.key, "copy-link"); }
+            }
+            MenuItem {
+                title: "↗  在網頁開啟";
+                activated => { ProjectsPageData.action(root.key, "web"); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "📋  套用子任務範本…";
+                activated => { ProjectsPageData.action(root.key, "template"); }
+            }
+            MenuItem {
+                title: "🗑  刪除任務…";
+                activated => { ProjectsPageData.action(root.key, "delete"); }
+            }
+        }
+    }
+}
+
+component TaskRow inherits Rectangle {
+    in property <ProjectsRow> data;
+    in property <int> index;
+    height: 32px;
+    border-radius: 10px;
+    background: menu.hovered ? Theme.hover : transparent;
+    menu := ProjectsMenuArea {
+        key: root.data.key;
+        width: root.width;
+        height: root.height;
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 6px;
+            Rectangle {
+                width: 26px;
+                Checkbox {
+                    x: 2px;
+                    y: (parent.height - self.height) / 2;
+                    width: 18px;
+                    height: 18px;
+                    checked: root.data.checked;
+                    toggled(c) => { ProjectsPageData.check-row(root.index, c); }
+                }
+            }
+            Rectangle {
+                width: root.data.depth * 18px + 20px;
+                if root.data.has-children: Rectangle {
+                    x: parent.width - self.width - 2px;
+                    width: 20px;
+                    height: 22px;
+                    border-radius: 6px;
+                    background: tog.has-hover ? Theme.fill : transparent;
+                    Text {
+                        text: root.data.open ? "▾" : "▸";
+                        color: Theme.ink;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    tog := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { ProjectsPageData.toggle-row(root.index); }
+                    }
+                }
+            }
+            // 點編號複製編號、點名稱打開詳細（跟網頁一樣）
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px;
+                opacity: root.data.done ? 0.55 : 1;
+                W2Link {
+                    // 編號不縮（名稱先省略）
+                    min-width: self.preferred-width;
+                    text: root.data.key;
+                    color: Theme.accent;
+                    tip: "點一下複製編號";
+                    clicked => { ProjectsPageData.copy-key(root.data.key); }
+                    right-click(p) => { menu.open-at(p); }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 40px;
+                    HorizontalLayout {
+                        spacing: 0px;
+                        W2Link {
+                            text: root.data.title;
+                            tip: root.data.tip;
+                            font-weight: root.data.is-category ? 600 : 400;
+                            clicked => { ProjectsPageData.open-task(root.data.key); }
+                            right-click(p) => { menu.open-at(p); }
+                        }
+                        if root.data.is-category: Text {
+                            text: "  · 分類";
+                            color: Theme.muted;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                        if root.data.results != "": Rectangle {
+                            horizontal-stretch: 0;
+                            // 跟名稱隔 6px（之前緊貼在名稱後面）
+                            min-width: res.preferred-width + 6px;
+                            res := Text {
+                                x: 6px;
+                                text: root.data.results;
+                                color: Theme.muted;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                Tooltip {
+                                    Tip {
+                                        text: root.data.results-tip;
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+            }
+            Text {
+                width: 120px;
+                text: root.data.status;
+                color: root.data.in-progress ? Theme.accent : Theme.muted;
+                font-size: 12px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+            Text {
+                width: 130px;
+                text: root.data.assignees;
+                color: Theme.muted;
+                font-size: 12px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+            Text {
+                width: 70px;
+                text: root.data.due;
+                color: root.data.overdue ? Theme.error : Theme.muted;
+                font-family: Theme.font-num;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component ProjectsPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時批次列分兩列
+    property <bool> narrow: root.width < 1000px;
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            padding-bottom: 2px;
+            W2Title {
+                text: "專案";
+                horizontal-stretch: 1;
+            }
+            W2Button {
+                text: "＋ 新增任務";
+                clicked => { ProjectsPageData.create(); }
+            }
+            W2Button {
+                text: "＋ 批次新增";
+                tip: "貼上清單一次建立多個任務或整棵任務樹（縮排是子任務）；勾了一個任務時預設放在它底下";
+                clicked => { ProjectsPageData.batch-create(); }
+            }
+            W2Button {
+                text: "⟳ 重新整理";
+                clicked => { ProjectsPageData.refresh(); }
+            }
+            W2Button {
+                text: "在網頁開啟 ↗";
+                clicked => { ProjectsPageData.open-web(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            // 頁面窄時三個欄位一起縮（文字省略），不把整頁撐寬
+            W2ProjectSelect {
+                min-width: 150px;
+                preferred-width: 230px;
+                max-width: 230px;
+                horizontal-stretch: 1;
+                items: ProjectsPageData.projects;
+                current <=> ProjectsPageData.project-index;
+                selected(i) => { ProjectsPageData.project-selected(i); }
+            }
+            SelectField {
+                min-width: 110px;
+                preferred-width: 160px;
+                max-width: 160px;
+                horizontal-stretch: 1;
+                height: 38px;
+                items: ProjectsPageData.views;
+                current <=> ProjectsPageData.view-index;
+                selected(i) => { ProjectsPageData.view-selected(i); }
+            }
+            W2Input {
+                min-width: 100px;
+                preferred-width: 200px;
+                max-width: 200px;
+                height: 38px;
+                horizontal-stretch: 1;
+                placeholder: "🔍 篩選編號或名稱";
+                text <=> ProjectsPageData.filter;
+                edited => { ProjectsPageData.filters-changed(); }
+            }
+            TipArea {
+                text: "依類型篩選";
+                SelectField {
+                    width: 110px;
+                    height: 38px;
+                    items: ProjectsPageData.type-items;
+                    current <=> ProjectsPageData.type-index;
+                    selected => { ProjectsPageData.filters-changed(); }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            CheckRow {
+                text: "不顯示完成及不處理";
+                checked <=> ProjectsPageData.hide-done;
+                toggled(c) => { ProjectsPageData.hide-done-toggled(c); }
+            }
+            CheckRow {
+                text: "只看我的";
+                checked <=> ProjectsPageData.mine;
+                toggled => { ProjectsPageData.filters-changed(); }
+            }
+            CheckRow {
+                text: "只顯示沒有子任務的";
+                checked <=> ProjectsPageData.leaf-only;
+                toggled => { ProjectsPageData.filters-changed(); }
+            }
+            CheckRow {
+                text: "只顯示已逾期";
+                tip: "預計結束已過、還沒完成的任務";
+                checked <=> ProjectsPageData.overdue-only;
+                toggled => { ProjectsPageData.filters-changed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        Text {
+            text: ProjectsPageData.summary;
+            color: Theme.muted;
+            font-size: Theme.fs-md;
+        }
+        StatusLine {
+            text: ProjectsPageData.status-text;
+            tone: ProjectsPageData.status-tone;
+        }
+
+        if ProjectsPageData.batch-visible: Rectangle {
+            border-radius: W2.card-radius;
+            border-width: 1px;
+            border-color: Theme.line;
+            VerticalLayout {
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    padding-top: 7px;
+                    padding-bottom: 7px;
+                    spacing: 6px;
+                    Text {
+                        text: ProjectsPageData.batch-text;
+                        color: Theme.ink;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { width: 6px; }
+                    SelectField {
+                        width: 140px;
+                        height: 34px;
+                        items: ProjectsPageData.batch-statuses;
+                        current <=> ProjectsPageData.batch-status-index;
+                    }
+                    W2Button {
+                        text: ProjectsPageData.busy-button == "status" ? "處理中…" : "改狀態";
+                        primary: true;
+                        enabled: ProjectsPageData.busy-button == "";
+                        clicked => { ProjectsPageData.apply-status(); }
+                    }
+                    SelectField {
+                        width: 80px;
+                        height: 34px;
+                        items: ProjectsPageData.priorities;
+                        current <=> ProjectsPageData.batch-priority-index;
+                    }
+                    W2Button {
+                        text: ProjectsPageData.busy-button == "priority" ? "處理中…" : "改優先級";
+                        enabled: ProjectsPageData.busy-button == "";
+                        clicked => { ProjectsPageData.apply-priority(); }
+                    }
+                    if !root.narrow: HorizontalLayout {
+                        spacing: 6px;
+                        SelectField {
+                            width: 100px;
+                            height: 34px;
+                            items: ProjectsPageData.batch-types;
+                            current <=> ProjectsPageData.batch-type-index;
+                        }
+                        W2Button {
+                            text: ProjectsPageData.busy-button == "type" ? "處理中…" : "改類型";
+                            tip: "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
+                            enabled: ProjectsPageData.busy-button == "";
+                            clicked => { ProjectsPageData.apply-type(); }
+                        }
+                        W2Button {
+                            text: "套用範本…";
+                            tip: "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
+                            clicked => { ProjectsPageData.apply-template(); }
+                        }
+                        W2Button {
+                            text: "取消選取";
+                            clicked => { ProjectsPageData.clear-selection(); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                // 頁面窄時類型、範本、取消選取換到第二列
+                if root.narrow: HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    padding-bottom: 7px;
+                    spacing: 6px;
+                    SelectField {
+                        width: 100px;
+                        height: 34px;
+                        items: ProjectsPageData.batch-types;
+                        current <=> ProjectsPageData.batch-type-index;
+                    }
+                    W2Button {
+                        text: ProjectsPageData.busy-button == "type" ? "處理中…" : "改類型";
+                        tip: "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
+                        enabled: ProjectsPageData.busy-button == "";
+                        clicked => { ProjectsPageData.apply-type(); }
+                    }
+                    W2Button {
+                        text: "套用範本…";
+                        tip: "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
+                        clicked => { ProjectsPageData.apply-template(); }
+                    }
+                    W2Button {
+                        text: "取消選取";
+                        clicked => { ProjectsPageData.clear-selection(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+            }
+        }
+
+        sv := ScrollView {
+            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+            content-width: self.visible-width;
+            vertical-stretch: 1;
+            content-height: list.preferred-height;
+            list := VerticalLayout {
+                // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                x: 0;
+                width: sv.visible-width - 14px;
+                spacing: 2px;
+                for row[i] in ProjectsPageData.rows: Appear {
+                    index: i;
+                    rise: 8px;
+                    TaskRow {
+                        data: row;
+                        index: i;
+                    }
+                }
+            }
+        }
+    }
+}

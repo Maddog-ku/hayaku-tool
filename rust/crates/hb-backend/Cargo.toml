@@ -1,0 +1,28 @@
+[package]
+name = "hb-backend"
+description = "基礎層：Infra、Config、Auth、McpClient（實作 hb-api 的 McpTransport）、McpStats、tokio 執行環境"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hb-api.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+log.workspace = true
+thiserror.workspace = true
+url.workspace = true
+urlencoding.workspace = true
+base64.workspace = true
+sha2.workspace = true
+rand.workspace = true
+windows.workspace = true
+indexmap = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+tempfile.workspace = true

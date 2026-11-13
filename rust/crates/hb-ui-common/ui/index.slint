@@ -1,0 +1,27 @@
+// hb-ui-common 對外入口：其他 crate 設 library path `hbc` → 這個 ui/ 資料夾後，
+// `import { DayTimeline, DayTimelineModel, DateRangePicker, TaskMenuArea, TaskMenuState } from "@hbc/index.slint";`
+// （同時要設 `hb` → hb-ui-kit/ui）。資料轉換見 crates/hb-ui-common/API.md。
+export { DayTimeline, DayTimelineModel } from "day-timeline.slint";
+export { DateRangePicker } from "date-range-picker.slint";
+export { TaskMenuArea, TaskMenuState } from "task-menu.slint";
+export {
+    ColorKeys,
+    FieldLabel,
+    MutedText,
+    GroupLabel,
+    StatusLine,
+    TextArea,
+    PlainText,
+    CheckRow,
+    RadioDot,
+    LinkButton,
+    ComboField,
+    SelectField,
+    CopyKey,
+    ProjectIcon,
+    ProjectBadge,
+    NavItem,
+    InlineEdit,
+    PageTitle,
+    InfoCard,
+} from "common.slint";

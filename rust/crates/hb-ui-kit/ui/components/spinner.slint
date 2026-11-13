@@ -1,0 +1,53 @@
+// 載入中圓圈（設計稿 .spin：淡色圓環＋一段實色圓弧，0.8s 一圈）。
+// 軟體繪圖不支援 transform-rotation，所以不轉元素，而是依 animation-tick() 每一格重算圓弧兩端的位置：
+// 只有真的畫出這個元素時才會讀時間（被藏起來、視窗沒顯示時不會一直重畫）；reduce-motion 時停在固定位置。
+import { Theme } from "../theme.slint";
+
+export component Spinner {
+    in property <color> color: Theme.ink;
+    in property <length> thickness: 2.5px;
+    in property <duration> period: 800ms;
+    width: 20px;
+    height: 20px;
+    property <length> size: min(root.width, root.height);
+    // 一圈的進度 0–1
+    property <float> turn: Theme.reduce-motion ? 0.125 : mod(animation-tick() / root.period, 1);
+    // 弧長在 70°–160° 之間伸縮（週期是一圈的 1.7 倍），看起來像追著跑
+    property <float> breathe: Theme.reduce-motion ? 0.3 : 0.5 - 0.5 * cos(mod(animation-tick() / (root.period * 1.7), 1) * 360deg);
+    property <float> vb: root.size / 1px;
+    property <float> r: (root.size - root.thickness) / 2px;
+    property <angle> a0: root.turn * 360deg - 90deg;
+    property <angle> a1: root.a0 + 70deg + root.breathe * 90deg;
+    Rectangle {
+        x: (root.width - root.size) / 2;
+        y: (root.height - root.size) / 2;
+        width: root.size;
+        height: root.size;
+        border-radius: self.width / 2;
+        border-width: root.thickness;
+        border-color: root.color.with-alpha(0.25);
+    }
+    Path {
+        x: (root.width - root.size) / 2;
+        y: (root.height - root.size) / 2;
+        width: root.size;
+        height: root.size;
+        viewbox-width: root.vb;
+        viewbox-height: root.vb;
+        stroke: root.color;
+        stroke-width: root.thickness;
+        stroke-line-cap: round;
+        MoveTo {
+            x: root.vb / 2 + root.r * cos(root.a0);
+            y: root.vb / 2 + root.r * sin(root.a0);
+        }
+        ArcTo {
+            x: root.vb / 2 + root.r * cos(root.a1);
+            y: root.vb / 2 + root.r * sin(root.a1);
+            radius-x: root.r;
+            radius-y: root.r;
+            large-arc: false;
+            sweep: true;
+        }
+    }
+}

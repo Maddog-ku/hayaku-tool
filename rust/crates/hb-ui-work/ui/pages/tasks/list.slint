@@ -1,0 +1,729 @@
+// 我的任務：清單（可設定欄位）、樹狀、看板（C# TasksPage.xaml 的 TaskList、TreeList、Kanban）。
+import { Theme, Motion, ScrollView, Tip } from "@hb/index.slint";
+import { CopyKey, ProjectBadge, TaskMenuArea } from "@hbc/index.slint";
+import { GlyphButton, SoftPill, Appear, FadeText, CardShadow } from "../../shared/index.slint";
+import { TasksPageData, TkRow, TkColumn, TkTreeRow, TkCard } from "data.slint";
+
+/// 到期文字的顏色：0 muted、1 錯誤、2 警告。
+global DueColor {
+    pure public function of(tone: int) -> color {
+        if tone == 1 { return Theme.error; }
+        if tone == 2 { return Theme.warn; }
+        return Theme.muted;
+    }
+}
+
+/// 計時鈕：▶（muted）／❚❚（計時中，綠）。
+component TimerGlyph {
+    in property <bool> timing;
+    in property <color> idle-color: Theme.muted;
+    in property <color> run-color: Theme.run;
+    width: 28px;
+    height: 26px;
+    GlyphButton {
+        size: 26px;
+        glyph: root.timing ? "❚❚" : "▶";
+        font-size: 10px;
+        color: root.timing ? root.run-color : root.idle-color;
+        tip: root.timing ? "暫停計時" : "開始計時";
+        clicked => {
+            TasksPageData.row-timer(root.key);
+        }
+    }
+    in property <string> key;
+}
+
+/// 清單的一列：欄位照設定的順序與寬度。
+/// 每一欄的第一行都放在跟計時鈕一樣高（26px）的行框裡垂直置中，兩行的列裡第一行的字、標籤、計時鈕才在同一條中線上。
+component ListRow {
+    in property <TkRow> item;
+    in property <[TkColumn]> columns;
+    in property <bool> key-column;
+    in property <bool> selected;
+    callback clicked();
+    height: root.item.context != "" ? 46px : 34px;
+    Rectangle {
+        border-radius: 12px;
+        background: root.selected ? Theme.selected : ta.has-hover ? Theme.fill : transparent;
+        animate background { duration: 140ms; }
+    }
+    menu := TaskMenuArea {
+        width: parent.width;
+        height: parent.height;
+        key: root.item.key;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+            }
+        }
+    }
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 6px;
+        padding-top: 4px;
+        TimerGlyph {
+            key: root.item.key;
+            timing: root.item.timing;
+        }
+        for c in root.columns: Rectangle {
+            min-width: c.width > 0 ? c.width : 40px;
+            max-width: c.width > 0 ? c.width : 100000px;
+            preferred-width: c.width > 0 ? c.width : 200px;
+            horizontal-stretch: c.width > 0 ? 0 : 1;
+            HorizontalLayout {
+                padding-right: 8px;
+                alignment: start;
+                if c.key == "key": VerticalLayout {
+                    alignment: start;
+                    CopyKey {
+                        height: 26px;
+                        key: root.item.key;
+                        font-size: Theme.fs-md;
+                        copy(k) => {
+                            TasksPageData.copy-key(k);
+                        }
+                    }
+                }
+                if c.key == "title": VerticalLayout {
+                    alignment: start;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    HorizontalLayout {
+                        height: 26px;
+                        spacing: 6px;
+                        if !root.key-column: CopyKey {
+                            key: root.item.key;
+                            font-size: Theme.fs-md;
+                            copy(k) => {
+                                TasksPageData.copy-key(k);
+                            }
+                        }
+                        Text {
+                            text: root.item.title;
+                            color: root.item.done ? Theme.muted : Theme.ink;
+                            font-size: Theme.fs-md;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.item.context != "": Text {
+                        text: root.item.context;
+                        color: Theme.muted;
+                        font-size: 11px;
+                        overflow: elide;
+                    }
+                }
+                if c.key == "project" && root.item.has-project: VerticalLayout {
+                    alignment: start;
+                    ProjectBadge {
+                        height: 26px;
+                        glyph: root.item.glyph;
+                        tint: root.item.tint;
+                        name: root.item.project-text;
+                        size: 16px;
+                    }
+                }
+                if c.key == "status" && root.item.status != "": VerticalLayout {
+                    alignment: start;
+                    SoftPill {
+                        height: 26px;
+                        text: root.item.status;
+                    }
+                }
+                if c.key == "priority": Text {
+                    text: root.item.priority-text;
+                    color: Theme.ink;
+                    font-size: Theme.fs-sm;
+                    height: 26px;
+                    vertical-alignment: center;
+                }
+                if c.key == "start": Text {
+                    text: root.item.start-text;
+                    color: root.item.start-hint ? Theme.faint : Theme.muted;
+                    font-size: Theme.fs-sm;
+                    height: 26px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if c.key == "end": Text {
+                    text: root.item.due-text;
+                    color: DueColor.of(root.item.due-tone);
+                    font-size: Theme.fs-sm;
+                    font-weight: root.item.due-tone == 1 ? 600 : 400;
+                    height: 26px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if c.key == "elapsed": Text {
+                    text: root.item.elapsed;
+                    color: Theme.ink;
+                    font-family: Theme.font-num;
+                    font-size: Theme.fs-md;
+                    font-weight: 600;
+                    height: 26px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+/// 清單的欄位標題：跟列一樣的欄寬；固定寬度的欄右邊有一條可以拖的線。
+component ColumnHeader {
+    in property <[TkColumn]> columns;
+    height: 26px;
+    HorizontalLayout {
+        padding-left: 4px;
+        // 列在捲動區裡右邊留 12px 給捲軸：標題也留，欄位才會跟列對齊
+        padding-right: 6px + 12px;
+        Rectangle {
+            width: 28px;
+        }
+        for c[i] in root.columns: Rectangle {
+            min-width: c.width > 0 ? c.width : 40px;
+            max-width: c.width > 0 ? c.width : 100000px;
+            preferred-width: c.width > 0 ? c.width : 200px;
+            horizontal-stretch: c.width > 0 ? 0 : 1;
+            Text {
+                x: 0;
+                width: parent.width - 8px;
+                text: c.label;
+                color: Theme.muted;
+                font-size: 11px;
+                font-weight: 600;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if c.resizable: grip := Rectangle {
+                property <length> press-abs;
+                property <length> start-width;
+                x: parent.width - 4px;
+                width: 7px;
+                Rectangle {
+                    width: 1px;
+                    y: 4px;
+                    height: parent.height - 8px;
+                    background: grip-ta.has-hover || grip-ta.pressed ? Theme.accent : Theme.line;
+                    animate background { duration: 150ms; }
+                }
+                grip-ta := TouchArea {
+                    mouse-cursor: MouseCursor.ew-resize;
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                            grip.press-abs = self.absolute-position.x + self.mouse-x;
+                            grip.start-width = c.width;
+                        } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                            TasksPageData.column-resize-done();
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            TasksPageData.column-resize(i, grip.start-width + (self.absolute-position.x + self.mouse-x - grip.press-abs));
+                        }
+                    }
+                    Tooltip {
+                        Tip {
+                            text: "拖曳調整寬度";
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+}
+
+/// 清單檢視：欄位標題＋列；Enter 開啟、↑↓ 移動選取。
+export component ListView {
+    in property <bool> key-column;
+    VerticalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 2px;
+        ColumnHeader {
+            columns: TasksPageData.columns;
+        }
+        fs := FocusScope {
+            key-pressed(e) => {
+                if e.text == Key.Return && TasksPageData.selected-index >= 0 && TasksPageData.selected-index < TasksPageData.rows.length {
+                    TasksPageData.row-open(TasksPageData.rows[TasksPageData.selected-index].key);
+                    return EventResult.accept;
+                }
+                if e.text == Key.DownArrow && TasksPageData.selected-index < TasksPageData.rows.length - 1 {
+                    TasksPageData.selected-index += 1;
+                    return EventResult.accept;
+                }
+                if e.text == Key.UpArrow && TasksPageData.selected-index > 0 {
+                    TasksPageData.selected-index -= 1;
+                    return EventResult.accept;
+                }
+                EventResult.reject
+            }
+            sv := ScrollView {
+                content-height: col.preferred-height + 8px;
+                content-width: self.visible-width;
+                col := VerticalLayout {
+                    // 靠左（不置中）：欄位跟上面的標題對齊，右邊 12px 留給捲軸
+                    x: 0;
+                    width: sv.visible-width - 12px;
+                    padding-top: 4px;
+                    spacing: 1px;
+                    for r[i] in TasksPageData.rows: Appear {
+                        index: i;
+                        rise: 8px;
+                        ListRow {
+                            item: r;
+                            columns: TasksPageData.columns;
+                            key-column: root.key-column;
+                            selected: i == TasksPageData.selected-index;
+                            clicked => {
+                                TasksPageData.selected-index = i;
+                                fs.focus();
+                                TasksPageData.row-open(r.key);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 樹狀檢視：依專案分組、照上下層排成樹；Enter 開啟、← 收合、→ 展開。
+export component TreeView {
+    fs := FocusScope {
+        key-pressed(e) => {
+            let i = TasksPageData.tree-selected;
+            if i < 0 || i >= TasksPageData.tree-rows.length {
+                if e.text == Key.DownArrow && TasksPageData.tree-rows.length > 0 {
+                    TasksPageData.tree-selected = 0;
+                    return EventResult.accept;
+                }
+                return EventResult.reject;
+            }
+            let r = TasksPageData.tree-rows[i];
+            if e.text == Key.Return {
+                if r.is-project {
+                    TasksPageData.tree-toggle(i);
+                } else {
+                    TasksPageData.row-open(r.key);
+                }
+                return EventResult.accept;
+            }
+            if (e.text == Key.LeftArrow && r.expanded && (r.is-project || r.has-children)) || (e.text == Key.RightArrow && !r.expanded && (r.is-project || r.has-children)) {
+                TasksPageData.tree-toggle(i);
+                return EventResult.accept;
+            }
+            if e.text == Key.DownArrow && i < TasksPageData.tree-rows.length - 1 {
+                TasksPageData.tree-selected += 1;
+                return EventResult.accept;
+            }
+            if e.text == Key.UpArrow && i > 0 {
+                TasksPageData.tree-selected -= 1;
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        sv := ScrollView {
+            content-height: col.preferred-height + 8px;
+            content-width: self.visible-width;
+            col := VerticalLayout {
+                x: 8px;
+                width: sv.visible-width - 20px;
+                padding-top: 6px;
+                spacing: 1px;
+                for r[i] in TasksPageData.tree-rows: Appear {
+                    index: i;
+                    rise: 8px;
+                    Rectangle {
+                        height: r.is-project ? 36px : (r.sub-text != "" || (r.has-row && r.row.due-text != "") ? 46px : 34px);
+                        Rectangle {
+                            y: r.is-project ? 6px : 0px;
+                            height: parent.height - (r.is-project ? 6px : 0px);
+                            border-radius: 12px;
+                            background: i == TasksPageData.tree-selected ? Theme.selected : row-ta.has-hover ? Theme.fill : transparent;
+                            animate background { duration: 140ms; }
+                        }
+                        menu := TaskMenuArea {
+                            width: parent.width;
+                            height: parent.height;
+                            key: r.key;
+                            enabled: !r.is-project;
+                        }
+                        row-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                TasksPageData.tree-selected = i;
+                                fs.focus();
+                                if r.is-project {
+                                    TasksPageData.tree-toggle(i);
+                                } else {
+                                    TasksPageData.row-open(r.key);
+                                }
+                            }
+                            pointer-event(e) => {
+                                if !r.is-project && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    TasksPageData.tree-selected = i;
+                                    menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+                                }
+                            }
+                            if r.tip != "": Tooltip {
+                                Tip {
+                                    text: r.tip;
+                                }
+                            }
+                        }
+                        if r.is-project: HorizontalLayout {
+                            y: 6px;
+                            height: parent.height - 6px;
+                            padding-left: 2px;
+                            spacing: 4px;
+                            GlyphButton {
+                                y: (parent.height - self.height) / 2;
+                                glyph: r.expanded ? "▾" : "▸";
+                                font-size: 15px;
+                                size: 24px;
+                                color: Theme.muted;
+                                tip: "展開／收合";
+                                clicked => {
+                                    TasksPageData.tree-toggle(i);
+                                }
+                            }
+                            Text {
+                                text: r.name;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: r.count-text;
+                                color: Theme.muted;
+                                font-size: 11px;
+                                font-family: Theme.font-num;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                        if !r.is-project: HorizontalLayout {
+                            padding-left: 2px + (r.depth - 1) * 20px;
+                            padding-right: 6px;
+                            padding-top: 4px;
+                            spacing: 0px;
+                            Rectangle {
+                                width: 24px;
+                                if r.has-children: GlyphButton {
+                                    y: 0;
+                                    // 高度跟計時鈕一樣 26px（圓鈕 24px 在裡面置中），跟計時鈕、第一行同一條中線
+                                    height: 26px;
+                                    glyph: r.expanded ? "▾" : "▸";
+                                    font-size: 15px;
+                                    size: 24px;
+                                    color: Theme.muted;
+                                    tip: "展開／收合子任務";
+                                    clicked => {
+                                        TasksPageData.tree-toggle(i);
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: 28px;
+                                if r.has-row: TimerGlyph {
+                                    y: 0;
+                                    key: r.key;
+                                    timing: r.row.timing;
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: start;
+                                spacing: 2px;
+                                opacity: r.opacity;
+                                HorizontalLayout {
+                                    // 第一行跟左邊的 ▸、計時鈕（26px）同一條中線
+                                    height: 26px;
+                                    spacing: 6px;
+                                    CopyKey {
+                                        key: r.key;
+                                        font-size: Theme.fs-md;
+                                        copy(k) => {
+                                            TasksPageData.copy-key(k);
+                                        }
+                                    }
+                                    Text {
+                                        text: r.title;
+                                        color: Theme.ink;
+                                        font-size: Theme.fs-md;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                if r.sub-text != "": Text {
+                                    text: r.sub-text;
+                                    color: Theme.muted;
+                                    font-size: 11px;
+                                    overflow: elide;
+                                }
+                            }
+                            if r.has-row: VerticalLayout {
+                                alignment: start;
+                                spacing: 3px;
+                                if r.row.status != "": HorizontalLayout {
+                                    alignment: end;
+                                    height: 26px;
+                                    SoftPill {
+                                        text: r.row.status;
+                                    }
+                                }
+                                Text {
+                                    text: r.row.due-text;
+                                    color: DueColor.of(r.row.due-tone);
+                                    font-size: 11px;
+                                    horizontal-alignment: right;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 看板卡片：編號與專案、上層路徑、名稱、狀態、到期、計時（計時中的是深色卡片）。
+component KanbanCard {
+    in property <TkCard> card;
+    property <color> fg: root.card.running ? Theme.inverse-text : Theme.ink;
+    property <color> fg-muted: root.card.running ? Theme.inverse-muted : Theme.muted;
+    min-height: body.preferred-height;
+    // 滑過時往上浮一點（彈簧）
+    property <float> lift: ta.has-hover ? 1 : 0;
+    animate lift {
+        duration: Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    // 浮起時的假陰影（軟體繪製畫不出 drop-shadow）
+    CardShadow {
+        y: -2px * root.lift;
+        width: root.width;
+        height: root.height;
+        radius: 16px;
+        strength: clamp(root.lift, 0, 1);
+    }
+    Rectangle {
+        y: -2px * root.lift;
+        border-radius: 16px;
+        background: root.card.running ? Theme.inverse-bg : Theme.card;
+        border-width: root.card.running ? 0px : 1px;
+        border-color: Theme.line;
+        drop-shadow-color: Theme.shadow.transparentize(1 - root.lift);
+        drop-shadow-blur: 14px;
+        drop-shadow-offset-y: 4px;
+    }
+    menu := TaskMenuArea {
+        width: parent.width;
+        height: parent.height;
+        key: root.card.key;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            TasksPageData.row-open(root.card.key);
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+            }
+        }
+        Tooltip {
+            Tip {
+                text: root.card.tip;
+            }
+        }
+    }
+    body := VerticalLayout {
+        y: -2px * root.lift;
+        padding-left: 12px;
+        padding-right: 8px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        spacing: 2px;
+        HorizontalLayout {
+            spacing: 6px;
+            CopyKey {
+                key: root.card.key;
+                font-size: 10.5px;
+                font-weight: 600;
+                color: root.fg-muted;
+                copy(k) => {
+                    TasksPageData.copy-key(k);
+                }
+            }
+            Text {
+                text: root.card.project;
+                color: root.fg-muted;
+                font-size: 10.5px;
+                overflow: elide;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+        }
+        if root.card.path != "": Text {
+            text: root.card.path;
+            color: root.fg-muted;
+            font-size: 10.5px;
+            overflow: elide;
+        }
+        // 最多兩行：從第一行開始排、超過的切掉（換行加省略時 Slint 會只畫到後面幾行），滑過卡片看完整名稱
+        Rectangle {
+            clip: true;
+            height: min(card-title.preferred-height, 2 * one-line.preferred-height);
+            // 量一行的高度（不顯示）
+            one-line := Text {
+                visible: false;
+                text: "測";
+                font-size: 12.5px;
+                font-weight: 600;
+            }
+            card-title := Text {
+                y: 0;
+                width: parent.width;
+                height: self.preferred-height;
+                text: root.card.title;
+                color: root.fg;
+                font-size: 12.5px;
+                font-weight: 600;
+                wrap: word-wrap;
+                vertical-alignment: top;
+            }
+        }
+        HorizontalLayout {
+            padding-top: 4px;
+            spacing: 6px;
+            if root.card.status != "": SoftPill {
+                y: (parent.height - self.height) / 2;
+                text: root.card.status;
+                bg: root.card.category == 1 ? Theme.status-doing : root.card.category == 2 ? Theme.status-done : Theme.status-todo;
+                fg: root.card.category == 1 ? Theme.status-doing-ink : root.card.category == 2 ? Theme.status-done-ink : Theme.ink;
+                font-size: 10.5px;
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: root.card.due-text;
+                color: root.card.running && root.card.due-tone == 0 ? Theme.inverse-muted : DueColor.of(root.card.due-tone);
+                font-size: 10.5px;
+                vertical-alignment: center;
+            }
+            if root.card.running: Text {
+                text: root.card.elapsed;
+                color: root.fg;
+                font-family: Theme.font-num;
+                font-size: 11.5px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            if root.card.show-timer: TimerGlyph {
+                y: (parent.height - self.height) / 2;
+                key: root.card.key;
+                timing: root.card.running;
+                idle-color: Theme.muted;
+                run-color: Theme.error;
+            }
+        }
+    }
+}
+
+component KanbanColumn {
+    in property <string> label;
+    in property <string> count;
+    in property <[TkCard]> cards;
+    Rectangle {
+        border-radius: 22px;
+        background: Theme.fill;
+    }
+    VerticalLayout {
+        padding: 10px;
+        padding-top: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            Text {
+                text: root.label;
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+                font-weight: 600;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            // 數量變化時新數字從下方淡入
+            FadeText {
+                // 不跟標題分寬度（標題撐滿，數字靠右）
+                horizontal-stretch: 0;
+                text: root.count;
+                color: Theme.ink;
+                font-family: Theme.font-num;
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+        sv := ScrollView {
+            content-height: col.preferred-height + 6px;
+            content-width: self.visible-width;
+            col := VerticalLayout {
+                width: sv.visible-width - 4px;
+                padding-top: 4px;
+                spacing: 7px;
+                for c[ai] in root.cards: Appear {
+                    index: ai;
+                    rise: 14px;
+                    stagger: 40ms;
+                    KanbanCard {
+                        card: c;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 看板：待處理、進行中、已完成三欄（「不顯示完成及不處理」時沒有已完成欄）。
+export component KanbanView {
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-bottom: 8px;
+        spacing: 12px;
+        KanbanColumn {
+            label: "待處理";
+            count: TasksPageData.todo-count;
+            cards: TasksPageData.todo-cards;
+        }
+        KanbanColumn {
+            label: "進行中";
+            count: TasksPageData.doing-count;
+            cards: TasksPageData.doing-cards;
+        }
+        if TasksPageData.done-column-visible: KanbanColumn {
+            label: "已完成";
+            count: TasksPageData.done-count;
+            cards: TasksPageData.done-cards;
+        }
+    }
+}

@@ -1,0 +1,561 @@
+// 工作台「測試」頁（對應 C# UI/Work/TestsPage.cs）：需修復、需測試、測試總覽三種測試視圖。
+// 契約：匯出 global TestsPageData（Rust 端用 window.global::<TestsPageData>() 讀寫）與 component TestsPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, Motion, ScrollView, Segmented, ProgressBar, Tip } from "@hb/index.slint";
+import { CheckRow, SelectField, StatusLine, GroupLabel } from "@hbc/index.slint";
+import { W2, W2Button, W2Small, W2Input, W2Link, W2Project, W2ProjectSelect, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch, FadeText } from "../shared/anim.slint";
+
+/// 清單的一項。kind：0 段落標題（點了收合）、1 段落說明、2 分組標題（點了收合）、3 一列。
+/// 一列的 mode：0 測試任務（〔加入測試結果〕）、1 需修復（期限、預估、主要按鈕）、2 需測試／總覽（主要按鈕、退回）；
+/// meta-tone：0 淡色、1 警告、2 紅色；hot：第 3 輪起（底色深一點）。
+export struct TestsItem {
+    kind: int,
+    text: string,
+    toggle-key: string,
+    key: string,
+    title: string,
+    tip: string,
+    meta: string,
+    meta-tone: int,
+    hot: bool,
+    mode: int,
+    due: string,
+    primary-text: string,
+    primary-tip: string,
+    busy: bool,
+}
+
+export struct TestsBatch {
+    text: string,
+    tip: string,
+}
+
+export struct TestsCard {
+    label: string,
+    value: string,
+    sub: string,
+    alert: bool,
+}
+
+/// 總覽子狀態的一項：index ≥ 0 時有批次按鈕（button），不然後面是「・」。
+export struct TestsSub {
+    text: string,
+    button: string,
+    tip: string,
+    index: int,
+}
+
+export struct TestsStage {
+    stage: string,
+    subs: [TestsSub],
+}
+
+export struct TestsProgress {
+    key: string,
+    title: string,
+    ratio: float,
+    counts: string,
+}
+
+export global TestsPageData {
+    in-out property <bool> loading;
+    in-out property <[string]> views;
+    in-out property <int> view-index;
+    in-out property <[W2Project]> projects;
+    in-out property <int> project-index;
+    in-out property <[string]> groupings;
+    in-out property <int> group-index: 1;
+    in-out property <[string]> periods;
+    in-out property <int> period-index;
+    in-out property <[string]> severities;
+    in-out property <int> severity-index;
+    in-out property <string> filter;
+    in-out property <bool> mine: true;
+    in-out property <bool> hot;
+    /// 測試總覽：只顯示期間，不顯示分組、嚴重度、篩選、只看我的、第 3 輪起
+    in-out property <bool> overview-mode;
+    in-out property <string> summary;
+    in-out property <string> status-text;
+    in-out property <int> status-tone;
+    in-out property <[TestsBatch]> batches;
+    in-out property <[TestsItem]> items;
+    in-out property <[TestsCard]> cards;
+    in-out property <string> severity-text;
+    in-out property <[TestsStage]> stages;
+    in-out property <string> tests-title;
+    in-out property <[TestsProgress]> progress;
+    in-out property <string> stale-title;
+    in-out property <[TestsItem]> stale-rows;
+    callback view-selected(index: int);
+    /// 專案、期間、只看我的換了：重讀
+    callback reload-needed();
+    /// 分組、嚴重度、篩選、第 3 輪起換了：重畫
+    callback render-needed();
+    callback refresh();
+    callback toggle(key: string);
+    callback copy-key(key: string);
+    callback open-task(key: string);
+    /// list：0 清單、1 總覽的逾時清單；id：add、reopen、primary
+    callback row-action(list: int, index: int, id: string);
+    callback due-edited(list: int, index: int, text: string);
+    callback estimate-accepted(list: int, index: int, text: string) -> bool;
+    callback batch(index: int);
+    callback sub-batch(index: int);
+}
+
+component TestRow inherits Rectangle {
+    in property <TestsItem> data;
+    in property <int> list;
+    in property <int> index;
+    border-radius: 10px;
+    background: root.data.hot ? Theme.warn-soft.with-alpha(0.6) : ta.has-hover ? Theme.hover.with-alpha(0.5) : transparent;
+    height: 38px;
+    ta := TouchArea { }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 0px;
+        // 點編號複製、點名稱看詳細
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 60px;
+            HorizontalLayout {
+                spacing: 6px;
+                W2Link {
+                    // 編號不縮（名稱先省略）
+                    min-width: self.preferred-width;
+                    text: root.data.key;
+                    color: Theme.accent;
+                    tip: "點一下複製編號";
+                    clicked => { TestsPageData.copy-key(root.data.key); }
+                }
+                W2Link {
+                    text: root.data.title;
+                    tip: root.data.tip;
+                    font-weight: 400;
+                    clicked => { TestsPageData.open-task(root.data.key); }
+                }
+                Text {
+                    text: root.data.meta;
+                    font-size: 12px;
+                    color: root.data.meta-tone == 2 ? Theme.error : root.data.meta-tone == 1 ? Theme.warn : Theme.muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    min-width: 20px;
+                }
+            }
+        }
+        if root.data.mode == 0: W2Small {
+            y: (parent.height - self.height) / 2;
+            text: "＋ 加入測試結果";
+            tip: "R：記一個問題";
+            clicked => { TestsPageData.row-action(root.list, root.index, "add"); }
+        }
+        if root.data.mode == 1: HorizontalLayout {
+            spacing: 6px;
+            padding-left: 6px;
+            due := W2Input {
+                y: (parent.height - self.height) / 2;
+                width: 96px;
+                height: 28px;
+                horizontal-stretch: 0;
+                font-size: 12px;
+                placeholder: "期限";
+                tip: "期限（預計結束），例 11/5、明天；清空就是沒有期限";
+                text: root.data.due;
+                accepted => { self.unfocus(); }
+                focus-lost(t) => {
+                    TestsPageData.due-edited(root.list, root.index, t);
+                    // Rust 會把這一列的 due 換成存好的值（看不懂時換回原本的）
+                    self.text = root.data.due;
+                }
+            }
+            W2Input {
+                y: (parent.height - self.height) / 2;
+                width: 64px;
+                height: 28px;
+                horizontal-stretch: 0;
+                font-size: 12px;
+                placeholder: "預估 h";
+                tip: "預估工時（小時），打完按 Enter";
+                accepted(t) => {
+                    if TestsPageData.estimate-accepted(root.list, root.index, t) {
+                        self.unfocus();
+                    }
+                }
+            }
+        }
+        if root.data.mode != 0: Rectangle { width: 6px; }
+        if root.data.mode != 0: W2Small {
+            y: (parent.height - self.height) / 2;
+            text: root.data.busy ? "處理中…" : root.data.primary-text;
+            tip: root.data.primary-tip;
+            primary: true;
+            enabled: !root.data.busy;
+            clicked => { TestsPageData.row-action(root.list, root.index, "primary"); }
+        }
+        if root.data.mode == 2: Rectangle { width: 6px; }
+        if root.data.mode == 2: W2Small {
+            y: (parent.height - self.height) / 2;
+            text: "↩ 退回";
+            tip: "還有問題，退回給工程師（輪數 +1）";
+            clicked => { TestsPageData.row-action(root.list, root.index, "reopen"); }
+        }
+    }
+}
+
+/// 段落、分組標題：點一下收合／展開。
+component ToggleHeader inherits Rectangle {
+    in property <string> text;
+    in property <bool> section;
+    callback clicked;
+    height: root.section ? 36px : 30px;
+    Text {
+        x: 0;
+        width: parent.width;
+        y: parent.height - self.height - 2px;
+        text: root.text;
+        color: root.section ? Theme.ink : Theme.muted;
+        font-size: root.section ? Theme.fs-md : 12px;
+        font-weight: root.section ? 700 : 600;
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+        Tooltip {
+            Tip {
+                text: "點一下收合／展開";
+            }
+        }
+    }
+}
+
+component OverviewCard inherits Rectangle {
+    in property <TestsCard> data;
+    background: Theme.fill;
+    border-radius: 16px;
+    min-width: 120px;
+    preferred-width: 120px;
+    horizontal-stretch: 1;
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        Text {
+            text: root.data.label;
+            color: Theme.muted;
+            font-size: 12px;
+        }
+        // 數字變化時新數字從下方淡入
+        FadeText {
+            text: root.data.value;
+            font-size: 22px;
+            font-weight: 600;
+            font-family: Theme.font-num;
+            color: root.data.alert ? Theme.error : Theme.ink;
+        }
+        if root.data.sub != "": Text {
+            text: root.data.sub;
+            color: Theme.muted;
+            font-size: 11px;
+        }
+    }
+}
+
+export component TestsPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時篩選列分成兩列、下拉一起縮
+    property <bool> narrow: root.width < 1000px;
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 14px;
+            padding-bottom: 2px;
+            W2Title {
+                text: "測試";
+            }
+            Segmented {
+                y: (parent.height - self.height) / 2;
+                items: TestsPageData.views;
+                current <=> TestsPageData.view-index;
+                selected(i) => { TestsPageData.view-selected(i); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "⟳ 重新整理";
+                clicked => { TestsPageData.refresh(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            W2ProjectSelect {
+                min-width: 140px;
+                preferred-width: 200px;
+                max-width: 200px;
+                horizontal-stretch: 1;
+                items: TestsPageData.projects;
+                current <=> TestsPageData.project-index;
+                selected => { TestsPageData.reload-needed(); }
+            }
+            if TestsPageData.overview-mode: SelectField {
+                width: 110px;
+                height: 38px;
+                items: TestsPageData.periods;
+                current <=> TestsPageData.period-index;
+                selected => { TestsPageData.reload-needed(); }
+            }
+            if !TestsPageData.overview-mode: W2Input {
+                min-width: 100px;
+                preferred-width: 180px;
+                max-width: 180px;
+                height: 38px;
+                horizontal-stretch: 1;
+                placeholder: "🔍 名稱或編號";
+                text <=> TestsPageData.filter;
+                edited => { TestsPageData.render-needed(); }
+            }
+            if !TestsPageData.overview-mode: SelectField {
+                min-width: 100px;
+                preferred-width: 120px;
+                max-width: 120px;
+                horizontal-stretch: 1;
+                height: 38px;
+                items: TestsPageData.severities;
+                current <=> TestsPageData.severity-index;
+                selected => { TestsPageData.render-needed(); }
+            }
+            if !TestsPageData.overview-mode: SelectField {
+                min-width: 100px;
+                preferred-width: 130px;
+                max-width: 130px;
+                horizontal-stretch: 1;
+                height: 38px;
+                items: TestsPageData.groupings;
+                current <=> TestsPageData.group-index;
+                selected => { TestsPageData.render-needed(); }
+            }
+            if !TestsPageData.overview-mode && !root.narrow: CheckRow {
+                text: "只看跟我有關的";
+                checked <=> TestsPageData.mine;
+                toggled => { TestsPageData.reload-needed(); }
+            }
+            if !TestsPageData.overview-mode && !root.narrow: CheckRow {
+                text: "第 3 輪起";
+                tip: "只看退回 2 次以上的";
+                checked <=> TestsPageData.hot;
+                toggled => { TestsPageData.render-needed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if !TestsPageData.overview-mode && root.narrow: HorizontalLayout {
+            spacing: 14px;
+            CheckRow {
+                text: "只看跟我有關的";
+                checked <=> TestsPageData.mine;
+                toggled => { TestsPageData.reload-needed(); }
+            }
+            CheckRow {
+                text: "第 3 輪起";
+                tip: "只看退回 2 次以上的";
+                checked <=> TestsPageData.hot;
+                toggled => { TestsPageData.render-needed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        Text {
+            text: TestsPageData.summary;
+            color: Theme.muted;
+        }
+        StatusLine {
+            text: TestsPageData.status-text;
+            tone: TestsPageData.status-tone;
+        }
+        if TestsPageData.batches.length > 0 && !TestsPageData.overview-mode: HorizontalLayout {
+            spacing: 6px;
+            for b[i] in TestsPageData.batches: W2Small {
+                text: b.text;
+                tip: b.tip;
+                clicked => { TestsPageData.batch(i); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: TestsPageData.view-index;
+            vertical-stretch: 1;
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                    x: 0;
+                    width: sv.visible-width - 14px;
+                    spacing: 2px;
+                    for item[i] in TestsPageData.items: Appear {
+                        index: i;
+                        rise: 8px;
+                        VerticalLayout {
+                            if item.kind == 0 || item.kind == 2: ToggleHeader {
+                                text: item.text;
+                                section: item.kind == 0;
+                                clicked => { TestsPageData.toggle(item.toggle-key); }
+                            }
+                            if item.kind == 1: Text {
+                                text: item.text;
+                                color: Theme.faint;
+                                font-size: 12px;
+                                height: 20px;
+                                vertical-alignment: center;
+                            }
+                            if item.kind == 3: TestRow {
+                                data: item;
+                                list: 0;
+                                index: i;
+                            }
+                        }
+                    }
+
+                    // ───────────── 測試總覽 ─────────────
+                    if TestsPageData.overview-mode: VerticalLayout {
+                        spacing: 8px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            padding-bottom: 2px;
+                            for c[ai] in TestsPageData.cards: Appear {
+                                index: ai;
+                                horizontal-stretch: 1;
+                                stagger: 45ms;
+                                OverviewCard {
+                                    data: c;
+                                }
+                            }
+                        }
+                        if TestsPageData.severity-text != "": Text {
+                            text: TestsPageData.severity-text;
+                            color: Theme.muted;
+                        }
+                        if TestsPageData.stages.length > 0: GroupLabel {
+                            text: "子狀態";
+                        }
+                        for st in TestsPageData.stages: HorizontalLayout {
+                            spacing: 0px;
+                            Text {
+                                width: 64px;
+                                text: st.stage;
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                            }
+                            for s in st.subs: HorizontalLayout {
+                                spacing: 8px;
+                                padding-right: s.index >= 0 ? 6px : 0px;
+                                // 放不下時省略（滑過看完整），不把總覽撐寬
+                                Rectangle {
+                                    min-width: min(sub-lbl.preferred-width, 36px);
+                                    preferred-width: sub-lbl.preferred-width;
+                                    horizontal-stretch: 1;
+                                    sub-lbl := Text {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text: s.text;
+                                        color: Theme.ink;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    if sub-lbl.width < sub-lbl.preferred-width - 1px: TouchArea {
+                                        Tooltip {
+                                            Tip {
+                                                text: s.text;
+                                            }
+                                        }
+                                    }
+                                }
+                                if s.index >= 0: W2Small {
+                                    text: s.button;
+                                    tip: s.tip;
+                                    clicked => { TestsPageData.sub-batch(s.index); }
+                                }
+                                if s.index < 0: Text {
+                                    text: "・";
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        GroupLabel {
+                            text: TestsPageData.tests-title;
+                        }
+                        if TestsPageData.progress.length == 0: Text {
+                            text: "這段期間沒有測試任務";
+                            color: Theme.muted;
+                        }
+                        for t in TestsPageData.progress: HorizontalLayout {
+                            height: 26px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                HorizontalLayout {
+                                    W2Link {
+                                        text: "🧪 " + t.key;
+                                        clicked => { TestsPageData.open-task(t.key); }
+                                    }
+                                    Text {
+                                        text: t.title;
+                                        color: Theme.ink;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: 160px;
+                                ProgressBar {
+                                    x: 8px;
+                                    width: parent.width - 16px;
+                                    height: 6px;
+                                    value: t.ratio;
+                                    fill: Theme.run;
+                                }
+                            }
+                            Text {
+                                width: 230px;
+                                text: t.counts;
+                                font-size: 12px;
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        if TestsPageData.stale-title != "": GroupLabel {
+                            text: TestsPageData.stale-title;
+                        }
+                        for r[i] in TestsPageData.stale-rows: Appear {
+                            index: i;
+                            rise: 8px;
+                            TestRow {
+                                data: r;
+                                list: 1;
+                                index: i;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

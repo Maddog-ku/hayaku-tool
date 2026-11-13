@@ -1,0 +1,113 @@
+// 小視窗共用的外框（C# UI/SmallDialog.cs）：固定在最上層、不佔工作列、跟著深淺色；內容放上面，下面一排按鈕，訊息列顯示錯誤。
+// Slint 只有一個 @children，所以外框只負責底色、內距、Esc 關閉；內容與按鈕列由各視窗自己排（見 DialogButtons）。
+//
+// 開關動畫（軟體繪圖，只用位移與透明度）：
+// - 打開：Rust 顯示視窗後把 DialogMotion.shown 設成 true，各區塊（Section）依序往上浮出＋淡入。
+// - 關閉：Rust 把 DialogMotion.closing 設成 true，內容（DialogBody／DialogFade）淡出約 120ms 後才藏起視窗；
+//   關閉中擋掉滑鼠和鍵盤，避免又按到按鈕。
+// - reduce-motion：區塊只淡入、不位移不錯開；關閉不播、直接關（由 Rust 判斷）。
+import { Theme, Motion, Reveal } from "@hb/index.slint";
+
+/// 視窗開關的動畫狀態（每個視窗各一份）；由 Rust（window_util::present／close）設定。
+export global DialogMotion {
+    /// 視窗顯示了：內容開始出現
+    in-out property <bool> shown: false;
+    /// 要關了：內容淡出，之後 Rust 藏起視窗
+    in-out property <bool> closing: false;
+}
+
+/// 視窗裡的一個區塊：視窗顯示時依 index 順序往上浮出＋淡入（建立時視窗已顯示也會播，例如讀好資料才出現的內容）。
+export component Section inherits Reveal {
+    shown: DialogMotion.shown;
+}
+
+/// 包住整個視窗內容：關閉時淡出，並擋住滑鼠。（DialogBody 已經內建，不用再包）
+export component DialogFade inherits Rectangle {
+    opacity: DialogMotion.closing ? 0 : 1;
+    animate opacity {
+        duration: Motion.exit-dur;
+        easing: Motion.out;
+    }
+    @children
+    if DialogMotion.closing: TouchArea { }
+}
+
+/// 小視窗的內容區：卡片底、內距 20/16、Esc 觸發 cancel；關閉時淡出並擋住滑鼠和鍵盤。
+export component DialogBody inherits FocusScope {
+    in property <length> padding-x: 22px;
+    in property <length> padding-y: 18px;
+    in property <length> spacing: 10px;
+    callback cancel();
+    capture-key-pressed(e) => {
+        if DialogMotion.closing {
+            return EventResult.accept;
+        }
+        if e.text == Key.Escape {
+            root.cancel();
+            return EventResult.accept;
+        }
+        EventResult.reject
+    }
+    DialogFade {
+        lay := VerticalLayout {
+            padding-left: root.padding-x;
+            padding-right: root.padding-x;
+            padding-top: root.padding-y;
+            padding-bottom: root.padding-y;
+            spacing: root.spacing;
+            @children
+        }
+    }
+    out property <length> content-height: lay.preferred-height;
+}
+
+/// 按鈕列：靠右排。
+export component DialogButtons inherits HorizontalLayout {
+    alignment: end;
+    spacing: 8px;
+    padding-top: 4px;
+}
+
+/// 標題列：粗體、可換行（C# Body 第一行）。
+export component DialogTitle inherits Text {
+    color: Theme.ink;
+    font-size: Theme.fs-base;
+    font-weight: 700;
+    wrap: word-wrap;
+    // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+    min-width: 0px;
+}
+
+/// 清單依序浮現的進度：視窗打開、或 key 變了（篩選字、勾選等「結果變了」）時從 0 播到 1；
+/// 列用 Stagger.at(progress, 畫面上的第幾列) 算出現程度。只是選取改變（列被重建）時 key 不變，不會重播。
+export component ListIntro {
+    in property <string> key;
+    out property <float> progress: t;
+    property <float> t: 0;
+    property <bool> snap;
+    property <bool> shown: DialogMotion.shown;
+    function replay() {
+        if !DialogMotion.shown {
+            return;
+        }
+        root.snap = true;
+        root.t = 0;
+        root.snap = false;
+        root.t = 1;
+    }
+    init => {
+        root.replay();
+    }
+    changed shown => {
+        root.replay();
+    }
+    changed key => {
+        root.replay();
+    }
+    animate t {
+        duration: root.snap || Theme.reduce-motion ? 0ms : 520ms;
+        easing: linear;
+    }
+    width: 0px;
+    height: 0px;
+}

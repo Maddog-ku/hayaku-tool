@@ -1,0 +1,555 @@
+// 工作台「請假」頁（對應 C# UI/Work/LeavesPage.xaml(.cs)、EipLeavesPage.xaml(.cs)）。
+// 契約：匯出 global LeavesPageData（Rust 端用 window.global::<LeavesPageData>() 讀寫）與 component LeavesPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 請假與出差：列出期間內誰請假、出差，登記自己的請假或出差、取消；右上切到「EIP 假單」看公司 EIP 上自己的假單。
+import { Theme, ScrollView, TextField, Avatar, AvatarTone, Tip } from "@hb/index.slint";
+import { FieldLabel, StatusLine, PageTitle, CheckRow, DateRangePicker } from "@hbc/index.slint";
+import { PageButton, SmallButton, TipSegmented, ItemCard, ConfirmOverlay, CenterNote } from "w3-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
+
+/// 一筆請假或出差（C# LeaveRowVm）。
+export struct LeaveRow {
+    initial: string,
+    name: string,
+    period: string,
+    lost: string,
+    cancel-text: string,
+    can-cancel: bool,
+    busy: bool,
+}
+
+/// 一張 EIP 假單（C# EipLeaveRowVm）。state-tone：0 待審（警告色）、1 核准（綠）、2 駁回（紅）。
+export struct EipRow {
+    title: string,
+    period: string,
+    detail: string,
+    state: string,
+    state-tone: int,
+    synced: bool,
+}
+
+export global LeavesPageData {
+    in-out property <bool> loading;
+    in-out property <int> view: 0;
+    // 登記
+    in-out property <int> kind: 0;
+    in-out property <int> span: 0;
+    in-out property <string> form-title: "登記請假";
+    in-out property <string> form-desc: "只登記、不簽核；登記後當天不用上班，自動上下班也會跳過";
+    in-out property <string> date-label: "第一天 ～ 最後一天（只請一天就點同一天）";
+    in-out property <int> start-date;
+    in-out property <int> end-date;
+    in-out property <int> today;
+    in-out property <bool> single;
+    in-out property <string> range-start;
+    in-out property <string> range-end;
+    in-out property <string> note;
+    in-out property <bool> adding;
+    in-out property <string> trip-task-text: "還沒選任務";
+    in-out property <bool> trip-task-set;
+    in-out property <string> form-status;
+    in-out property <int> form-tone;
+    // 清單
+    in-out property <int> range: 0;
+    in-out property <bool> mine-only;
+    in-out property <[LeaveRow]> rows;
+    in-out property <string> empty-text;
+    in-out property <string> list-status;
+    in-out property <int> list-tone;
+    // EIP 假單
+    in-out property <string> eip-month;
+    in-out property <bool> eip-this-month-visible;
+    in-out property <bool> eip-reload-enabled: true;
+    in-out property <string> eip-status;
+    in-out property <[EipRow]> eip-rows;
+    in-out property <string> eip-empty;
+    in-out property <string> eip-summary;
+    // 確認
+    in-out property <bool> confirm-open;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+
+    callback view-selected(int);
+    callback kind-selected(int);
+    callback span-selected(int);
+    callback pick-trip-task();
+    callback add();
+    callback range-selected(int);
+    callback mine-toggled(bool);
+    callback cancel(int);
+    callback eip-prev();
+    callback eip-next();
+    callback eip-this-month();
+    callback eip-reload();
+    callback confirm-ok();
+    callback confirm-cancel();
+}
+
+component HayakuView {
+    VerticalLayout {
+        spacing: 10px;
+        // 登記
+        Rectangle {
+            vertical-stretch: 0;
+            background: Theme.card;
+            border-radius: 22px;
+            border-width: 1px;
+            border-color: Theme.line;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: LeavesPageData.form-title;
+                        color: Theme.ink;
+                        font-weight: 600;
+                        font-size: Theme.fs-base;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: LeavesPageData.form-desc;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    TipSegmented {
+                        items: ["請假", "✈ 出差"];
+                        tips: ["", "出差照常算上班時數、不扣應出勤"];
+                        current <=> LeavesPageData.kind;
+                        selected(i) => {
+                            LeavesPageData.kind-selected(i);
+                        }
+                    }
+                    TipSegmented {
+                        items: ["整天", "上午", "下午", "指定時段"];
+                        current <=> LeavesPageData.span;
+                        selected(i) => {
+                            LeavesPageData.span-selected(i);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    // 日期（DateRangePicker 44px）、時段、備註都是 44px 高、靠下對齊，標題與框才在同一條線上
+                    // 窄的時候日期、時段、備註一起縮，「登記」不會被擠出卡片
+                    VerticalLayout {
+                        min-width: 200px;
+                        preferred-width: 280px;
+                        max-width: 280px;
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        alignment: end;
+                        FieldLabel {
+                            text: LeavesPageData.date-label;
+                        }
+                        DateRangePicker {
+                            start <=> LeavesPageData.start-date;
+                            end <=> LeavesPageData.end-date;
+                            single: LeavesPageData.single;
+                            today: LeavesPageData.today;
+                        }
+                    }
+                    if LeavesPageData.span == 3: HorizontalLayout {
+                        min-width: 110px;
+                        preferred-width: 170px;
+                        max-width: 170px;
+                        horizontal-stretch: 1;
+                        spacing: 6px;
+                        VerticalLayout {
+                            spacing: 4px;
+                            alignment: end;
+                            FieldLabel {
+                                text: "開始";
+                            }
+                            TextField {
+                                height: 44px;
+                                min-width: 40px;
+                                font-size: Theme.fs-md;
+                                placeholder: "14:00";
+                                text <=> LeavesPageData.range-start;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 4px;
+                            alignment: end;
+                            FieldLabel {
+                                text: "結束";
+                            }
+                            TextField {
+                                height: 44px;
+                                min-width: 40px;
+                                font-size: Theme.fs-md;
+                                placeholder: "16:00";
+                                text <=> LeavesPageData.range-end;
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 2;
+                        min-width: 80px;
+                        spacing: 4px;
+                        alignment: end;
+                        FieldLabel {
+                            text: "備註（只有自己與管理者看得到）";
+                        }
+                        TextField {
+                            min-width: 60px;
+                            height: 44px;
+                            font-size: Theme.fs-md;
+                            placeholder: "選填";
+                            text <=> LeavesPageData.note;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        // 跟左邊的日期、備註框（44px）同一條中線
+                        padding-bottom: 5px;
+                        PageButton {
+                            text: "登記";
+                            primary: true;
+                            busy: LeavesPageData.adding;
+                            clicked => {
+                                LeavesPageData.add();
+                            }
+                        }
+                    }
+                }
+                // 出差：工時寫到哪個任務（出差時段過了 Hayaku 自動寫）
+                if LeavesPageData.kind == 1: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    FieldLabel {
+                        text: "工時寫到";
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: LeavesPageData.trip-task-text;
+                        color: LeavesPageData.trip-task-set ? Theme.ink : Theme.muted;
+                        font-size: Theme.fs-md;
+                        vertical-alignment: center;
+                        max-width: 420px;
+                        overflow: elide;
+                    }
+                    PageButton {
+                        text: "選任務…";
+                        tip: "出差時段過了，Hayaku 會自動把工時寫到這個任務；未來的出差等當天過了出差時段才寫";
+                        clicked => {
+                            LeavesPageData.pick-trip-task();
+                        }
+                    }
+                }
+                StatusLine {
+                    text: LeavesPageData.form-status;
+                    tone: LeavesPageData.form-tone;
+                }
+            }
+        }
+        HorizontalLayout {
+            TipSegmented {
+                items: ["接下來兩週", "本月", "下個月"];
+                current <=> LeavesPageData.range;
+                selected(i) => {
+                    LeavesPageData.range-selected(i);
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            CheckRow {
+                y: (parent.height - self.height) / 2;
+                text: "只看我的";
+                checked <=> LeavesPageData.mine-only;
+                toggled(c) => {
+                    LeavesPageData.mine-toggled(c);
+                }
+            }
+        }
+        StatusLine {
+            text: LeavesPageData.list-status;
+            tone: LeavesPageData.list-tone;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            // 切換時內容從切換的方向滑入淡入，清單依序浮現
+            SlideSwitch {
+                key: LeavesPageData.range;
+                vertical-stretch: 1;
+                ScrollView {
+                    // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                    content-width: self.visible-width;
+                    width: parent.width;
+                    height: parent.height;
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-right: 6px;
+                        alignment: start;
+                        for row[i] in LeavesPageData.rows: Appear {
+                            index: i;
+                            stagger: 35ms;
+                            ItemCard {
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    Avatar {
+                                        y: (parent.height - self.height) / 2;
+                                        size: 30px;
+                                        text: row.initial;
+                                        tone: AvatarTone.outline;
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: row.name;
+                                            color: Theme.ink;
+                                            font-weight: 600;
+                                            font-size: Theme.fs-base;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: row.period;
+                                            color: Theme.muted;
+                                            font-size: Theme.fs-sm;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+                                    if row.lost != "": Text {
+                                        text: row.lost;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-md;
+                                        vertical-alignment: center;
+                                    }
+                                    if row.can-cancel: SmallButton {
+                                        y: (parent.height - self.height) / 2;
+                                        text: row.busy ? "處理中…" : row.cancel-text;
+                                        enabled: !row.busy;
+                                        clicked => {
+                                            LeavesPageData.cancel(i);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if LeavesPageData.empty-text != "": CenterNote {
+                // 寬度跟著外框，長的訊息換行置中
+                x: 16px;
+                width: parent.width - 32px;
+                height: parent.height;
+                text: LeavesPageData.empty-text;
+            }
+        }
+    }
+}
+
+component EipView {
+    VerticalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 6px;
+            PageButton {
+                text: "‹ 上個月";
+                clicked => {
+                    LeavesPageData.eip-prev();
+                }
+            }
+            Text {
+                min-width: 110px;
+                text: LeavesPageData.eip-month;
+                color: Theme.ink;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            PageButton {
+                text: "下個月 ›";
+                clicked => {
+                    LeavesPageData.eip-next();
+                }
+            }
+            if LeavesPageData.eip-this-month-visible: PageButton {
+                text: "本月";
+                clicked => {
+                    LeavesPageData.eip-this-month();
+                }
+            }
+            // 窄的時候省略（滑過看完整），不把按鈕擠到一起
+            Rectangle {
+                min-width: 0px;
+                horizontal-stretch: 1;
+                eip-sum := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: LeavesPageData.eip-summary;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if eip-sum.width < eip-sum.preferred-width - 1px: TouchArea {
+                    Tooltip {
+                        Tip {
+                            text: LeavesPageData.eip-summary;
+                        }
+                    }
+                }
+            }
+            PageButton {
+                text: "⟳ 重新讀取";
+                tip: "重新從 EIP 讀這一年的假單（平常切換月份用讀過的資料）";
+                enabled: LeavesPageData.eip-reload-enabled;
+                clicked => {
+                    LeavesPageData.eip-reload();
+                }
+            }
+        }
+        Text {
+            text: "直接讀公司 EIP「假單」頁（待審、核准、駁回），列出跟這個月有重疊的；標「已登記到 Hayaku」的是由下班時同步登記的。";
+            color: Theme.muted;
+            font-size: Theme.fs-sm;
+            wrap: word-wrap;
+        }
+        StatusLine {
+            text: LeavesPageData.eip-status;
+            tone: 0;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                VerticalLayout {
+                    spacing: 8px;
+                    padding-right: 6px;
+                    alignment: start;
+                    for row[ai] in LeavesPageData.eip-rows: Appear {
+                        index: ai;
+                        stagger: 35ms;
+                        ItemCard {
+                            HorizontalLayout {
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        text: row.title;
+                                        color: Theme.ink;
+                                        font-weight: 600;
+                                        font-size: Theme.fs-base;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: row.period;
+                                        color: Theme.ink;
+                                        font-size: Theme.fs-md;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: row.detail;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-sm;
+                                        overflow: elide;
+                                    }
+                                }
+                                if row.synced: Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    height: 22px;
+                                    width: synced.preferred-width + 18px;
+                                    border-radius: 11px;
+                                    background: Theme.card;
+                                    synced := Text {
+                                        text: "已登記到 Hayaku";
+                                        color: Theme.run;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                    }
+                                }
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    height: 22px;
+                                    width: state.preferred-width + 18px;
+                                    border-radius: 11px;
+                                    background: Theme.card;
+                                    state := Text {
+                                        text: row.state;
+                                        color: row.state-tone == 1 ? Theme.run : row.state-tone == 2 ? Theme.error : Theme.warn;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if LeavesPageData.eip-empty != "": CenterNote {
+                // 寬度跟著外框，長的訊息換行置中
+                x: 16px;
+                width: parent.width - 32px;
+                height: parent.height;
+                text: LeavesPageData.eip-empty;
+            }
+        }
+    }
+}
+
+export component LeavesPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 16px;
+        spacing: 14px;
+        HorizontalLayout {
+            PageTitle {
+                text: "請假與出差";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            // Hayaku 上登記的請假、出差／公司 EIP 上的假單（待審、核准、駁回）
+            TipSegmented {
+                items: ["Hayaku", "EIP 假單"];
+                tips: ["Hayaku 上登記的請假與出差（所有人），可以登記、取消", "直接讀公司 EIP 的假單（只有自己的，含待審、駁回），只能看"];
+                current <=> LeavesPageData.view;
+                selected(i) => {
+                    LeavesPageData.view-selected(i);
+                }
+            }
+        }
+        // Hayaku／EIP 假單切換：內容從切換的方向滑入淡入
+        SlideSwitch {
+            key: LeavesPageData.view;
+            vertical-stretch: 1;
+            if LeavesPageData.view == 0: HayakuView {
+                width: parent.width;
+                height: parent.height;
+            }
+            if LeavesPageData.view == 1: EipView {
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+    }
+    ConfirmOverlay {
+        open: LeavesPageData.confirm-open;
+        title: LeavesPageData.confirm-title;
+        message: LeavesPageData.confirm-text;
+        ok => {
+            LeavesPageData.confirm-ok();
+        }
+        cancel => {
+            LeavesPageData.confirm-cancel();
+        }
+    }
+}

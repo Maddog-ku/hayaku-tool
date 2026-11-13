@@ -1,0 +1,88 @@
+// 勾選框（打勾筆畫沿著勾勾畫出來、勾選時彈一下、滑過外框變深）。
+import { Theme, Motion } from "../theme.slint";
+
+export component Checkbox {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback toggled(checked: bool);
+    width: 20px;
+    height: 20px;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: label;
+    accessible-action-default => { ta.clicked(); }
+    property <float> pop: 1;
+    property <bool> snap;
+    changed checked => {
+        if checked {
+            snap = true;
+            pop = 0.6;
+            snap = false;
+            pop = 1;
+        }
+    }
+    animate pop {
+        duration: snap ? 0ms : Motion.spring-dur;
+        easing: Motion.spring;
+    }
+    // 打勾筆畫的繪製進度 0–1（沿著勾勾的兩段折線畫出來，像 stroke-dashoffset）
+    property <float> draw: checked ? 1 : 0;
+    animate draw {
+        duration: Theme.reduce-motion ? 120ms : root.checked ? 350ms : 150ms;
+        delay: root.checked && !Theme.reduce-motion ? 50ms : 0ms;
+        easing: Motion.out;
+    }
+    // 勾勾 M5 12.5 L9.5 17 L19 7.5：第一段長 6.36、第二段長 13.44，第一段佔 0.321
+    property <float> d1: clamp(root.draw / 0.321, 0, 1);
+    property <float> d2: clamp((root.draw - 0.321) / 0.679, 0, 1);
+    // 軟體繪圖不支援 transform-scale：彈一下改成方框的大小從中心變化
+    property <length> box: 20px * max(0, root.pop);
+    // 滑過時外框變深
+    property <bool> hovered: ta.has-hover && root.enabled;
+    Rectangle {
+        x: (root.width - root.box) / 2;
+        y: (root.height - root.box) / 2;
+        width: root.box;
+        height: root.box;
+        border-radius: 7px * max(0, root.pop);
+        background: root.checked ? Theme.ink : root.hovered ? Theme.hover : transparent;
+        border-width: root.checked ? 0px : 1.5px;
+        border-color: root.hovered ? Theme.muted : Theme.faint;
+        animate background, border-color { duration: Motion.fast; }
+    }
+    if root.draw > 0: Path {
+        x: 3.5px;
+        y: 3.5px;
+        width: 13px;
+        height: 13px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: Theme.on-ink;
+        stroke-width: 13px * 3 / 24;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        MoveTo {
+            x: 5;
+            y: 12.5;
+        }
+        LineTo {
+            x: 5 + 4.5 * root.d1;
+            y: 12.5 + 4.5 * root.d1;
+        }
+        LineTo {
+            x: 9.5 * (root.d1 >= 1 ? 1 : 0) + (5 + 4.5 * root.d1) * (root.d1 >= 1 ? 0 : 1) + 9.5 * root.d2;
+            y: 17 * (root.d1 >= 1 ? 1 : 0) + (12.5 + 4.5 * root.d1) * (root.d1 >= 1 ? 0 : 1) - 9.5 * root.d2;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}

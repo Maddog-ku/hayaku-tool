@@ -1,0 +1,310 @@
+// 工作台「統計」頁（對應 C# UI/Work/StatsPage.xaml）：依專案或依人、期間、各專案／各人的工時長條與比例、明細表，可以匯出 CSV。
+// 契約：匯出 global StatsPageData（Rust 端用 window.global::<StatsPageData>() 讀寫）與 component StatsPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, Motion, ScrollView, Segmented, Tip } from "@hb/index.slint";
+import { DateRangePicker, StatusLine } from "@hbc/index.slint";
+import { W2, W2Button, W2Stat, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
+
+export struct StatsBar {
+    name: string,
+    hours: string,
+    share: string,
+    ratio: float,
+}
+
+/// 明細表的一列（第一列是標題）。
+export struct StatsTableRow {
+    cells: [string],
+}
+
+export global StatsPageData {
+    in-out property <bool> loading;
+    in-out property <[string]> perspectives;
+    in-out property <int> perspective-index;
+    in-out property <[string]> presets;
+    in-out property <int> preset-index;
+    in-out property <int> custom-start;
+    in-out property <int> custom-end;
+    in-out property <int> today;
+    in-out property <bool> export-enabled;
+    in-out property <string> range-text;
+    in-out property <string> status-text;
+    in-out property <int> status-tone;
+    in-out property <string> actual;
+    in-out property <string> actual-desc;
+    in-out property <string> second-label: "應出勤";
+    in-out property <string> second;
+    in-out property <string> second-desc;
+    in-out property <string> done;
+    in-out property <string> done-desc;
+    in-out property <string> overdue;
+    in-out property <bool> overdue-alert;
+    in-out property <string> overdue-desc;
+    in-out property <string> bars-title: "各專案工時";
+    in-out property <[StatsBar]> bars;
+    in-out property <bool> bars-empty;
+    in-out property <string> bar-note;
+    in-out property <[StatsTableRow]> table;
+    in-out property <bool> table-empty;
+    callback perspective-selected(index: int);
+    callback preset-selected(index: int);
+    callback custom-applied();
+    callback export();
+    callback open-web();
+}
+
+component Bar {
+    in property <StatsBar> bar;
+    height: 26px;
+    HorizontalLayout {
+        Rectangle {
+            width: 200px;
+            Text {
+                x: 0;
+                width: parent.width;
+                text: root.bar.name;
+                color: Theme.ink;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                Tooltip {
+                    Tip {
+                        text: root.bar.name;
+                    }
+                }
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Rectangle {
+                x: 10px;
+                width: parent.width - 20px;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.line;
+                Rectangle {
+                    property <float> shown: 0;
+                    init => {
+                        self.shown = root.bar.ratio;
+                    }
+                    animate shown {
+                        duration: Motion.soft-dur;
+                        easing: Motion.out;
+                    }
+                    x: 0;
+                    width: parent.width * clamp(self.shown, 0, 1);
+                    border-radius: 4px;
+                    background: Theme.accent;
+                }
+            }
+        }
+        Text {
+            width: 110px;
+            text: root.bar.hours;
+            color: Theme.ink;
+            font-family: Theme.font-num;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        Text {
+            width: 52px;
+            text: root.bar.share;
+            color: Theme.muted;
+            font-family: Theme.font-num;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component StatsPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時自訂日期換列、明細欄位縮
+    property <bool> narrow: root.width < 1000px;
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 10px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            padding-bottom: 4px;
+            W2Title {
+                text: "統計";
+                horizontal-stretch: 1;
+            }
+            W2Button {
+                text: "匯出 CSV";
+                enabled: StatsPageData.export-enabled;
+                tip: "把明細表與每段期間的工時存成 CSV（Excel 打得開）";
+                clicked => { StatsPageData.export(); }
+            }
+            W2Button {
+                text: "在網頁看完整統計 ↗";
+                clicked => { StatsPageData.open-web(); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Segmented {
+                items: StatsPageData.perspectives;
+                current <=> StatsPageData.perspective-index;
+                selected(i) => { StatsPageData.perspective-selected(i); }
+            }
+            Segmented {
+                items: StatsPageData.presets;
+                current <=> StatsPageData.preset-index;
+                item-padding: 12px;
+                selected(i) => { StatsPageData.preset-selected(i); }
+            }
+            if StatsPageData.preset-index == 6 && !root.narrow: DateRangePicker {
+                width: 260px;
+                start <=> StatsPageData.custom-start;
+                end <=> StatsPageData.custom-end;
+                today: StatsPageData.today;
+                applied => { StatsPageData.custom-applied(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        // 頁面窄時自訂期間的日期放到下一列
+        if StatsPageData.preset-index == 6 && root.narrow: HorizontalLayout {
+            DateRangePicker {
+                width: 260px;
+                start <=> StatsPageData.custom-start;
+                end <=> StatsPageData.custom-end;
+                today: StatsPageData.today;
+                applied => { StatsPageData.custom-applied(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if StatsPageData.range-text != "": Text {
+            text: StatsPageData.range-text;
+            color: Theme.muted;
+            font-size: 11.5px;
+        }
+        StatusLine {
+            text: StatsPageData.status-text;
+            tone: StatsPageData.status-tone;
+        }
+
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: StatsPageData.perspective-index * 20 + StatsPageData.preset-index;
+            vertical-stretch: 1;
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                    x: 0;
+                    width: sv.visible-width - 14px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: "實際工時";
+                            value: StatsPageData.actual;
+                            desc: StatsPageData.actual-desc;
+                        }
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: StatsPageData.second-label;
+                            value: StatsPageData.second;
+                            desc: StatsPageData.second-desc;
+                        }
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: "完成任務";
+                            value: StatsPageData.done;
+                            desc: StatsPageData.done-desc;
+                        }
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: "逾期";
+                            value: StatsPageData.overdue;
+                            value-color: StatsPageData.overdue-alert ? Theme.error : Theme.ink;
+                            desc: StatsPageData.overdue-desc;
+                        }
+                    }
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: W2.card-radius;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 6px;
+                            Text {
+                                text: StatsPageData.bars-title;
+                                color: Theme.ink;
+                                font-weight: 600;
+                            }
+                            Rectangle { height: 4px; }
+                            for b[ai] in StatsPageData.bars: Appear {
+                                index: ai;
+                                rise: 6px;
+                                Bar {
+                                    bar: b;
+                                }
+                            }
+                            if StatsPageData.bars-empty: Text {
+                                text: "這段期間沒有工時";
+                                color: Theme.muted;
+                            }
+                            Text {
+                                text: StatsPageData.bar-note;
+                                color: Theme.muted;
+                                font-size: 11.5px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: W2.card-radius;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 6px;
+                            Text {
+                                text: "明細";
+                                color: Theme.ink;
+                                font-weight: 600;
+                            }
+                            Rectangle { height: 4px; }
+                            for row[r] in StatsPageData.table: Appear {
+                                index: r;
+                                rise: 6px;
+                                HorizontalLayout {
+                                    spacing: root.narrow ? 10px : 16px;
+                                    // 頁面窄時數字欄可以縮到 66（stretch 要大於 0 才會縮，最寬還是 96）
+                                    for cell[c] in row.cells: Text {
+                                        text: cell;
+                                        min-width: c == 0 ? 60px : 66px;
+                                        max-width: c == 0 ? 10000px : 96px;
+                                        preferred-width: c == 0 ? 200px : 96px;
+                                        horizontal-stretch: c == 0 ? 1 : 0.1;
+                                        horizontal-alignment: c == 0 ? left : right;
+                                        color: r == 0 ? Theme.muted : Theme.ink;
+                                        font-size: r == 0 ? 12px : 13px;
+                                        font-family: c > 0 && r > 0 ? Theme.font-num : "";
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                            if StatsPageData.table-empty: Text {
+                                text: "沒有資料";
+                                color: Theme.muted;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

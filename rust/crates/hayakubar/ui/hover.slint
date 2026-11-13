@@ -1,0 +1,131 @@
+// 滑鼠停在工作列的工時上時，顯示今天各任務的明細（對應 C# UI/HoverCard.xaml）；不接收滑鼠、不搶焦點。
+// 視窗由 Rust 從工作列滑出來、滑回去（src/slide.rs）；這裡只負責內容淡入淡出。
+import { Theme, Motion } from "@hb/index.slint";
+import { DayTimeline, DayTimelineModel, ColorKeys } from "@hbc/index.slint";
+import { WrapText } from "widgets.slint";
+
+export struct HoverRow {
+    icon: string,
+    icon-color: int,
+    key: string,
+    rest: string,
+    elapsed: string,
+}
+
+export component HoverCard inherits Window {
+    title: "HayakuBar 摘要";
+    icon: @image-url("../assets/app.ico");
+    no-frame: true;
+    always-on-top: true;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 12px;
+    in property <string> header;
+    in property <string> sub;
+    in property <DayTimelineModel> timeline;
+    in property <[HoverRow]> rows;
+    /// 內容的大小（還沒顯示時，Rust 用來先擺好位置）
+    out property <length> pref-w: clamp(lay.preferred-width, 220px, 360px);
+    out property <length> pref-h: lay.preferred-height;
+
+    // 內容淡入（出現）、淡出（離開）
+    property <float> reveal-t: 1;
+    property <bool> reveal-snap;
+    property <duration> reveal-dur: 200ms;
+    animate reveal-t {
+        duration: Theme.reduce-motion || root.reveal-snap ? 0ms : root.reveal-dur;
+        easing: Motion.out;
+    }
+    /// 內容先藏起來（出現前）
+    public function hide-content() {
+        root.reveal-snap = true;
+        root.reveal-t = 0;
+        root.reveal-snap = false;
+    }
+    /// 內容淡入
+    public function show-content() {
+        root.reveal-dur = 200ms;
+        root.reveal-t = 1;
+    }
+    /// 內容淡出（離開時）
+    public function fade-content() {
+        root.reveal-dur = 150ms;
+        root.reveal-t = 0;
+    }
+
+    // C# MinWidth 220、MaxWidth 360，高度跟著內容
+    width: clamp(lay.preferred-width, 220px, 360px);
+    min-height: lay.preferred-height;
+    max-height: lay.preferred-height;
+
+    Rectangle {
+        border-width: 1px;
+        border-color: Theme.line;
+    }
+    lay := VerticalLayout {
+        opacity: root.reveal-t;
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 11px;
+        padding-bottom: 11px;
+        spacing: 0px;
+        Text {
+            color: Theme.ink;
+            text: root.header;
+            font-weight: 700;
+            font-size: 12.5px;
+        }
+        if root.sub != "": WrapText {
+            text: root.sub;
+            color: Theme.muted;
+        }
+        VerticalLayout {
+            padding-top: 8px;
+            DayTimeline {
+                min-width: 190px;
+                model: root.timeline;
+            }
+        }
+        if root.rows.length > 0: VerticalLayout {
+            padding-top: 8px;
+            spacing: 2px;
+            for r in root.rows: HorizontalLayout {
+                spacing: 0px;
+                Text {
+                    width: 14px;
+                    text: r.icon;
+                    color: ColorKeys.color(r.icon-color);
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    color: Theme.ink;
+                    text: r.key;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    max-width: 220px;
+                    text: r.rest;
+                    color: Theme.muted;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                Text {
+                    color: Theme.ink;
+                    text: "  " + r.elapsed;
+                    font-family: Theme.font-num;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        Text {
+            text: "點一下打開面板 · 右鍵看更多選項";
+            color: Theme.muted;
+            font-size: 11px;
+            vertical-alignment: bottom;
+            height: self.preferred-height + 8px;
+        }
+    }
+}

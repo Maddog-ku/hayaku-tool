@@ -1,0 +1,44 @@
+// 進度條。
+import { Theme, Motion } from "../theme.slint";
+
+/// 進度條：value 0–1（0.5s 平滑）；done 時變橘。grow-in 時建立時從 0 長到 value（清單出現時用）。
+export component ProgressBar {
+    in property <float> value;
+    in property <bool> done: false;
+    in property <color> track: Theme.fill;
+    in property <color> fill: Theme.ink;
+    in property <color> done-fill: Theme.accent;
+    /// 建立時從 0 長出來（預設關：一般頁面重整時不要每次都重長）
+    in property <bool> grow-in: false;
+    height: 8px;
+    horizontal-stretch: 1;
+    property <float> target: clamp(value, 0, 1);
+    property <float> shown: 0;
+    property <bool> snap;
+    init => {
+        if !root.grow-in {
+            root.snap = true;
+        }
+        root.shown = root.target;
+        root.snap = false;
+    }
+    changed target => {
+        root.shown = root.target;
+    }
+    animate shown {
+        duration: root.snap ? 0ms : Theme.reduce-motion ? 200ms : 500ms;
+        easing: Motion.out;
+    }
+    Rectangle {
+        border-radius: self.height / 2;
+        background: root.track;
+        clip: true;
+        Rectangle {
+            x: 0;
+            width: parent.width * root.shown;
+            border-radius: self.height / 2;
+            background: root.done ? root.done-fill : root.fill;
+            animate background { duration: 400ms; }
+        }
+    }
+}

@@ -1,0 +1,205 @@
+// 按鈕：主要／次要／外框／強調／幽靈；圖示按鈕。
+// 滑過時浮起 1px、填色按鈕下面出現柔和的陰影；按下時底色往內縮（模擬縮小）、內容往下 1px、陰影收起，放開以彈簧回彈。
+// 軟體繪圖不支援 transform-scale 與 drop-shadow，所以縮放用底色的內縮、陰影用 SoftShadow 疊出來。
+import { Theme, Motion } from "../theme.slint";
+import { Icon } from "icons.slint";
+import { SoftShadow } from "motion.slint";
+
+export enum ButtonKind {
+    /// ink 底
+    primary,
+    /// 淺灰（fill）底
+    secondary,
+    /// 1.5px 外框
+    outline,
+    /// 橘底
+    accent,
+    /// 透明底
+    ghost,
+    /// 卡片底＋陰影（數字加減的減號）
+    surface,
+}
+
+/// 按壓與滑過的狀態：內縮量（按下）、垂直位移（滑過 -1px、按下 +1px）、陰影深淺。
+component PressFx {
+    in property <bool> pressed;
+    in property <bool> hovered;
+    /// 按下時每邊內縮多少
+    in property <length> depth: 2px;
+    /// 平常就有的陰影深淺（surface）
+    in property <float> rest-shadow: 0;
+    /// 滑過時的陰影深淺（填色按鈕）
+    in property <float> hover-shadow: 0;
+    out property <length> inset: root.pressed ? root.depth : 0px;
+    out property <length> lift: root.pressed ? 1px : root.hovered ? -1px : 0px;
+    out property <float> shadow: root.pressed ? root.rest-shadow * 0.4 : root.hovered ? max(root.rest-shadow, root.hover-shadow) : root.rest-shadow;
+    animate inset, lift, shadow {
+        duration: root.pressed ? Motion.press-dur : Motion.spring-dur;
+        easing: root.pressed ? Motion.press : Motion.spring;
+    }
+}
+
+export component Button {
+    in property <string> text;
+    /// 圖示 path（Icons.xxx），空字串不顯示
+    in property <string> icon;
+    in property <bool> icon-after: false;
+    in property <ButtonKind> kind: ButtonKind.primary;
+    in property <bool> enabled: true;
+    in property <length> font-size: 13px;
+    in property <length> horizontal-padding: 16px;
+    callback clicked;
+    out property <color> fg: kind == ButtonKind.primary ? Theme.on-ink : kind == ButtonKind.accent ? Theme.on-accent : Theme.ink;
+    property <color> bg: kind == ButtonKind.primary ? Theme.ink : kind == ButtonKind.secondary ? Theme.fill : kind == ButtonKind.accent ? Theme.accent : kind == ButtonKind.surface ? Theme.card : transparent;
+    property <bool> filled: kind == ButtonKind.primary || kind == ButtonKind.accent || kind == ButtonKind.surface;
+    height: 38px;
+    min-width: self.height;
+    preferred-width: hl.preferred-width;
+    horizontal-stretch: 0;
+    opacity: enabled ? 1 : 0.45;
+    animate opacity { duration: Motion.fast; }
+    accessible-role: button;
+    accessible-label: text;
+    accessible-action-default => { ta.clicked(); }
+    fx := PressFx {
+        pressed: ta.pressed;
+        hovered: ta.has-hover && root.enabled;
+        rest-shadow: root.kind == ButtonKind.surface ? 0.6 : 0;
+        hover-shadow: root.filled ? 1 : 0;
+    }
+    SoftShadow {
+        x: fx.inset;
+        y: fx.inset + fx.lift;
+        width: root.width - 2 * fx.inset;
+        height: root.height - 2 * fx.inset;
+        radius: self.height / 2;
+        strength: fx.shadow;
+        spread: 5px;
+        offset-y: 3px;
+    }
+    Rectangle {
+        x: fx.inset;
+        y: fx.inset + fx.lift;
+        width: root.width - 2 * fx.inset;
+        height: root.height - 2 * fx.inset;
+        background: root.bg;
+        border-radius: self.height / 2;
+        border-width: root.kind == ButtonKind.outline ? 1.5px : 0px;
+        border-color: Theme.ink;
+        animate background { duration: 300ms; }
+        Rectangle {
+            border-radius: parent.border-radius;
+            background: ta.has-hover ? (root.kind == ButtonKind.primary ? Theme.on-ink.with-alpha(0.1) : Theme.ink.with-alpha(ta.pressed ? 0.09 : 0.05)) : transparent;
+            animate background { duration: Motion.fast; }
+        }
+    }
+    hl := HorizontalLayout {
+        y: fx.lift;
+        height: root.height;
+        padding-left: root.horizontal-padding;
+        padding-right: root.horizontal-padding;
+        spacing: 6px;
+        alignment: center;
+        if root.icon != "" && !root.icon-after: Icon {
+            y: (parent.height - self.height) / 2;
+            path: root.icon;
+            color: root.fg;
+            width: 18px;
+            height: 18px;
+            weight: 2.2;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            color: root.fg;
+            font-size: root.font-size;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        if root.icon != "" && root.icon-after: Icon {
+            y: (parent.height - self.height) / 2;
+            path: root.icon;
+            color: root.fg;
+            width: 18px;
+            height: 18px;
+            weight: 2.2;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+/// 方形圖示按鈕（設計稿 .ib：40×40、圓角 14）
+export component IconButton {
+    in property <string> icon;
+    in property <ButtonKind> kind: ButtonKind.secondary;
+    in property <bool> enabled: true;
+    in property <float> weight: 2.2;
+    in property <length> icon-size: 18px;
+    in property <length> radius: 14px;
+    /// 按下時縮放比例（軟體繪圖改成底色每邊內縮 (1 − depth) × 寬 / 2）
+    in property <float> depth: 0.88;
+    in property <string> label;
+    callback clicked;
+    out property <color> fg: kind == ButtonKind.primary ? Theme.on-ink : kind == ButtonKind.accent ? Theme.on-accent : Theme.ink;
+    property <bool> filled: kind == ButtonKind.primary || kind == ButtonKind.accent || kind == ButtonKind.surface;
+    width: 40px;
+    height: 40px;
+    opacity: enabled ? 1 : 0.45;
+    animate opacity { duration: Motion.fast; }
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { ta.clicked(); }
+    fx := PressFx {
+        pressed: ta.pressed;
+        hovered: ta.has-hover && root.enabled;
+        depth: (1 - root.depth) * min(root.width, root.height) / 2;
+        rest-shadow: root.kind == ButtonKind.surface ? 0.6 : 0;
+        hover-shadow: root.filled ? 1 : 0;
+    }
+    SoftShadow {
+        x: fx.inset;
+        y: fx.inset + fx.lift;
+        width: root.width - 2 * fx.inset;
+        height: root.height - 2 * fx.inset;
+        radius: root.radius;
+        strength: fx.shadow;
+        spread: 5px;
+        offset-y: 3px;
+    }
+    Rectangle {
+        x: fx.inset;
+        y: fx.inset + fx.lift;
+        width: root.width - 2 * fx.inset;
+        height: root.height - 2 * fx.inset;
+        border-radius: max(0px, root.radius - fx.inset);
+        background: root.kind == ButtonKind.primary ? Theme.ink : root.kind == ButtonKind.secondary ? Theme.fill : root.kind == ButtonKind.accent ? Theme.accent : root.kind == ButtonKind.surface ? Theme.card : transparent;
+        border-width: root.kind == ButtonKind.outline ? 1.5px : 0px;
+        border-color: Theme.ink;
+        animate background { duration: 300ms; }
+        Rectangle {
+            border-radius: parent.border-radius;
+            background: ta.has-hover ? (root.kind == ButtonKind.primary ? Theme.on-ink.with-alpha(0.1) : Theme.ink.with-alpha(ta.pressed ? 0.09 : 0.05)) : transparent;
+            animate background { duration: Motion.fast; }
+        }
+    }
+    Icon {
+        y: (root.height - self.height) / 2 + fx.lift;
+        path: root.icon;
+        color: root.fg;
+        weight: root.weight;
+        width: root.icon-size;
+        height: root.icon-size;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}

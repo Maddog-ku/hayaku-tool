@@ -1,4 +1,4 @@
-# 推版本 tag（例 v1.0.0）時：跑測試 → 打包成單一 exe（不用裝 .NET）→ 發佈到 GitHub Releases 給使用者下載
+# 推版本 tag（例 v2.0.0）時：跑測試 → 建置 Rust 版單一 exe（不用裝 .NET）→ 發佈到 GitHub Releases 給使用者下載
 name: Release
 
 on:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要發佈的版本 tag（例 v1.0.1，會自動建立）'
+        description: '要發佈的版本 tag（例 v2.0.1，會自動建立）'
         required: true
 
 permissions:
@@ -18,31 +18,34 @@ jobs:
     runs-on: windows-latest
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    defaults:
+      run:
+        working-directory: rust
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
+      - name: 安裝 Rust
+        run: rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc && rustup default stable
 
-      - name: 測試
-        run: dotnet test tests/HayakuBar.Tests/HayakuBar.Tests.csproj -c Release
-
-      - name: 打包單一 exe
+      - name: 檢查版本號
         shell: pwsh
         run: |
           $version = $env:TAG.TrimStart('v')
-          dotnet publish src/HayakuBar/HayakuBar.csproj -c Release -r win-x64 --self-contained `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:EnableCompressionInSingleFile=true -p:DebugType=none `
-            -p:Version=$version -o publish
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($cargo -ne $version) { throw "tag $env:TAG 跟 rust/Cargo.toml 的版本 $cargo 不一樣" }
+
+      - name: 測試
+        run: cargo test --workspace --locked
+
+      - name: 建置單一 exe
+        run: cargo build --release -p hayakubar --locked
 
       - name: 發佈到 GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
           name: HayakuBar ${{ env.TAG }}
-          files: publish/HayakuBar.exe
+          files: rust/target/release/HayakuBar.exe
           body: |
             ## 下載與安裝
             1. 下載下面的 **HayakuBar.exe**（單一檔案，不用另外安裝 .NET）。

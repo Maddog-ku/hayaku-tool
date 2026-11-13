@@ -1,0 +1,84 @@
+// 線條圖示：SVG path 指令（24×24 座標），由 Icon 以描邊繪出。
+import { Theme } from "../theme.slint";
+
+export global Icons {
+    out property <string> search: "M18 11a7 7 0 1 1-14 0a7 7 0 1 1 14 0z M20 20l-3.5-3.5";
+    out property <string> check: "M5 12.5l4.5 4.5L19 7.5";
+    out property <string> plus: "M12 5v14M5 12h14";
+    out property <string> minus: "M5 12h14";
+    out property <string> close: "M6 6l12 12M18 6L6 18";
+    out property <string> chevron-down: "M6 9l6 6l6-6";
+    out property <string> chevron-up: "M6 15l6-6l6 6";
+    out property <string> chevron-left: "M15 6l-6 6l6 6";
+    out property <string> chevron-right: "M9 6l6 6l-6 6";
+    out property <string> arrow-right: "M5 12h14M13 6l6 6l-6 6";
+    out property <string> card: "M5 6h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z M3 10h18";
+    out property <string> msg: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z";
+    out property <string> cloud: "M7 18a4.5 4.5 0 0 1-.6-9a6 6 0 0 1 11.4 1.6A3.8 3.8 0 0 1 17.5 18z";
+    out property <string> bag: "M6 7h12l-1 13H7z M9 7a3 3 0 0 1 6 0";
+    out property <string> clock: "M20 12a8 8 0 1 1-16 0a8 8 0 1 1 16 0z M12 8v4l3 2";
+    out property <string> doc: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";
+    out property <string> play: "M8 5.5v13l11-6.5z";
+    out property <string> pause: "M7 5v14M17 5v14";
+    out property <string> sun: "M16 12a4 4 0 1 1-8 0a4 4 0 1 1 8 0z M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4";
+    out property <string> moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z";
+    out property <string> calendar: "M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M4 10h16M8 3v4M16 3v4";
+    out property <string> user: "M16 8a4 4 0 1 1-8 0a4 4 0 1 1 8 0z M4 20a8 8 0 0 1 16 0";
+    out property <string> settings: "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0z M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1";
+}
+
+/// 會翻轉的下拉箭頭：flip 0 朝下（同 Icons.chevron-down）、1 朝上；中間是過渡。
+/// 軟體繪圖不能旋轉，改成移動折線的端點（flip 可以用彈簧動畫，超過 1 一點點也沒關係）。
+export component Chevron {
+    in property <float> flip;
+    in property <brush> color: Theme.ink;
+    /// 以 24 單位計的線寬（同 Icon.weight）
+    in property <float> weight: 2;
+    width: 18px;
+    height: 18px;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.color;
+        stroke-width: root.width * root.weight / 24;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        MoveTo {
+            x: 6;
+            y: 9 + 6 * root.flip;
+        }
+        LineTo {
+            x: 12;
+            y: 15 - 6 * root.flip;
+        }
+        LineTo {
+            x: 18;
+            y: 9 + 6 * root.flip;
+        }
+    }
+}
+
+/// 描邊圖示；path 為 24×24 座標的 SVG 指令（可用 Icons.xxx）
+export component Icon {
+    in property <string> path;
+    in property <brush> color: Theme.ink;
+    /// 以 24 單位計的線寬（同 SVG stroke-width）
+    in property <float> weight: 2;
+    in property <bool> filled: false;
+    width: 18px;
+    height: 18px;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: root.path;
+        stroke: root.filled ? transparent : root.color;
+        fill: root.filled ? root.color : transparent;
+        stroke-width: root.width * root.weight / 24;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+}

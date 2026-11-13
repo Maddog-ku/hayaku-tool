@@ -1,0 +1,253 @@
+// 工作台「待我審核」頁（對應 C# UI/Work/ReviewsPage.cs）：等我審核的變更申請依專案分組，可以核准、核准並關注、拒絕；
+// 「我送出的」可以撤回。
+// 契約：匯出 global ReviewsPageData（Rust 端用 window.global::<ReviewsPageData>() 讀寫）與 component ReviewsPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, ScrollView, Segmented } from "@hb/index.slint";
+import { ProjectIcon, StatusLine } from "@hbc/index.slint";
+import { W2, W2Button, W2Small, W2Input, W2Link, W2Confirm, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
+
+/// 清單的一項：header 是專案標題（glyph、tint、project、count），其他是一張申請卡。
+/// busy：執行中的按鈕（withdraw、approve、watch、reject）；status-text／tone 是卡片底下的訊息。
+export struct ReviewsItem {
+    header: bool,
+    glyph: string,
+    tint: color,
+    project: string,
+    count: string,
+    type-text: string,
+    is-delete: bool,
+    key: string,
+    title: string,
+    meta: string,
+    changes: [string],
+    reason: string,
+    mine: bool,
+    can-watch: bool,
+    busy: string,
+    status-text: string,
+    status-tone: int,
+}
+
+export global ReviewsPageData {
+    in-out property <bool> loading;
+    in-out property <[string]> tabs;
+    in-out property <int> tab-index;
+    in-out property <string> summary;
+    in-out property <string> status-text;
+    in-out property <int> status-tone;
+    in-out property <[ReviewsItem]> items;
+    in-out property <bool> confirm-open;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+    callback confirm-ok();
+    callback confirm-cancel();
+    callback tab-selected(index: int);
+    callback refresh();
+    callback open-task(key: string);
+    callback withdraw(index: int);
+    /// decision：approve、watch（核准並關注）、reject
+    callback review(index: int, decision: string, note: string);
+}
+
+component RequestCard inherits Rectangle {
+    in property <ReviewsItem> data;
+    in property <int> index;
+    border-width: 1px;
+    border-color: Theme.line;
+    border-radius: 18px;
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 3px;
+        HorizontalLayout {
+            spacing: 0px;
+            Text {
+                text: root.data.type-text;
+                color: root.data.is-delete ? Theme.error : Theme.accent;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "　";
+                vertical-alignment: center;
+            }
+            if root.data.key != "": W2Link {
+                text: root.data.key;
+                color: Theme.accent-ink;
+                clicked => { ReviewsPageData.open-task(root.data.key); }
+            }
+            if root.data.key != "": Text {
+                text: " ";
+            }
+            Text {
+                text: root.data.title;
+                color: Theme.ink;
+                overflow: elide;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+        }
+        // 申請人很長時換行，不把卡片撐寬
+        Text {
+            text: root.data.meta;
+            font-size: 11.5px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        for c in root.data.changes: Text {
+            text: c;
+            color: Theme.ink;
+            wrap: word-wrap;
+        }
+        if root.data.reason != "": Text {
+            text: root.data.reason;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        Rectangle { height: 6px; }
+        if root.data.mine: HorizontalLayout {
+            spacing: 6px;
+            W2Button {
+                text: root.data.busy == "withdraw" ? "處理中…" : "撤回";
+                enabled: root.data.busy == "";
+                clicked => { ReviewsPageData.withdraw(root.index); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if !root.data.mine: HorizontalLayout {
+            spacing: 6px;
+            W2Button {
+                text: root.data.busy == "approve" ? "處理中…" : "✓ 核准";
+                primary: true;
+                enabled: root.data.busy == "";
+                clicked => { ReviewsPageData.review(root.index, "approve", note.text); }
+            }
+            if root.data.can-watch: W2Button {
+                text: root.data.busy == "watch" ? "處理中…" : "✓ 核准並關注";
+                tip: "核准後把你加成這個任務的關注者";
+                enabled: root.data.busy == "";
+                clicked => { ReviewsPageData.review(root.index, "watch", note.text); }
+            }
+            W2Button {
+                text: root.data.busy == "reject" ? "處理中…" : "✕ 拒絕";
+                enabled: root.data.busy == "";
+                clicked => { ReviewsPageData.review(root.index, "reject", note.text); }
+            }
+            note := W2Input {
+                width: 220px;
+                horizontal-stretch: 0;
+                placeholder: "給申請人的說明（選填）";
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        StatusLine {
+            text: root.data.status-text;
+            tone: root.data.status-tone;
+        }
+    }
+}
+
+export component ReviewsPage inherits Rectangle {
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 10px;
+
+        HorizontalLayout {
+            W2Title {
+                text: "待我審核";
+                horizontal-stretch: 1;
+            }
+            W2Button {
+                text: "⟳ 重新整理";
+                clicked => { ReviewsPageData.refresh(); }
+            }
+        }
+        HorizontalLayout {
+            Segmented {
+                items: ReviewsPageData.tabs;
+                current <=> ReviewsPageData.tab-index;
+                selected(i) => { ReviewsPageData.tab-selected(i); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Text {
+            text: ReviewsPageData.summary;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        StatusLine {
+            text: ReviewsPageData.status-text;
+            tone: ReviewsPageData.status-tone;
+        }
+
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: ReviewsPageData.tab-index;
+            vertical-stretch: 1;
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                content-height: list.preferred-height;
+                list := VerticalLayout {
+                    // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                    x: 0;
+                    width: sv.visible-width - 14px;
+                    spacing: 8px;
+                    for item[i] in ReviewsPageData.items: Appear {
+                        index: i;
+                        stagger: 40ms;
+                        VerticalLayout {
+                            if item.header: HorizontalLayout {
+                                padding-top: 6px;
+                                spacing: 8px;
+                                ProjectIcon {
+                                    y: (parent.height - self.height) / 2;
+                                    glyph: item.glyph;
+                                    tint: item.tint;
+                                    size: 20px;
+                                }
+                                Text {
+                                    text: item.project;
+                                    color: Theme.ink;
+                                    font-weight: 600;
+                                    font-size: 14px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: item.count;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            if !item.header: RequestCard {
+                                data: item;
+                                index: i;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    W2Confirm {
+        width: parent.width;
+        height: parent.height;
+        open: ReviewsPageData.confirm-open;
+        heading: ReviewsPageData.confirm-title;
+        message: ReviewsPageData.confirm-text;
+        ok => { ReviewsPageData.confirm-ok(); }
+        cancel => { ReviewsPageData.confirm-cancel(); }
+    }
+}

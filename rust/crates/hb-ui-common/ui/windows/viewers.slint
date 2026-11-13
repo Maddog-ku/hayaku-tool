@@ -1,0 +1,544 @@
+// 唯讀的檢視視窗：投票（C# UI/PollWindow.cs）、問題回報全文（C# UI/FeedbackWindow.cs）、檔案預覽（C# UI/FilePreviewWindow.cs）。
+import { Theme, Motion, Button, ButtonKind, ScrollView, ProgressBar, Spinner, Card } from "@hb/index.slint";
+import { MutedText, StatusLine, PlainText, LinkButton, GroupLabel } from "../common.slint";
+import { DialogBody, DialogButtons, DialogFade, DialogMotion, Section } from "dialog.slint";
+
+export struct PollOptionRow {
+    label: string,
+    mine: bool,
+    /// 「N 票」；看不到票數時空字串
+    votes-text: string,
+    has-votes: bool,
+    /// 0–1，對最高票的比例
+    ratio: float,
+    voters: string,
+}
+
+export component PollWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <bool> loading: true;
+    in property <string> question;
+    in property <string> meta;
+    in property <[PollOptionRow]> options;
+    in property <bool> hidden-results;
+    in property <string> error;
+    callback dismiss();
+    title: "投票";
+    width: 460px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: body;
+    body := DialogBody {
+        cancel => {
+            root.dismiss();
+        }
+        key-pressed(e) => {
+            if e.text == Key.Return {
+                root.dismiss();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        if root.loading && root.error == "": Section {
+            index: 0;
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Spinner {
+                    y: (parent.height - self.height) / 2;
+                    width: 16px;
+                    height: 16px;
+                    color: Theme.muted;
+                }
+                Text {
+                    text: "讀取中…";
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        if !root.loading && root.error == "": Section {
+            index: 0;
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: root.question;
+                    color: Theme.ink;
+                    font-size: 15px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                    // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                    min-width: 0px;
+                }
+                MutedText {
+                    text: root.meta;
+                }
+            }
+        }
+        if !root.loading && root.error == "": VerticalLayout {
+            spacing: 8px;
+            padding-top: 4px;
+            // 選項依序浮現
+            for o[i] in root.options: Section {
+                index: 1 + i;
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: (o.mine ? "✓ " : "") + o.label;
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                        font-weight: o.mine ? 700 : 400;
+                        wrap: word-wrap;
+                        // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                        min-width: 0px;
+                    }
+                    Text {
+                        text: o.votes-text;
+                        color: Theme.muted;
+                        font-size: Theme.fs-md;
+                        font-family: Theme.font-num;
+                    }
+                }
+                if o.has-votes: ProgressBar {
+                    grow-in: true;
+                    height: 6px;
+                    value: o.ratio;
+                    fill: o.mine ? Theme.accent : Theme.ink;
+                }
+                if o.voters != "": MutedText {
+                    text: o.voters;
+                }
+            }
+            if root.hidden-results: Section {
+                index: 1 + root.options.length;
+                MutedText {
+                    text: "這個投票設定投了才看得到結果。";
+                    font-size: Theme.fs-md;
+                }
+            }
+            Section {
+                index: 2 + root.options.length;
+                MutedText {
+                    text: "要投票請到網頁（Hayaku 的 MCP 還不能投票）。";
+                }
+            }
+        }
+        StatusLine {
+            text: root.error;
+        }
+        Section {
+            index: 1;
+            DialogButtons {
+                Button {
+                    text: "關閉";
+                    kind: ButtonKind.primary;
+                    clicked => {
+                        root.dismiss();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 灰底圓角框裡的可選取文字（C# Box）。
+component TextBox {
+    in property <string> text;
+    height: txt.preferred-height + 20px;
+    Rectangle {
+        border-radius: Theme.radius-input;
+        background: Theme.fill;
+    }
+    txt := PlainText {
+        x: 12px;
+        y: 10px;
+        width: parent.width - 24px;
+        text: root.text;
+    }
+}
+
+export component FeedbackWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> window-title;
+    in property <bool> loading: true;
+    in property <string> error;
+    in property <string> heading;
+    in property <string> meta;
+    in property <string> body-text;
+    in property <string> resolution;
+    in property <[string]> environment;
+    in property <[string]> screenshots;
+    in property <[string]> created-tasks;
+    in property <[string]> history;
+    callback open-screenshot(index: int);
+    callback open-task(key: string);
+    callback open-web();
+    title: window-title;
+    preferred-width: 640px;
+    preferred-height: 620px;
+    min-width: 420px;
+    min-height: 320px;
+    background: Theme.bg;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    DialogFade {
+        sv := ScrollView {
+            content-height: card.preferred-height + 32px;
+            content-width: self.visible-width;
+            card := Card {
+                x: 16px;
+                y: 16px;
+                width: sv.visible-width - 32px;
+                height: self.preferred-height;
+                content-padding: 22px;
+                content-spacing: 8px;
+                if root.loading && root.error == "": Section {
+                    index: 0;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Spinner {
+                            y: (parent.height - self.height) / 2;
+                            width: 16px;
+                            height: 16px;
+                            color: Theme.muted;
+                        }
+                        Text {
+                            text: "讀取中…";
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                if root.error != "": Section {
+                    index: 0;
+                    Text {
+                        text: root.error;
+                        color: Theme.error;
+                        wrap: word-wrap;
+                        // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                        min-width: 0px;
+                    }
+                }
+                if !root.loading: Section {
+                    index: 0;
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: root.heading;
+                            color: Theme.ink;
+                            font-size: Theme.fs-lg;
+                            font-weight: 700;
+                            wrap: word-wrap;
+                            // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                            min-width: 0px;
+                        }
+                        MutedText {
+                            text: root.meta;
+                            font-size: Theme.fs-md;
+                        }
+                        TextBox {
+                            text: root.body-text;
+                        }
+                    }
+                }
+                if !root.loading && root.resolution != "": Section {
+                    index: 1;
+                    VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 8px;
+                        GroupLabel {
+                            text: "處理說明";
+                        }
+                        TextBox {
+                            text: root.resolution;
+                        }
+                    }
+                }
+                if !root.loading && root.environment.length > 0: Section {
+                    index: 2;
+                    VerticalLayout {
+                        spacing: 4px;
+                        padding-top: 8px;
+                        GroupLabel {
+                            text: "環境";
+                        }
+                        for line in root.environment: MutedText {
+                            text: line;
+                            font-size: Theme.fs-md;
+                        }
+                    }
+                }
+                if !root.loading && root.screenshots.length > 0: Section {
+                    index: 3;
+                    VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 8px;
+                        GroupLabel {
+                            text: "截圖（" + root.screenshots.length + "）";
+                        }
+                        FlexboxLayout {
+                            spacing: 6px;
+                            for s[i] in root.screenshots: Button {
+                                text: s;
+                                kind: ButtonKind.secondary;
+                                font-size: 12.5px;
+                                height: 34px;
+                                horizontal-padding: 12px;
+                                clicked => {
+                                    root.open-screenshot(i);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !root.loading && root.created-tasks.length > 0: Section {
+                    index: 4;
+                    VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 8px;
+                        GroupLabel {
+                            text: "建立的任務";
+                        }
+                        FlexboxLayout {
+                            spacing: 14px;
+                            for k in root.created-tasks: LinkButton {
+                                text: k;
+                                clicked => {
+                                    root.open-task(k);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !root.loading && root.history.length > 0: Section {
+                    index: 5;
+                    VerticalLayout {
+                        spacing: 4px;
+                        padding-top: 8px;
+                        GroupLabel {
+                            text: "處理紀錄";
+                        }
+                        for h in root.history: MutedText {
+                            text: h;
+                            font-size: Theme.fs-md;
+                        }
+                    }
+                }
+                if !root.loading || root.error != "": Section {
+                    index: 6;
+                    HorizontalLayout {
+                        padding-top: 10px;
+                        alignment: start;
+                        LinkButton {
+                            text: "到網頁處理（轉任務、改狀態，從通知打開）↗";
+                            clicked => {
+                                root.open-web();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component FilePreviewWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> window-title;
+    in property <bool> loading: true;
+    /// 讀不到內容（第一段）
+    in property <string> error;
+    in property <bool> is-image;
+    in property <image> picture;
+    in property <string> text-content;
+    in property <string> status;
+    in property <bool> can-continue;
+    in property <bool> can-copy;
+    in property <bool> can-save;
+    in property <bool> can-web;
+    callback continue-reading();
+    callback copy-text();
+    callback save-image();
+    callback open-web();
+    callback dismiss();
+    title: window-title;
+    preferred-width: 860px;
+    preferred-height: 640px;
+    min-width: 420px;
+    min-height: 320px;
+    background: Theme.bg;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    forward-focus: keys;
+    keys := FocusScope {
+        capture-key-pressed(e) => {
+            if DialogMotion.closing {
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.dismiss();
+                return EventResult.accept;
+            }
+            EventResult.reject
+        }
+        DialogFade {
+            VerticalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 14px;
+                padding-bottom: 14px;
+                spacing: 8px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: Theme.radius-card - 6px;
+                    background: Theme.card;
+                    clip: true;
+                    if root.loading && root.error == "": HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        Spinner {
+                            y: (parent.height - self.height) / 2;
+                            width: 18px;
+                            height: 18px;
+                            color: Theme.muted;
+                        }
+                        Text {
+                            text: "讀取中…";
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.error != "": Text {
+                        x: 20px;
+                        y: 18px;
+                        width: parent.width - 40px;
+                        text: root.error;
+                        color: Theme.error;
+                        wrap: word-wrap;
+                    }
+                    if !root.loading && root.is-image: Rectangle {
+                        // 讀好的內容往上浮出＋淡入
+                        property <float> t: 0;
+                        init => {
+                            self.t = 1;
+                        }
+                        animate t {
+                            duration: Motion.enter-dur;
+                            easing: Motion.out;
+                        }
+                        y: (1 - self.t) * Motion.rise;
+                        opacity: self.t;
+                        img-sv := ScrollView {
+                            x: 8px;
+                            y: 8px;
+                            width: parent.width - 16px;
+                            height: parent.height - 16px;
+                            content-width: max(self.visible-width, pic.width);
+                            content-height: max(self.visible-height, pic.height);
+                            // 跟 WPF Stretch=Uniform、StretchDirection=DownOnly 在捲動區裡一樣：原尺寸，大的捲動
+                            pic := Image {
+                                x: max(0px, (img-sv.visible-width - self.width) / 2);
+                                y: max(0px, (img-sv.visible-height - self.height) / 2);
+                                source: root.picture;
+                                width: self.source.width * 1px;
+                                height: self.source.height * 1px;
+                                image-rendering: smooth;
+                            }
+                        }
+                    }
+                    if !root.loading && !root.is-image: Rectangle {
+                        // 讀好的內容往上浮出＋淡入
+                        property <float> t: 0;
+                        init => {
+                            self.t = 1;
+                        }
+                        animate t {
+                            duration: Motion.enter-dur;
+                            easing: Motion.out;
+                        }
+                        y: (1 - self.t) * Motion.rise;
+                        opacity: self.t;
+                        text-sv := ScrollView {
+                            x: 4px;
+                            y: 4px;
+                            width: parent.width - 8px;
+                            height: parent.height - 8px;
+                            content-height: txt.preferred-height + 32px;
+                            content-width: self.visible-width;
+                            txt := PlainText {
+                                x: 16px;
+                                y: 14px;
+                                width: text-sv.visible-width - 32px;
+                                text: root.text-content;
+                                font-size: 13.5px;
+                            }
+                        }
+                    }
+                }
+                if root.status != "": Section {
+                    index: 1;
+                    Text {
+                        text: root.status;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                        // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                        min-width: 0px;
+                    }
+                }
+                Section {
+                    index: 1;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        if root.can-continue: Button {
+                            text: "繼續讀";
+                            kind: ButtonKind.primary;
+                            clicked => {
+                                root.continue-reading();
+                            }
+                        }
+                        if root.can-copy: Button {
+                            text: "複製文字";
+                            kind: ButtonKind.secondary;
+                            clicked => {
+                                root.copy-text();
+                            }
+                        }
+                        if root.can-save: Button {
+                            text: "另存圖片…";
+                            kind: ButtonKind.secondary;
+                            clicked => {
+                                root.save-image();
+                            }
+                        }
+                        if root.can-web: Button {
+                            text: "到網頁下載 ↗";
+                            kind: ButtonKind.secondary;
+                            clicked => {
+                                root.open-web();
+                            }
+                        }
+                        Button {
+                            text: "關閉";
+                            kind: ButtonKind.secondary;
+                            clicked => {
+                                root.dismiss();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

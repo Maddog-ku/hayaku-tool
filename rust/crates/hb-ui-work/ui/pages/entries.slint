@@ -1,0 +1,487 @@
+// 工作台「工時紀錄」頁（對應 C# UI/Work/DayEntriesPage.xaml）：查看、修改、補登某一天的計時紀錄。
+// 契約：匯出 global EntriesPageData（Rust 端用 window.global::<EntriesPageData>() 讀寫）與 component EntriesPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, Motion, ScrollView, Tip, Icon, Icons } from "@hb/index.slint";
+import { DayTimeline, DayTimelineModel, ComboField, LinkButton, DateRangePicker } from "@hbc/index.slint";
+import { W2, W2Button, W2Small, W2Input, W2Confirm } from "w2-common.slint";
+import { Appear } from "../shared/anim.slint";
+
+/// 一段計時紀錄（C# EntryRowVm）。
+export struct EntriesRow {
+    key: string,
+    title: string,
+    running: bool,
+    start: string,
+    end: string,
+    duration: string,
+    note: string,
+    can-move: bool,
+    move-tip: string,
+}
+
+export global EntriesPageData {
+    in-out property <bool> loading;
+    in-out property <string> date-text;
+    in-out property <bool> today-enabled;
+    /// 日曆選日期（跟上 Hayaku 1.5.3；C# 版沒有）：目前看的那天、今天（yyyymmdd）
+    in-out property <int> pick-date;
+    in-out property <int> today-int;
+    in-out property <string> total-text;
+    /// 還沒填滿：合計用強調色
+    in-out property <bool> total-accent;
+    in-out property <string> schedule-text;
+    in-out property <DayTimelineModel> timeline;
+    in-out property <[EntriesRow]> rows;
+    in-out property <bool> empty;
+    /// 修改中：整頁停用（C# IsEnabled = false）
+    in-out property <bool> busy;
+    /// 「班表時段都有紀錄了。」或「沒有紀錄的時段：」；空字串不顯示
+    in-out property <string> gaps-label;
+    in-out property <[string]> gaps;
+    in-out property <[string]> task-items;
+    in-out property <string> new-task;
+    in-out property <string> new-start;
+    in-out property <string> new-end;
+    in-out property <string> new-note;
+    /// +1 時把焦點移到任務欄
+    in-out property <int> focus-task;
+    in-out property <string> error-text;
+    in-out property <bool> undo-visible;
+    in-out property <string> undo-text;
+    in-out property <bool> undo-button;
+    in-out property <bool> confirm-open;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+    callback confirm-ok();
+    callback confirm-cancel();
+    callback prev-day();
+    callback next-day();
+    callback today();
+    callback date-picked(date: int);
+    callback edit-start(index: int, text: string);
+    callback edit-end(index: int, text: string);
+    callback edit-note(index: int, text: string);
+    callback move(index: int);
+    callback delete(index: int);
+    callback add();
+    callback gap(index: int);
+    callback undo();
+}
+
+component EntryRow inherits Rectangle {
+    in property <EntriesRow> data;
+    in property <int> index;
+    background: Theme.card;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.line;
+    height: 48px;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 0px;
+        Rectangle {
+            width: 14px;
+            Rectangle {
+                x: 0;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.data.running ? Theme.run : Theme.line;
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 2;
+            min-width: 80px;
+            preferred-width: 200px;
+            HorizontalLayout {
+                padding-right: 10px;
+                spacing: 6px;
+                Text {
+                    text: root.data.key;
+                    color: Theme.ink;
+                    font-weight: 600;
+                    font-size: Theme.fs-md;
+                    vertical-alignment: center;
+                    horizontal-stretch: 0;
+                }
+                Text {
+                    text: root.data.title;
+                    color: Theme.muted;
+                    font-size: Theme.fs-md;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+            Rectangle {
+                Tooltip {
+                    Tip {
+                        text: root.data.title;
+                    }
+                }
+            }
+        }
+        start := W2Input {
+            y: (parent.height - self.height) / 2;
+            width: 64px;
+            horizontal-stretch: 0;
+            mono: true;
+            align: TextHorizontalAlignment.center;
+            text: root.data.start;
+            tip: "開始時間（HH:mm）";
+            enabled: !EntriesPageData.busy;
+            accepted => { self.unfocus(); }
+            focus-lost(t) => { EntriesPageData.edit-start(root.index, t); }
+        }
+        Text {
+            text: "–";
+            color: Theme.muted;
+            width: 18px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            width: 64px;
+            if !root.data.running: W2Input {
+                y: (parent.height - self.height) / 2;
+                width: 64px;
+                mono: true;
+                align: TextHorizontalAlignment.center;
+                text: root.data.end;
+                tip: "結束時間（HH:mm）";
+                enabled: !EntriesPageData.busy;
+                accepted => { self.unfocus(); }
+                focus-lost(t) => { EntriesPageData.edit-end(root.index, t); }
+            }
+            if root.data.running: Text {
+                text: "進行中";
+                color: Theme.run;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.data.duration;
+            width: 76px;
+            color: Theme.ink;
+            font-family: Theme.font-num;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        Rectangle { width: 12px; }
+        W2Input {
+            y: (parent.height - self.height) / 2;
+            horizontal-stretch: 1;
+            preferred-width: 100px;
+            text: root.data.note;
+            tip: "備註";
+            enabled: !EntriesPageData.busy;
+            accepted => { self.unfocus(); }
+            focus-lost(t) => { EntriesPageData.edit-note(root.index, t); }
+        }
+        Rectangle { width: 8px; }
+        W2Small {
+            y: (parent.height - self.height) / 2;
+            text: "⇆";
+            tip: root.data.move-tip;
+            enabled: root.data.can-move && !EntriesPageData.busy;
+            clicked => { EntriesPageData.move(root.index); }
+        }
+        Rectangle { width: 4px; }
+        W2Small {
+            y: (parent.height - self.height) / 2;
+            text: "刪除";
+            tip: "刪除這段紀錄";
+            enabled: !EntriesPageData.busy;
+            clicked => { EntriesPageData.delete(root.index); }
+        }
+    }
+}
+
+export component EntriesPage inherits Rectangle {
+    property <int> focus-serial: EntriesPageData.focus-task;
+    changed focus-serial => {
+        task-box.focus();
+    }
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 10px;
+
+        // 日期與合計
+        HorizontalLayout {
+            spacing: 8px;
+            padding-bottom: 2px;
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "‹";
+                tip: "前一天";
+                font-size: 15px;
+                clicked => { EntriesPageData.prev-day(); }
+            }
+            // 點日期從日曆選（跟上 Hayaku 1.5.3 補登可以直接切換日期；C# 版只有前一天、後一天）
+            Rectangle {
+                horizontal-stretch: 0;
+                min-width: date-row.preferred-width;
+                border-radius: 10px;
+                background: date-ta.has-hover ? Theme.hover : transparent;
+                animate background { duration: Motion.fast; }
+                date-row := HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text {
+                        text: EntriesPageData.date-text;
+                        color: Theme.ink;
+                        font-size: 20px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 16px;
+                        height: 16px;
+                        path: Icons.calendar;
+                        color: date-ta.has-hover ? Theme.ink : Theme.muted;
+                    }
+                }
+                date-ta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        picker.open-calendar();
+                    }
+                    Tooltip {
+                        Tip {
+                            text: "點一下從日曆選日期";
+                        }
+                    }
+                }
+                // 只借 DateRangePicker（單日）的日曆：欄位本身裁掉不顯示，日曆從日期底下打開
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 44px;
+                    width: 0px;
+                    height: 0px;
+                    clip: true;
+                    picker := DateRangePicker {
+                        x: 0;
+                        y: 0;
+                        width: 200px;
+                        height: 44px;
+                        single: true;
+                        start <=> EntriesPageData.pick-date;
+                        end <=> EntriesPageData.pick-date;
+                        today: EntriesPageData.today-int;
+                        applied => {
+                            EntriesPageData.date-picked(EntriesPageData.pick-date);
+                        }
+                    }
+                }
+            }
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "›";
+                tip: "後一天";
+                font-size: 15px;
+                clicked => { EntriesPageData.next-day(); }
+            }
+            W2Button {
+                y: (parent.height - self.height) / 2;
+                text: "今天";
+                enabled: EntriesPageData.today-enabled;
+                clicked => { EntriesPageData.today(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: EntriesPageData.total-text;
+                    color: EntriesPageData.total-accent ? Theme.accent : Theme.ink;
+                    font-size: 15px;
+                    font-weight: 600;
+                    horizontal-alignment: right;
+                }
+                Text {
+                    text: EntriesPageData.schedule-text;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                }
+            }
+        }
+
+        // 時間軸：班表、有計時的時段、沒計到的空檔
+        Rectangle {
+            background: Theme.fill;
+            border-radius: 16px;
+            height: 23px + 18px;
+            tl := DayTimeline {
+                x: 14px;
+                width: parent.width - 28px;
+                y: 10px;
+                height: 23px;
+                model: EntriesPageData.timeline;
+            }
+        }
+
+        // 紀錄
+        Rectangle {
+            vertical-stretch: 1;
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                content-height: list.preferred-height;
+                list := VerticalLayout {
+                    width: sv.visible-width - 14px;
+                    spacing: 6px;
+                    for row[i] in EntriesPageData.rows: Appear {
+                        index: i;
+                        rise: 8px;
+                        EntryRow {
+                            data: row;
+                            index: i;
+                        }
+                    }
+                }
+            }
+            if EntriesPageData.empty && !EntriesPageData.loading: Text {
+                text: "這天沒有計時紀錄";
+                color: Theme.muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            if EntriesPageData.loading: Text {
+                text: "讀取中…";
+                color: Theme.muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // 補登
+        Rectangle {
+            vertical-stretch: 0;
+            border-width: 1px;
+            border-color: Theme.line;
+            border-radius: 20px;
+            VerticalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 12px;
+                padding-bottom: 14px;
+                spacing: 8px;
+                Text {
+                    text: "補登";
+                    color: Theme.ink;
+                    font-weight: 600;
+                }
+                if EntriesPageData.gaps-label != "": HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: EntriesPageData.gaps-label;
+                        color: Theme.muted;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    for g[i] in EntriesPageData.gaps: W2Small {
+                        text: g;
+                        tip: "帶入補登欄位";
+                        clicked => { EntriesPageData.gap(i); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                HorizontalLayout {
+                    spacing: 0px;
+                    task-box := ComboField {
+                        horizontal-stretch: 2;
+                        height: 38px;
+                        text <=> EntriesPageData.new-task;
+                        items: EntriesPageData.task-items;
+                        placeholder: "任務編號，例 F2P-97（可直接輸入）";
+                        enabled: !EntriesPageData.busy;
+                    }
+                    Rectangle { width: 8px; }
+                    W2Input {
+                        y: (parent.height - self.height) / 2;
+                        width: 64px;
+                        horizontal-stretch: 0;
+                        mono: true;
+                        align: TextHorizontalAlignment.center;
+                        text <=> EntriesPageData.new-start;
+                        tip: "開始（HH:mm）";
+                        placeholder: "開始";
+                        enabled: !EntriesPageData.busy;
+                    }
+                    Text {
+                        text: "–";
+                        color: Theme.muted;
+                        width: 18px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    W2Input {
+                        y: (parent.height - self.height) / 2;
+                        width: 64px;
+                        horizontal-stretch: 0;
+                        mono: true;
+                        align: TextHorizontalAlignment.center;
+                        text <=> EntriesPageData.new-end;
+                        tip: "結束（HH:mm）";
+                        placeholder: "結束";
+                        enabled: !EntriesPageData.busy;
+                    }
+                    Rectangle { width: 8px; }
+                    W2Input {
+                        y: (parent.height - self.height) / 2;
+                        horizontal-stretch: 1;
+                        text <=> EntriesPageData.new-note;
+                        tip: "備註（選填）";
+                        placeholder: "備註（選填）";
+                        enabled: !EntriesPageData.busy;
+                    }
+                    Rectangle { width: 8px; }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "新增";
+                        primary: true;
+                        horizontal-padding: 18px;
+                        enabled: !EntriesPageData.busy;
+                        clicked => { EntriesPageData.add(); }
+                    }
+                }
+                if EntriesPageData.error-text != "": Text {
+                    text: EntriesPageData.error-text;
+                    color: Theme.error;
+                    wrap: word-wrap;
+                }
+                // 移動工時後的復原
+                if EntriesPageData.undo-visible: HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: EntriesPageData.undo-text;
+                        color: Theme.run;
+                        vertical-alignment: center;
+                    }
+                    if EntriesPageData.undo-button: LinkButton {
+                        text: "復原";
+                        clicked => { EntriesPageData.undo(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+            }
+        }
+    }
+
+    W2Confirm {
+        width: parent.width;
+        height: parent.height;
+        open: EntriesPageData.confirm-open;
+        heading: EntriesPageData.confirm-title;
+        message: EntriesPageData.confirm-text;
+        ok => { EntriesPageData.confirm-ok(); }
+        cancel => { EntriesPageData.confirm-cancel(); }
+    }
+}

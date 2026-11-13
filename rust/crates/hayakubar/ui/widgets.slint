@@ -1,0 +1,491 @@
+// 面板、提示、設定共用的小元件（對應 C# App.xaml 的 SectionTitle、IconButton、FlatButton、Badge、ClickRow、StatusPill 樣式）。
+// 外觀照微互動元件牆的風格：淺灰底、ink 主色、滑過變色、按下往下沉 1px；色票都用 hb-ui-kit 的 Theme。
+// 介面用軟體繪圖，不能縮放旋轉、畫不出 drop-shadow：按壓、滑過只用位移、顏色、半透明矩形；Theme.reduce-motion 時不播動畫。
+import { Theme, Motion, Tip } from "@hb/index.slint";
+
+/// 滑過時的說明泡泡（包在任何元件裡；空字串不顯示）。
+export component Hint {
+    in property <string> text;
+    width: 100%;
+    height: 100%;
+    if root.text != "": Rectangle {
+        Tooltip {
+            Tip {
+                text: root.text;
+            }
+        }
+    }
+}
+
+/// 區塊標題（C# SectionTitle：11px、muted、上 10 下 4）；右邊可放提示文字或「＋ 新增」連結。
+export component SectionHeader {
+    in property <string> text;
+    in property <string> hint;
+    in property <string> link;
+    callback link-clicked();
+    HorizontalLayout {
+        padding-top: 12px;
+        padding-bottom: 5px;
+        spacing: 8px;
+        Text {
+            text: root.text;
+            color: Theme.muted;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            vertical-alignment: bottom;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            color: Theme.faint;
+            font-size: 10.5px;
+            vertical-alignment: bottom;
+        }
+        if root.link != "": Rectangle {
+            width: link-text.preferred-width + 8px;
+            link-text := Text {
+                text: root.link;
+                color: link-ta.has-hover ? Theme.accent : Theme.accent-ink;
+                animate color { duration: Theme.reduce-motion ? 0ms : 150ms; }
+                font-size: 11px;
+                font-weight: 600;
+                vertical-alignment: bottom;
+            }
+            link-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.link-clicked();
+                }
+            }
+        }
+    }
+}
+
+/// 只有一個符號或幾個字的透明按鈕（C# IconButton）：滑過出現淡底，按下底色加深、內容往下沉 1px。
+export component GlyphButton {
+    in property <string> text;
+    in property <color> color: Theme.ink;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 600;
+    /// 平常的不透明度（⋯ 平常淡、滑過整列才清楚）
+    in property <float> rest-opacity: 1;
+    in property <bool> strong-hover: false;
+    /// 按鈕本身的高度。元件被列撐高時（HorizontalLayout 會把固定高度的子元素貼齊上緣），按鈕在元件裡垂直置中。
+    in property <length> face-height: 26px;
+    /// 符號的垂直微調（正值往下）。⋯、⟳ 是退回字型畫的，字型度量跟文字不同，置中後墨跡會偏下：預設往上拉回
+    in property <length> glyph-dy: root.text == "⋯" ? -0.14 * root.font-size : root.text == "⟳" ? -0.1 * root.font-size : 0px;
+    callback clicked();
+    out property <bool> hovered: ta.has-hover;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
+    min-width: 26px;
+    preferred-width: max(26px, lbl.preferred-width + 14px);
+    horizontal-stretch: 0;
+    opacity: !root.enabled ? 0.4 : (ta.has-hover || root.strong-hover ? 1 : root.rest-opacity);
+    animate opacity { duration: Theme.reduce-motion ? 0ms : 150ms; }
+    face := Rectangle {
+        height: min(root.height, root.face-height);
+        y: (root.height - self.height) / 2;
+        border-radius: 8px;
+        background: !root.enabled ? transparent : ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: Theme.reduce-motion ? 0ms : (ta.pressed ? 80ms : 150ms); }
+        lbl := Text {
+            // 按下往下沉 1px（放開回到原位；平常不偏移）
+            property <length> sink: ta.pressed ? 1px : 0px;
+            animate sink {
+                duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
+                easing: ta.pressed ? Motion.press : Motion.out;
+            }
+            y: root.glyph-dy + self.sink;
+            height: parent.height;
+            text: root.text;
+            color: root.color;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        ta := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => {
+                root.clicked();
+            }
+        }
+        Hint {
+            text: root.tip;
+        }
+    }
+}
+
+/// 小按鈕（C# FlatButton／PrimaryButton 的面板尺寸）：primary 是 ink 底，否則淺灰底。
+/// 滑過時浮起 1px（下面露出淡淡的影子），按下時沉下去、底色加深。
+export component SmallButton {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    in property <length> font-size: 12px;
+    in property <length> horizontal-padding: 12px;
+    /// 按鈕本身的高度。元件被列撐高時，按鈕在元件裡垂直置中（不會貼齊上緣）
+    in property <length> face-height: 28px;
+    callback clicked();
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
+    preferred-width: lbl.preferred-width + 2 * root.horizontal-padding;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
+    opacity: root.enabled ? 1 : 0.45;
+    property <bool> lifted: ta.has-hover && root.enabled && !ta.pressed;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
+    // 浮起時的影子：軟體繪圖畫不出 drop-shadow，用往下錯開 2px 的半透明圓角矩形代替
+    Rectangle {
+        y: root.face-y + 2px;
+        height: root.face-h;
+        border-radius: self.height / 2;
+        background: Theme.shadow;
+        opacity: root.lifted ? 1 : 0;
+        animate opacity { duration: Theme.reduce-motion ? 0ms : 180ms; }
+    }
+    Rectangle {
+        // 滑過浮起 1px、按下沉 1px；平常不偏移
+        property <length> lift: root.lifted ? -1px : (ta.pressed ? 1px : 0px);
+        animate lift {
+            duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
+            easing: ta.pressed ? Motion.press : Motion.out;
+        }
+        y: root.face-y + self.lift;
+        height: root.face-h;
+        border-radius: self.height / 2;
+        background: root.primary ? Theme.ink : Theme.fill;
+        Rectangle {
+            border-radius: parent.border-radius;
+            background: !root.enabled ? transparent : ta.pressed ? (root.primary ? Theme.on-ink.with-alpha(0.2) : Theme.ink.with-alpha(0.1)) : ta.has-hover ? (root.primary ? Theme.on-ink.with-alpha(0.12) : Theme.ink.with-alpha(0.06)) : transparent;
+            animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
+        }
+        lbl := Text {
+            text: root.text;
+            color: root.primary ? Theme.on-ink : Theme.ink;
+            font-size: root.font-size;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Hint {
+        y: root.face-y;
+        height: root.face-h;
+        text: root.tip;
+    }
+}
+
+/// 數字徽章（C# Badge：分頁上的逾期數、未讀數）。
+export component CountBadge {
+    in property <string> text;
+    in property <color> background: Theme.accent;
+    in property <color> foreground: #FFFFFF;
+    visible: root.text != "";
+    /// 徽章本身的高度；元件被列撐高時徽章垂直置中
+    in property <length> face-height: 16px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
+    min-width: 16px;
+    preferred-width: max(16px, lbl.preferred-width + 8px);
+    horizontal-stretch: 0;
+    property <length> face-h: min(root.height, root.face-height);
+    Rectangle {
+        y: (root.height - self.height) / 2;
+        height: root.face-h;
+        border-radius: self.height / 2;
+        background: root.background;
+    }
+    lbl := Text {
+        y: (root.height - self.height) / 2;
+        height: root.face-h;
+        text: root.text;
+        color: root.foreground;
+        font-size: 10px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+/// 任務列上的狀態（C# StatusPill）：點一下改狀態。
+export component StatusChip {
+    in property <string> text;
+    /// 標籤本身的高度；元件被列撐高時標籤垂直置中（不會貼齊上緣）
+    in property <length> face-height: 18px;
+    callback clicked(x: length, y: length);
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
+    preferred-width: lbl.preferred-width + 14px;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
+    Rectangle {
+        y: root.face-y;
+        height: root.face-h;
+        border-radius: self.height / 2;
+        background: ta.pressed ? Theme.accent-soft.darker(0.08) : ta.has-hover ? Theme.selected : Theme.fill;
+        animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
+    }
+    lbl := Text {
+        y: root.face-y;
+        height: root.face-h;
+        text: root.text;
+        color: Theme.muted;
+        font-size: 10.5px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked(self.absolute-position.x + self.width, self.absolute-position.y);
+        }
+    }
+    Hint {
+        y: root.face-y;
+        height: root.face-h;
+        text: "點一下改狀態";
+    }
+}
+
+/// 可點的列（C# ClickRow：滑過變色）；左鍵 clicked、右鍵 right-clicked（視窗座標）。
+export component ClickRow {
+    in property <length> padding-x: 8px;
+    in property <length> padding-y: 4px;
+    in property <string> tip;
+    out property <bool> hovered: ta.has-hover;
+    callback clicked();
+    callback right-clicked(x: length, y: length);
+    min-height: lay.min-height;
+    preferred-height: lay.preferred-height;
+    Rectangle {
+        border-radius: 10px;
+        background: ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: Theme.reduce-motion ? 0ms : 120ms; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.right-clicked(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+    lay := HorizontalLayout {
+        padding-left: root.padding-x;
+        padding-right: root.padding-x;
+        padding-top: root.padding-y;
+        padding-bottom: root.padding-y;
+        spacing: 4px;
+        @children
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
+/// 淡底的摘要卡片（C# 今天分頁的 DueCard／ReviewCard／TestCard：SubtleBrush 底、右邊 ›）。
+export component SummaryCard {
+    in property <string> tip;
+    callback clicked();
+    min-height: max(34px, sum.min-height);
+    preferred-height: max(34px, sum.preferred-height);
+    Rectangle {
+        y: ta.has-hover && !ta.pressed ? -1px : 0px;
+        animate y {
+            duration: Theme.reduce-motion ? 0ms : 180ms;
+            easing: Motion.out;
+        }
+        border-radius: 12px;
+        background: ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : Theme.fill;
+        animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    sum := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 6px;
+        @children
+        Rectangle {
+            width: arrow.preferred-width + 3px;
+            arrow := Text {
+                x: ta.has-hover ? 3px : 0px;
+                animate x {
+                    duration: Theme.reduce-motion ? 0ms : 200ms;
+                    easing: Motion.out;
+                }
+                text: "›";
+                color: ta.has-hover ? Theme.ink : Theme.muted;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
+        }
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
+/// 小標籤（C# ChipToggle：任務分頁、通知分類的篩選）：選取時 ink 底。
+export component MiniChip {
+    in property <string> text;
+    in property <bool> selected;
+    /// 標籤本身的高度；元件被列撐高時標籤垂直置中
+    in property <length> face-height: 24px;
+    in property <string> tip;
+    callback clicked();
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
+    preferred-width: lbl.preferred-width + 20px;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
+    Rectangle {
+        // 按下往下沉 1px；平常不偏移
+        property <length> sink: ta.pressed ? 1px : 0px;
+        animate sink {
+            duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
+            easing: ta.pressed ? Motion.press : Motion.out;
+        }
+        y: root.face-y + self.sink;
+        height: root.face-h;
+        border-radius: self.height / 2;
+        background: root.selected ? Theme.ink : (ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent);
+        border-width: 1px;
+        border-color: root.selected ? Theme.ink : (ta.has-hover ? Theme.faint : Theme.line);
+        animate background, border-color { duration: Theme.reduce-motion ? 0ms : 200ms; }
+        lbl := Text {
+            text: root.text;
+            color: root.selected ? Theme.on-ink : Theme.ink;
+            animate color { duration: Theme.reduce-motion ? 0ms : 200ms; }
+            font-size: 11.5px;
+            font-weight: root.selected ? 600 : 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Hint {
+        y: root.face-y;
+        height: root.face-h;
+        text: root.tip;
+    }
+}
+
+/// 數字、時間這類會變的文字：換字時新字從下面 4px 浮上來並淡入（220ms）；第一次顯示不播。
+export component FadeText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 400;
+    /// 空字串時用視窗預設字型
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    property <float> t: 1;
+    property <bool> snap;
+    animate t {
+        duration: Theme.reduce-motion || root.snap ? 0ms : 220ms;
+        easing: Motion.out;
+    }
+    changed text => {
+        root.snap = true;
+        root.t = 0;
+        root.snap = false;
+        root.t = 1;
+    }
+    min-width: txt.min-width;
+    preferred-width: txt.preferred-width;
+    min-height: txt.preferred-height;
+    preferred-height: txt.preferred-height;
+    horizontal-stretch: 0;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        y: (1 - root.t) * 4px;
+        opacity: 0.25 + 0.75 * root.t;
+        text: root.text;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: center;
+    }
+}
+
+/// 會換行的文字。高度照實際寬度算：Slint 的 for／if 裡直接放換行的 Text 時，高度會用單行估，
+/// 捲動區的內容高度就會少算、最後幾列捲不到；包成元件、用實際寬度算高度就不會。
+/// 最小寬度不超過 80px：很長的英文字（網址）不會把整個版面撐寬（超出的部分換到下一行或被切掉）。
+export component WrapText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    /// 0 是視窗預設字級
+    in property <length> font-size;
+    /// 0 是預設粗細
+    in property <int> font-weight;
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: top;
+    min-width: min(txt.min-width, 80px);
+    preferred-width: txt.preferred-width;
+    min-height: txt.preferred-height;
+    preferred-height: txt.preferred-height;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        text: root.text;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        wrap: word-wrap;
+    }
+}

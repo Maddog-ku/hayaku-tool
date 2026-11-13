@@ -1,0 +1,129 @@
+// 輸入框外觀：淺灰底，取得焦點時變卡片底並出現 1.5px 外框（設計稿 .search.focus / .dd-t.open）。
+// 取得焦點時提示字往右滑開淡出、左側圖示變深、鍵盤提示淡出。
+import { Theme, Motion } from "../theme.slint";
+import { Icon } from "icons.slint";
+
+export component TextField {
+    in-out property <string> text;
+    in property <string> placeholder;
+    /// 左側圖示（Icons.xxx）
+    in property <string> icon;
+    /// 右側鍵盤提示（例如 "/"），空字串不顯示；取得焦點時隱藏
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> read-only: false;
+    in property <InputType> input-type: InputType.text;
+    in property <length> font-size: 14.5px;
+    in property <length> radius: Theme.radius-field;
+    out property <bool> has-focus: input.has-focus;
+    callback accepted(text: string);
+    callback edited(text: string);
+    /// 在輸入框處理之前攔截按鍵（例如上下鍵切換結果）；回傳 accept 表示已處理
+    callback key-intercept(event: KeyEvent) -> EventResult;
+    key-intercept(e) => {
+        EventResult.reject
+    }
+    // focus()／clear-focus() 透過 forward-focus 轉給內部輸入框
+    forward-focus: input;
+    public function select-all() {
+        input.select-all();
+    }
+    height: 48px;
+    min-width: 120px;
+    opacity: enabled ? 1 : 0.5;
+    Rectangle {
+        background: input.has-focus ? Theme.card : Theme.fill;
+        border-radius: root.radius;
+        border-width: 1.5px;
+        border-color: input.has-focus ? Theme.ink : transparent;
+        animate background, border-color { duration: Motion.fast + 60ms; }
+    }
+    TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => {
+            input.focus();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 10px;
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            path: root.icon;
+            color: input.has-focus ? Theme.ink : Theme.muted;
+            width: 18px;
+            height: 18px;
+            animate color { duration: Motion.fast; }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            // 打的字比框長時不要畫到框外面（TextInput 會跟著游標捲動）；
+            // 最小寬度 0：不然長字串會把這格撐得比輸入框還寬，字就跑出框外
+            clip: true;
+            min-width: 0px;
+            // 提示字：取得焦點時往右滑開淡出；一打字就直接消失（不跟輸入的字疊在一起）
+            Text {
+                property <float> on: input.text == "" && !input.has-focus ? 1 : 0;
+                animate on { duration: input.text != "" ? 0ms : Motion.fast; easing: Motion.out; }
+                x: Theme.reduce-motion ? 0px : (1 - self.on) * 8px;
+                width: parent.width - self.x;
+                text: root.placeholder;
+                visible: self.on > 0;
+                opacity: self.on;
+                color: Theme.muted;
+                font-size: root.font-size;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            FocusScope {
+                capture-key-pressed(e) => {
+                    root.key-intercept(e)
+                }
+                input := TextInput {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> root.text;
+                    enabled: root.enabled;
+                    read-only: root.read-only;
+                    input-type: root.input-type;
+                    single-line: true;
+                    vertical-alignment: center;
+                    color: Theme.ink;
+                    font-size: root.font-size;
+                    font-weight: 500;
+                    selection-background-color: Theme.accent-soft;
+                    selection-foreground-color: Theme.ink;
+                    text-cursor-width: 1.5px;
+                    accepted => {
+                        root.accepted(self.text);
+                    }
+                    edited => {
+                        root.edited(self.text);
+                    }
+                }
+            }
+        }
+        if root.hint != "" && !input.has-focus: Rectangle {
+            property <float> t: 0;
+            init => {
+                self.t = 1;
+            }
+            animate t { duration: Motion.fast; }
+            opacity: self.t;
+            y: (parent.height - self.height) / 2;
+            height: 20px;
+            width: kbd.preferred-width + 14px;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.line;
+            background: Theme.card;
+            kbd := Text {
+                text: root.hint;
+                color: Theme.muted;
+                font-size: 11px;
+            }
+        }
+    }
+}

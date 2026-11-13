@@ -1,0 +1,136 @@
+// 一天的時間軸（C# UI/DayTimeline.cs）：底色是班表時段，綠色是有計時的時段，班表內沒計到的空檔標紅，今天畫出「現在」。
+// 滑鼠移上去顯示那個時間點在跑哪些任務。資料由 hb_ui_common::DayTimelineData 算，用 day_timeline_model! 轉成這個 struct。
+// 出現時班表、空檔、計時的區段由左往右掃出來（只在元件建立時播一次；reduce-motion 時直接出現）。
+import { Theme, Motion, Tip } from "@hb/index.slint";
+
+/// 時間都是「距當天 0 點幾分鐘」。
+export struct DayTimelineModel {
+    from-min: float,
+    to-min: float,
+    from-hour: int,
+    hours: int,
+    /// 「現在」；不是今天或不在範圍內是 -1
+    now-min: float,
+    seg-start: [float],
+    seg-end: [float],
+    gap-start: [float],
+    gap-end: [float],
+    run-start: [float],
+    run-end: [float],
+    /// 懸停說明（不含前面的 HH:mm）
+    hover-texts: [string],
+    /// 從 from-min 起每一分鐘對到 hover-texts 的第幾個
+    hover-index: [int],
+}
+
+export component DayTimeline {
+    in property <DayTimelineModel> model;
+    /// 長條高度（C# BarHeight 8）
+    in property <length> bar-height: 8px;
+    preferred-width: 200px;
+    min-width: 60px;
+    height: root.bar-height + 3px + 12px;
+    property <float> span: max(1, model.to-min - model.from-min);
+    pure function x-of(m: float) -> length {
+        return (m - root.model.from-min) / root.span * root.width;
+    }
+    // 整點刻度：寬度夠就每小時，不夠就每 2、3 小時
+    property <int> step: root.width / max(1, root.model.hours) >= 26px ? 1 : root.width / max(1, root.model.hours) >= 14px ? 2 : 3;
+
+    // 由左往右掃出來的進度（0–1）
+    property <float> reveal: 0;
+    init => {
+        root.reveal = 1;
+    }
+    animate reveal {
+        duration: Theme.reduce-motion ? 0ms : 650ms;
+        easing: Motion.out;
+    }
+    // 底
+    Rectangle {
+        y: 0;
+        height: root.bar-height;
+        border-radius: 4px;
+        background: Theme.fill;
+    }
+    // 區段都放在這個框裡，框的寬度跟著 reveal 長（裁切）
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width * root.reveal;
+        height: root.bar-height;
+        clip: true;
+        // 班表時段
+        for s[i] in root.model.seg-start: Rectangle {
+            property <float> a: max(s, root.model.from-min);
+            property <float> b: min(root.model.seg-end[i], root.model.to-min);
+            visible: root.model.seg-end[i] > root.model.from-min && s < root.model.to-min;
+            x: root.x-of(self.a);
+            y: 1px;
+            width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+            height: root.bar-height - 2px;
+            border-radius: 3px;
+            background: Theme.line;
+        }
+        // 班表內沒計到的空檔
+        for s[i] in root.model.gap-start: Rectangle {
+            property <float> a: max(s, root.model.from-min);
+            property <float> b: min(root.model.gap-end[i], root.model.to-min);
+            visible: root.model.gap-end[i] > root.model.from-min && s < root.model.to-min;
+            x: root.x-of(self.a);
+            y: 1px;
+            width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+            height: root.bar-height - 2px;
+            border-radius: 3px;
+            background: Theme.error.with-alpha(0.35);
+        }
+        // 有計時的時段（並行只算一次）
+        for s[i] in root.model.run-start: Rectangle {
+            property <float> a: max(s, root.model.from-min);
+            property <float> b: min(root.model.run-end[i], root.model.to-min);
+            visible: root.model.run-end[i] > root.model.from-min && s < root.model.to-min;
+            x: root.x-of(self.a);
+            y: 0;
+            width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+            height: root.bar-height;
+            border-radius: 3px;
+            background: Theme.run;
+        }
+    }
+    // 現在
+    if root.model.now-min >= 0: Rectangle {
+        opacity: root.reveal;
+        x: round(root.x-of(root.model.now-min) / 1px) * 1px - 1px;
+        y: -2px;
+        width: 2px;
+        height: root.bar-height + 4px;
+        border-radius: 1px;
+        background: Theme.accent;
+    }
+    // 整點刻度
+    for h in root.model.hours + 1: Text {
+        property <int> hour: root.model.from-hour + h;
+        visible: mod(h, root.step) == 0;
+        text: mod(self.hour, 24) == 0 && self.hour > 0 ? "24" : mod(self.hour, 24);
+        color: Theme.muted;
+        font-size: 9.5px;
+        font-family: Theme.font-num;
+        y: root.bar-height + 3px;
+        x: clamp(root.x-of(root.model.from-min + h * 60) - self.width / 2, 0px, root.width - self.width);
+    }
+    // 懸停：那個時間點在跑哪些任務
+    ta := TouchArea {
+        property <float> m: root.model.from-min + root.span * clamp(self.mouse-x / max(1px, root.width), 0, 1);
+        property <int> k: clamp(floor(self.m - root.model.from-min), 0, max(0, root.model.hover-index.length - 1));
+        property <int> hh: mod(floor(self.m / 60), 24);
+        property <int> mm: mod(floor(self.m), 60);
+        property <string> head: (self.hh < 10 ? "0" : "") + self.hh + ":" + (self.mm < 10 ? "0" : "") + self.mm;
+        property <string> tip: root.model.hover-index.length == 0 ? "" : self.head + root.model.hover-texts[root.model.hover-index[self.k]];
+        Tooltip {
+            Tip {
+                text: ta.tip;
+                max-bubble-width: 360px;
+            }
+        }
+    }
+}

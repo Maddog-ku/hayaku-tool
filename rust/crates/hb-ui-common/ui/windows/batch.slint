@@ -1,0 +1,262 @@
+// 批次新增任務（C# UI/BatchCreateWindow.cs）與套用子任務範本（C# UI/ApplyTemplateWindow.cs）。
+import { Theme, Button, ButtonKind, TextField, Dropdown, ScrollView, TipArea } from "@hb/index.slint";
+import { FieldLabel, MutedText, StatusLine, TextArea, CheckRow, SelectField } from "../common.slint";
+import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
+
+export component BatchCreateWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> window-title;
+    in-out property <string> parent-key;
+    in-out property <string> list-text;
+    in-out property <bool> assign-me;
+    in property <string> preview;
+    in property <bool> preview-error;
+    in property <string> error;
+    in property <bool> busy;
+    callback list-edited(text: string);
+    /// Tab：在游標位置插入 Tab（anchor、cursor 是位元組位移）
+    callback insert-tab(text: string, anchor: int, cursor: int);
+    callback create();
+    callback cancel();
+    public function place-cursor(offset: int) {
+        list.set-selection(offset, offset);
+    }
+    title: window-title;
+    width: 520px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: list;
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        Section {
+            index: 0;
+            VerticalLayout {
+                spacing: 6px;
+                FieldLabel {
+                    text: "放在哪個任務底下（選填，填編號；空著放在專案最上層）";
+                }
+                TextField {
+                    height: 44px;
+                    text <=> root.parent-key;
+                    font-size: Theme.fs-md;
+                    enabled: !root.busy;
+                }
+            }
+        }
+        Section {
+            index: 1;
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 2px;
+                FieldLabel {
+                    text: "任務清單：一行一個，用 Tab 或空白縮排表示是上一行的子任務（項目符號、編號會自動拿掉）";
+                }
+                list := TextArea {
+                    text <=> root.list-text;
+                    min-height: 200px;
+                    preferred-height: 260px;
+                    accepts-tab: true;
+                    enabled: !root.busy;
+                    edited(t) => {
+                        root.list-edited(t);
+                    }
+                    tab-pressed => {
+                        root.insert-tab(self.text, self.anchor-offset, self.cursor-offset);
+                    }
+                }
+                Text {
+                    text: root.preview;
+                    color: root.preview-error ? Theme.error : Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                    // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                    min-width: 0px;
+                }
+            }
+        }
+        Section {
+            index: 2;
+            CheckRow {
+                text: "全部指派給我";
+                checked <=> root.assign-me;
+                enabled: !root.busy;
+            }
+        }
+        StatusLine {
+            text: root.error;
+        }
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: "建立";
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.create();
+                    }
+                }
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ApplyTemplateWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> heading;
+    /// 多個任務時列出編號（12 個以內）
+    in property <string> keys;
+    in property <string> limit-note;
+    in property <[string]> templates: ["讀取中…"];
+    /// 每個範本的說明（滑過下拉時的提示）
+    in property <[string]> descriptions;
+    in-out property <int> current: 0;
+    in property <bool> loaded;
+    in-out property <bool> skip-existing: true;
+    in property <string> result;
+    in property <string> error;
+    in property <bool> busy;
+    /// 預覽中：只停用〔預覽〕〔套用〕
+    in property <bool> previewing;
+    callback selection-changed();
+    callback preview();
+    callback apply();
+    callback cancel();
+    title: "套用子任務範本";
+    width: 500px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: body;
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        Section {
+            index: 0;
+            VerticalLayout {
+                spacing: 6px;
+                DialogTitle {
+                    text: root.heading;
+                }
+                if root.keys != "": MutedText {
+                    text: root.keys;
+                    font-size: Theme.fs-md;
+                }
+                if root.limit-note != "": MutedText {
+                    text: root.limit-note;
+                    font-size: Theme.fs-md;
+                }
+                MutedText {
+                    text: "執行者一次只能套一個任務，建出來是待核准。範本在網頁的範本中心建立。";
+                    font-size: Theme.fs-md;
+                }
+            }
+        }
+        Section {
+            index: 1;
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 4px;
+                FieldLabel {
+                    text: "範本";
+                }
+                TipArea {
+                    text: root.loaded && root.current >= 0 && root.current < root.descriptions.length ? root.descriptions[root.current] : "";
+                    Dropdown {
+                        horizontal-stretch: 1;
+                        items: root.templates;
+                        current <=> root.current;
+                        enabled: root.loaded && !root.busy;
+                        selected => {
+                            root.selection-changed();
+                        }
+                    }
+                }
+            }
+        }
+        Section {
+            index: 2;
+            CheckRow {
+                text: "略過已經有子任務的任務";
+                checked <=> root.skip-existing;
+                enabled: !root.busy;
+                tip: "不勾：已經有子任務的也套用，第一層同名的略過";
+                toggled => {
+                    root.selection-changed();
+                }
+            }
+        }
+        if root.result != "": Section {
+            index: 0;
+            Rectangle {
+                height: min(220px, result-text.preferred-height + 20px);
+                border-radius: Theme.radius-input;
+                background: Theme.fill;
+                ScrollView {
+                    x: 10px;
+                    y: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height - 20px;
+                    content-height: result-text.preferred-height;
+                    result-text := Text {
+                        width: parent.width - 8px;
+                        text: root.result;
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+        StatusLine {
+            text: root.error;
+        }
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: "預覽";
+                    kind: ButtonKind.secondary;
+                    enabled: root.loaded && !root.busy && !root.previewing;
+                    clicked => {
+                        root.preview();
+                    }
+                }
+                Button {
+                    text: "套用";
+                    kind: ButtonKind.primary;
+                    enabled: root.loaded && !root.busy && !root.previewing;
+                    clicked => {
+                        root.apply();
+                    }
+                }
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+            }
+        }
+    }
+}

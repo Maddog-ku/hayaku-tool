@@ -1,0 +1,219 @@
+// 下拉選單：觸發鈕開啟時出現外框、箭頭以彈簧翻成朝上；清單從觸發鈕下方往下滑開＋淡入，滑過的項目有滑動高亮，
+// 選取的勾勾彈出後清單往上收起（反向）再關。按下觸發鈕時底色往內縮一點（模擬按壓縮放）。文字被截掉時滑過顯示完整文字。
+// 軟體繪圖不支援 transform-scale／transform-rotation／drop-shadow：縮放改成內縮與高度裁切、箭頭改成移動端點（Chevron）、
+// 陰影用 SoftShadow 疊出來。
+import { Theme, Motion } from "../theme.slint";
+import { Icon, Icons, Chevron } from "icons.slint";
+import { SwapText, SoftShadow } from "motion.slint";
+import { Tip } from "tooltip.slint";
+
+export component Dropdown {
+    in property <[string]> items;
+    in-out property <int> current: 0;
+    in property <string> placeholder;
+    in property <bool> enabled: true;
+    in property <length> item-height: 38px;
+    callback selected(index: int);
+    height: 46px;
+    min-width: 120px;
+    opacity: enabled ? 1 : 0.5;
+    animate opacity { duration: Motion.fast; }
+    accessible-role: combobox;
+    accessible-value: current >= 0 && current < items.length ? items[current] : "";
+    property <bool> open: popup.is-open;
+    // 清單正在收起：箭頭先翻回來
+    property <bool> shutting;
+    property <length> inset: ta.pressed ? 1.5px : 0px;
+    animate inset {
+        duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+        easing: ta.pressed ? Motion.press : Motion.spring;
+    }
+    property <float> flip: root.open && !root.shutting ? 1 : 0;
+    animate flip {
+        duration: Theme.reduce-motion ? 200ms : 500ms;
+        easing: Motion.spring;
+    }
+    Rectangle {
+        x: root.inset;
+        y: root.inset;
+        width: root.width - 2 * root.inset;
+        height: root.height - 2 * root.inset;
+        border-radius: Theme.radius-input;
+        background: root.open ? Theme.card : ta.has-hover && root.enabled ? Theme.hover : Theme.fill;
+        border-width: 1.5px;
+        border-color: root.open ? Theme.ink : transparent;
+        animate background, border-color { duration: Motion.fast; }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        label := SwapText {
+            horizontal-stretch: 1;
+            text: root.current >= 0 && root.current < root.items.length ? root.items[root.current] : root.placeholder;
+            color: root.current >= 0 && root.current < root.items.length ? Theme.ink : Theme.muted;
+            font-size: Theme.fs-base;
+            font-weight: 600;
+        }
+        Chevron {
+            y: (parent.height - self.height) / 2;
+            flip: root.flip;
+            color: Theme.ink;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.shutting = false;
+            popup.show();
+        }
+        // 選取的文字被截掉時，滑過顯示完整文字
+        if label.preferred-width > label.width && !root.open: Tooltip {
+            Tip {
+                text: root.current >= 0 && root.current < root.items.length ? root.items[root.current] : root.placeholder;
+                max-bubble-width: 420px;
+            }
+        }
+    }
+    popup := PopupWindow {
+        // 四周多留 16px 給陰影
+        x: -16px;
+        y: root.height + 6px - 16px;
+        width: root.width + 32px;
+        height: root.items.length * root.item-height + 10px + 32px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        menu := Rectangle {
+            property <float> t: 0;
+            // 0 開著、1 選好了（等勾勾彈出）、2 收起中
+            property <int> phase: 0;
+            property <int> hl: root.current;
+            property <length> full: self.height;
+            init => {
+                t = 1;
+            }
+            animate t {
+                duration: menu.phase == 2 ? Motion.exit-dur + 40ms : Motion.enter-dur - 40ms;
+                easing: Motion.out;
+            }
+            // 往下滑開：高度從 40% 長到全高（裁切）；項目跟著從上方 8px 落下；reduce-motion 時不改高度、只淡入
+            property <length> shown-h: Theme.reduce-motion ? self.full : self.full * (0.4 + 0.6 * self.t);
+            property <length> drop: Theme.reduce-motion ? 0px : (1 - self.t) * 8px;
+            x: 16px;
+            y: 16px;
+            width: parent.width - 32px;
+            height: parent.height - 32px;
+            SoftShadow {
+                y: 0;
+                height: menu.shown-h;
+                radius: 16px;
+                strength: box.opacity;
+                spread: 12px;
+                offset-y: 6px;
+            }
+            box := Rectangle {
+                y: 0;
+                height: menu.shown-h;
+                opacity: clamp(menu.t * 1.6, 0, 1);
+                border-radius: 16px;
+                background: Theme.card;
+                border-width: 1px;
+                border-color: Theme.line;
+                clip: true;
+                Rectangle {
+                    x: 5px;
+                    y: 5px + menu.hl * root.item-height - menu.drop;
+                    width: parent.width - 10px;
+                    height: root.item-height;
+                    border-radius: 11px;
+                    background: Theme.fill;
+                    visible: menu.hl >= 0;
+                    animate y {
+                        duration: Theme.reduce-motion ? 200ms : 450ms;
+                        easing: Motion.soft;
+                    }
+                }
+                for item[i] in root.items: row := Rectangle {
+                    property <bool> sel: i == root.current;
+                    property <float> ck: self.sel ? 1 : 0;
+                    animate ck {
+                        duration: Theme.reduce-motion ? 200ms : 500ms;
+                        easing: Motion.spring;
+                    }
+                    x: 5px;
+                    y: 5px + i * root.item-height - menu.drop;
+                    width: parent.width - 10px;
+                    height: root.item-height;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        item-text := Text {
+                            text: item;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                        // 勾勾彈出（軟體繪圖不能縮放：改成圖示從中心長大）
+                        Rectangle {
+                            width: 16px;
+                            Icon {
+                                width: 16px * clamp(0.4 + 0.6 * row.ck, 0, 1.3);
+                                height: self.width;
+                                path: Icons.check;
+                                color: Theme.accent;
+                                weight: 2.6;
+                                opacity: clamp(row.ck * 2, 0, 1);
+                            }
+                        }
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        changed has-hover => {
+                            if self.has-hover {
+                                menu.hl = i;
+                            }
+                        }
+                        clicked => {
+                            if menu.phase != 0 {
+                                return;
+                            }
+                            if root.current != i {
+                                root.current = i;
+                                root.selected(i);
+                            }
+                            menu.phase = 1;
+                        }
+                        // 選項被截掉時，滑過顯示完整文字
+                        if item-text.preferred-width > item-text.width: Tooltip {
+                            Tip {
+                                text: item;
+                                max-bubble-width: 420px;
+                            }
+                        }
+                    }
+                }
+            }
+            // 選取後讓勾勾彈出，再往上收起（反向）、關掉
+            Timer {
+                interval: Theme.reduce-motion ? 60ms : 220ms;
+                running: menu.phase == 1;
+                triggered => {
+                    menu.phase = 2;
+                    root.shutting = true;
+                    menu.t = 0;
+                }
+            }
+            Timer {
+                interval: Motion.exit-dur + 50ms;
+                running: menu.phase == 2;
+                triggered => {
+                    menu.phase = 0;
+                    popup.close();
+                }
+            }
+        }
+    }
+}

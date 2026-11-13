@@ -1,0 +1,407 @@
+// 工作台外框（對應 C# UI/Work/WorkspaceWindow.xaml）：左側導覽、右側一頁一個元件，第一次切到才建立（created[i]）。
+// 各頁的 global（XxxPageData）在這裡統一 re-export，Rust 端才拿得到。
+// 外觀照元件牆設計稿：冷灰底、白色大圓角卡片、ink 指示器以彈簧滑到選取的頁面、橘色只用在徽章與強調。
+import { Theme, Motion, Tip } from "@hb/index.slint";
+import { LinkButton } from "@hbc/index.slint";
+import { ListReveal, FadeText } from "shared/anim.slint";
+
+import { TasksPage, TasksPageData } from "pages/tasks.slint";
+import { ProjectsPage, ProjectsPageData } from "pages/projects.slint";
+import { TestsPage, TestsPageData } from "pages/tests.slint";
+import { ReviewsPage, ReviewsPageData } from "pages/reviews.slint";
+import { HoursPage, HoursPageData } from "pages/hours.slint";
+import { EntriesPage, EntriesPageData } from "pages/entries.slint";
+import { WorkLogPage, WorkLogPageData } from "pages/worklog.slint";
+import { RemindersPage, RemindersPageData } from "pages/reminders.slint";
+import { MeetingsPage, MeetingsPageData } from "pages/meetings.slint";
+import { ChatPage, ChatPageData } from "pages/chat.slint";
+import { NotesPage, NotesPageData } from "pages/notes.slint";
+import { SpacesPage, SpacesPageData } from "pages/spaces.slint";
+import { ForumPage, ForumPageData } from "pages/forum.slint";
+import { TeamPage, TeamPageData } from "pages/team.slint";
+import { ActivityPage, ActivityPageData } from "pages/activity.slint";
+import { WorkloadPage, WorkloadPageData } from "pages/workload.slint";
+import { LeavesPage, LeavesPageData } from "pages/leaves.slint";
+import { StatsPage, StatsPageData } from "pages/stats.slint";
+
+export { TasksPageData, ProjectsPageData, TestsPageData, ReviewsPageData, HoursPageData, EntriesPageData, WorkLogPageData, RemindersPageData, MeetingsPageData, ChatPageData, NotesPageData, SpacesPageData, ForumPageData, TeamPageData, ActivityPageData, WorkloadPageData, LeavesPageData, StatsPageData, }
+
+// Rust 端要設深淺色（Theme）與右鍵選單（TaskMenuState，整個視窗共用一份，由外框分派給目前的頁面）
+export { Theme } from "@hb/index.slint";
+export { TaskMenuState } from "@hbc/index.slint";
+// Rust 端在頁面載入中把 ListReveal.busy 加一（載入、切換時新清單依序浮現）
+export { ListReveal }
+
+export struct NavItem {
+    key: string,
+    label: string,
+    badge: string,
+    /// 這一項上面的分組標題（工作、知識、團隊）；空字串是同一組
+    group: string,
+    /// 徽章顏色：0 強調色（待審核、測試）、1 錯誤色（逾期）
+    badge-tone: int,
+    /// 徽章的提示（例「要修的測試結果」）
+    badge-tip: string,
+    /// 這一列在導覽裡的 y（選取指示器滑到這裡）
+    top: length,
+}
+
+/// 導覽的一列：文字＋右邊的徽章；選取的底色由外面的指示器畫（以彈簧滑過去）。
+component NavRow {
+    in property <NavItem> item;
+    in property <bool> selected;
+    callback clicked;
+    height: 36px;
+    accessible-role: tab;
+    accessible-label: item.label;
+    accessible-item-selected: selected;
+    Rectangle {
+        border-radius: 12px;
+        background: !root.selected && ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: 160ms; }
+    }
+    // 滑過時文字往右推 3px（選取的不動）
+    property <length> nudge: !root.selected && ta.has-hover && !Theme.reduce-motion ? 3px : 0px;
+    animate nudge {
+        duration: 200ms;
+        easing: Motion.out;
+    }
+    HorizontalLayout {
+        padding-left: 14px + root.nudge;
+        padding-right: 8px;
+        spacing: 6px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.item.label;
+            color: root.selected ? Theme.on-ink : Theme.ink;
+            font-size: Theme.fs-md;
+            font-weight: root.selected ? 700 : 500;
+            vertical-alignment: center;
+            overflow: elide;
+            animate color { duration: 260ms; }
+        }
+        // 徽章出現時從右邊彈進來並淡入，數字變化時新數字從下方淡入
+        if root.item.badge != "": badge := Rectangle {
+            property <float> t: 0;
+            init => {
+                t = 1;
+            }
+            animate t {
+                duration: Theme.reduce-motion ? 0ms : 420ms;
+                easing: Motion.soft;
+            }
+            y: (parent.height - self.height) / 2;
+            height: 20px;
+            width: max(20px, lbl.preferred-width + 12px);
+            opacity: clamp(self.t, 0, 1);
+            border-radius: 10px;
+            background: root.item.badge-tone == 1 ? Theme.error-soft : Theme.accent-soft;
+            lbl := FadeText {
+                x: (1 - badge.t) * 8px;
+                width: parent.width;
+                height: parent.height;
+                text: root.item.badge;
+                color: root.item.badge-tone == 1 ? Theme.error : Theme.accent-ink;
+                font-size: 11px;
+                font-weight: 700;
+                font-family: Theme.font-num;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: clip;
+            }
+            if root.item.badge-tip != "": TouchArea {
+                Tooltip {
+                    Tip {
+                        text: root.item.badge-tip;
+                    }
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component WorkspaceWindow inherits Window {
+    title: "HayakuBar 工作台";
+    icon: @image-url("../../hayakubar/assets/app.ico");
+    preferred-width: 1280px;
+    preferred-height: 820px;
+    min-width: 900px;
+    min-height: 560px;
+    background: Theme.bg;
+    default-font-family: "Inter";
+
+    in property <[NavItem]> nav-items;
+    in-out property <int> page-index: 0;
+    in property <[bool]> created: [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    in property <string> user-name;
+    callback nav-selected(int);
+    callback open-web();
+    callback key-pressed(KeyEvent) -> bool;
+
+    // 換頁時頁面由下往上滑入 18px 並淡入（320ms）；Windows「顯示動畫」關掉時不動
+    property <float> enter: 1;
+    property <bool> enter-snap;
+    changed page-index => {
+        ListReveal.on = true;
+        if !Theme.reduce-motion {
+            enter-snap = true;
+            enter = 0;
+            enter-snap = false;
+            enter = 1;
+        }
+        // 用 Ctrl+數字切到導覽看不到的頁面：把那一列捲進來
+        if root.page-index >= 0 && root.page-index < root.nav-items.length {
+            let top = root.nav-items[root.page-index].top;
+            if top + nav-flick.content-y < 0 {
+                nav-flick.content-y = -max(0px, top - 30px);
+            } else if top + 36px + nav-flick.content-y > nav-flick.height {
+                nav-flick.content-y = -min(top + 36px + 8px - nav-flick.height, nav-col.preferred-height - nav-flick.height);
+            }
+        }
+    }
+    animate enter {
+        duration: enter-snap || Theme.reduce-motion ? 0ms : 320ms;
+        easing: Motion.out;
+    }
+    // 新清單依序浮現的開關：頁面載入完（busy 歸零）450ms 後關掉，之後的刷新不播
+    Timer {
+        interval: 450ms;
+        running: ListReveal.on && ListReveal.busy <= 0;
+        triggered => {
+            ListReveal.on = false;
+        }
+    }
+
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            root.key-pressed(event) ? EventResult.accept : EventResult.reject
+        }
+
+        HorizontalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            // ───── 導覽 ─────
+            // 視窗接近最小寬度（900）時導覽縮到 188，頁面至少留 676（頁面區 min-width）
+            Rectangle {
+                min-width: 188px;
+                preferred-width: 216px;
+                max-width: 216px;
+                // 要能縮（stretch 0 的項目版面不會幫它縮）；最寬 216
+                horizontal-stretch: 1;
+                background: Theme.card;
+                border-radius: Theme.radius-card;
+                VerticalLayout {
+                    padding-top: 18px;
+                    padding-bottom: 16px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 0px;
+
+                    // 標誌、工作台、使用者
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-bottom: 14px;
+                        spacing: 10px;
+                        Rectangle {
+                            width: 34px;
+                            height: 34px;
+                            border-radius: 11px;
+                            background: Theme.ink;
+                            Text {
+                                text: "H";
+                                color: Theme.on-ink;
+                                font-family: Theme.font-num;
+                                font-size: 18px;
+                                font-weight: 700;
+                            }
+                            Rectangle {
+                                x: parent.width - 11px;
+                                y: 4px;
+                                width: 7px;
+                                height: 7px;
+                                border-radius: 3.5px;
+                                background: Theme.accent;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 1px;
+                            Text {
+                                text: "工作台";
+                                color: Theme.ink;
+                                font-size: Theme.fs-base;
+                                font-weight: 700;
+                            }
+                            if root.user-name != "": Text {
+                                text: root.user-name;
+                                color: Theme.muted;
+                                font-size: 11px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+
+                    // 頁面多：視窗矮時導覽可以捲動；選取的那一列底下是 ink 指示器，以彈簧滑過去
+                    // 導覽放不下時：上下緣漸層遮罩＋右邊細捲軸（捲動時變深，停下來後淡掉）
+                    nav-box := Rectangle {
+                        vertical-stretch: 1;
+                        property <length> overflow: max(0px, nav-col.preferred-height - nav-flick.height);
+                        property <float> glow: 0;
+                        property <bool> glow-snap;
+                        nav-flick := Flickable {
+                            width: parent.width;
+                            height: parent.height;
+                            content-height: nav-col.preferred-height;
+                            changed content-y => {
+                                if nav-box.overflow > 0 {
+                                    nav-box.glow-snap = true;
+                                    nav-box.glow = 1;
+                                    nav-box.glow-snap = false;
+                                    nav-box.glow = 0;
+                                }
+                            }
+                            indicator := Rectangle {
+                                property <bool> ready;
+                                x: 0;
+                                y: root.page-index >= 0 && root.page-index < root.nav-items.length ? root.nav-items[root.page-index].top : 0;
+                                width: parent.width;
+                                height: 36px;
+                                border-radius: 12px;
+                                background: Theme.ink;
+                                // 第一次畫的時候直接放好，之後才用彈簧
+                                Timer {
+                                    interval: 250ms;
+                                    running: !indicator.ready;
+                                    triggered => {
+                                        indicator.ready = true;
+                                    }
+                                }
+                                animate y {
+                                    duration: self.ready ? Motion.spring-dur : 0ms;
+                                    easing: Motion.spring;
+                                }
+                            }
+                            nav-col := VerticalLayout {
+                                width: parent.width;
+                                spacing: 2px;
+                                alignment: start;
+                                // 每一項的 top（指示器的位置）由 Rust 照這裡的高度算：分組標題 22px（第一組）／34px，列 36px，間距 2px
+                                for item[i] in root.nav-items: VerticalLayout {
+                                    spacing: 0px;
+                                    if item.group != "": HorizontalLayout {
+                                        padding-left: 14px;
+                                        height: i == 0 ? 22px : 34px;
+                                        Text {
+                                            text: item.group;
+                                            color: Theme.muted;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            letter-spacing: 1px;
+                                            vertical-alignment: bottom;
+                                        }
+                                    }
+                                    NavRow {
+                                        item: item;
+                                        selected: root.page-index == i;
+                                        clicked => {
+                                            root.nav-selected(i);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        animate glow {
+                            delay: self.glow-snap ? 0ms : 700ms;
+                            duration: self.glow-snap || Theme.reduce-motion ? 0ms : 400ms;
+                        }
+                        // 上緣：已經往下捲時出現
+                        Rectangle {
+                            y: 0;
+                            height: 22px;
+                            opacity: nav-flick.content-y < -1px ? 1 : 0;
+                            animate opacity { duration: 180ms; }
+                            background: @linear-gradient(180deg, Theme.card 0%, Theme.card.transparentize(1) 100%);
+                        }
+                        // 下緣：下面還有時出現
+                        Rectangle {
+                            y: parent.height - self.height;
+                            height: 30px;
+                            opacity: nav-box.overflow > 0 && -nav-flick.content-y < nav-box.overflow - 1px ? 1 : 0;
+                            animate opacity { duration: 180ms; }
+                            background: @linear-gradient(0deg, Theme.card 0%, Theme.card.transparentize(1) 100%);
+                        }
+                        // 細捲軸（只在放不下時）
+                        if nav-box.overflow > 0: Rectangle {
+                            x: parent.width + 5px;
+                            width: 3px;
+                            height: max(24px, parent.height * nav-flick.height / max(1px, nav-col.preferred-height));
+                            y: (-nav-flick.content-y / nav-box.overflow) * (parent.height - self.height);
+                            border-radius: 1.5px;
+                            background: Theme.scroll-thumb;
+                            opacity: 0.55 + 0.45 * nav-box.glow;
+                        }
+                    }
+
+                    VerticalLayout {
+                        padding-top: 12px;
+                        padding-left: 12px;
+                        spacing: 6px;
+                        LinkButton {
+                            text: "在網頁開啟 Hayaku ↗";
+                            font-size: Theme.fs-sm;
+                            clicked => {
+                                root.open-web();
+                            }
+                        }
+                        Text {
+                            text: "Ctrl+1～9、0 切換頁面";
+                            color: Theme.faint;
+                            font-size: 11px;
+                        }
+                    }
+                }
+            }
+
+            // ───── 頁面區 ─────
+            Rectangle {
+                min-width: 676px;
+                horizontal-stretch: 1;
+                background: Theme.card;
+                border-radius: Theme.radius-card;
+                clip: true;
+                Rectangle {
+                    y: (1 - root.enter) * 18px;
+                    opacity: root.enter;
+                    width: parent.width;
+                    height: parent.height;
+                    if root.created[0] : TasksPage { visible: root.page-index == 0; width: parent.width; height: parent.height; }
+                    if root.created[1] : ProjectsPage { visible: root.page-index == 1; width: parent.width; height: parent.height; }
+                    if root.created[2] : TestsPage { visible: root.page-index == 2; width: parent.width; height: parent.height; }
+                    if root.created[3] : ReviewsPage { visible: root.page-index == 3; width: parent.width; height: parent.height; }
+                    if root.created[4] : HoursPage { visible: root.page-index == 4; width: parent.width; height: parent.height; }
+                    if root.created[5] : EntriesPage { visible: root.page-index == 5; width: parent.width; height: parent.height; }
+                    if root.created[6] : WorkLogPage { visible: root.page-index == 6; width: parent.width; height: parent.height; }
+                    if root.created[7] : RemindersPage { visible: root.page-index == 7; width: parent.width; height: parent.height; }
+                    if root.created[8] : MeetingsPage { visible: root.page-index == 8; width: parent.width; height: parent.height; }
+                    if root.created[9] : ChatPage { visible: root.page-index == 9; width: parent.width; height: parent.height; }
+                    if root.created[10] : NotesPage { visible: root.page-index == 10; width: parent.width; height: parent.height; }
+                    if root.created[11] : SpacesPage { visible: root.page-index == 11; width: parent.width; height: parent.height; }
+                    if root.created[12] : ForumPage { visible: root.page-index == 12; width: parent.width; height: parent.height; }
+                    if root.created[13] : TeamPage { visible: root.page-index == 13; width: parent.width; height: parent.height; }
+                    if root.created[14] : ActivityPage { visible: root.page-index == 14; width: parent.width; height: parent.height; }
+                    if root.created[15] : WorkloadPage { visible: root.page-index == 15; width: parent.width; height: parent.height; }
+                    if root.created[16] : LeavesPage { visible: root.page-index == 16; width: parent.width; height: parent.height; }
+                    if root.created[17] : StatsPage { visible: root.page-index == 17; width: parent.width; height: parent.height; }
+                }
+            }
+        }
+    }
+}

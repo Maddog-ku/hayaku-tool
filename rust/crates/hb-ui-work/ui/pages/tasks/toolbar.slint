@@ -1,0 +1,368 @@
+// 我的任務：清單上方的篩選列（狀態、專案、已完成期間、只看沒有子任務的…）與顯示方式、排序；
+// 「清單欄位」對話框（C# TasksPage.Columns.cs 的 Columns_Click）。有套用條件的控制項會亮起來。
+import { Theme, Motion, Checkbox, Tip, ScrollView } from "@hb/index.slint";
+import { LinkButton } from "@hbc/index.slint";
+import { SmallButton, MiniSelect, CheckText, TipSegmented, Modal, GlyphButton, HintBox } from "../../shared/index.slint";
+import { TasksPageData } from "data.slint";
+
+/// 狀態篩選：類別與各專案的狀態可以混著勾，勾了馬上套用、選單不關。
+component StatusFilterButton {
+    property <length> item-h: 30px;
+    btn := SmallButton {
+        text: TasksPageData.status-filter-text;
+        active: TasksPageData.status-filter-active;
+        tip: "狀態類別與各專案的狀態可以混著選";
+        clicked => {
+            TasksPageData.status-filter-opening();
+            popup.show();
+        }
+    }
+    width: btn.preferred-width;
+    height: btn.height;
+    popup := PopupWindow {
+        x: -10px;
+        y: root.height + 4px - 10px;
+        width: 300px;
+        height: min(14, TasksPageData.status-filter-items.length) * root.item-h + 12px + 20px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            x: 10px;
+            y: 10px;
+            width: parent.width - 20px;
+            height: parent.height - 20px;
+            border-radius: 14px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
+            drop-shadow-blur: 20px;
+            drop-shadow-offset-y: 8px;
+            Flickable {
+                x: 6px;
+                y: 6px;
+                width: parent.width - 12px;
+                height: parent.height - 12px;
+                content-height: TasksPageData.status-filter-items.length * root.item-h;
+                for it[i] in TasksPageData.status-filter-items: Rectangle {
+                    y: i * root.item-h;
+                    height: root.item-h;
+                    border-radius: 9px;
+                    background: (it.kind == 1 || (it.kind == 3 && it.enabled)) && ta.has-hover ? Theme.fill : transparent;
+                    if it.kind == 2: Rectangle {
+                        y: parent.height / 2;
+                        height: 1px;
+                        x: 6px;
+                        width: parent.width - 12px;
+                        background: Theme.line;
+                    }
+                    if it.kind == 0: Text {
+                        x: 10px;
+                        text: it.text;
+                        color: Theme.muted;
+                        font-size: 11px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    if it.kind == 1: HorizontalLayout {
+                        padding-left: 10px;
+                        spacing: 8px;
+                        Checkbox {
+                            y: (parent.height - self.height) / 2;
+                            checked: it.checked;
+                            enabled: false;
+                            opacity: 1;
+                        }
+                        Text {
+                            text: it.text;
+                            color: Theme.ink;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    if it.kind == 3: Text {
+                        x: 10px;
+                        text: it.text;
+                        color: it.enabled ? Theme.accent-ink : Theme.faint;
+                        font-size: Theme.fs-sm;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    ta := TouchArea {
+                        enabled: it.kind == 1 || (it.kind == 3 && it.enabled);
+                        mouse-cursor: pointer;
+                        clicked => {
+                            TasksPageData.status-filter-toggle(i);
+                            if it.kind == 3 {
+                                popup.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 篩選列左半：狀態、專案、已完成期間、只顯示沒有子任務的、不顯示完成及不處理、欄位、全部收合。
+component FilterLeft {
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        if TasksPageData.status-filter-visible: StatusFilterButton { }
+        MiniSelect {
+            min-width: 140px;
+            preferred-width: 200px;
+            horizontal-stretch: 0;
+            items: TasksPageData.project-labels;
+            icons: TasksPageData.project-icons;
+            current <=> TasksPageData.project-index;
+            active: TasksPageData.project-active;
+            tip: "只看某個專案";
+            selected(i) => {
+                TasksPageData.project-selected(i);
+            }
+        }
+        if TasksPageData.done-days-visible: MiniSelect {
+            width: 110px;
+            items: TasksPageData.done-days-labels;
+            current <=> TasksPageData.done-days-index;
+            tip: "已完成：最近完成的在最上面";
+            selected(i) => {
+                TasksPageData.done-days-selected(i);
+            }
+        }
+        CheckText {
+            y: (parent.height - self.height) / 2;
+            text: "只顯示沒有子任務的";
+            checked <=> TasksPageData.leaf-only;
+            accent: true;
+            tip: "上層任務不列出來，只看真正要做的事";
+            toggled(c) => {
+                TasksPageData.leaf-only-toggled(c);
+            }
+        }
+        if TasksPageData.mode == 2: CheckText {
+            y: (parent.height - self.height) / 2;
+            text: "不顯示完成及不處理";
+            checked <=> TasksPageData.hide-done;
+            accent: true;
+            tip: "看板不顯示完成、已取消類（例如「不處理」）的任務";
+            toggled(c) => {
+                TasksPageData.hide-done-toggled(c);
+            }
+        }
+        if TasksPageData.mode == 0: SmallButton {
+            text: "▥ 欄位";
+            tip: "設定清單要顯示哪些欄位、順序與寬度";
+            clicked => {
+                TasksPageData.columns-open();
+            }
+        }
+        if TasksPageData.mode == 1: SmallButton {
+            text: TasksPageData.collapse-text;
+            clicked => {
+                TasksPageData.collapse-all();
+            }
+        }
+    }
+}
+
+/// 篩選列右半：顯示方式與排序。
+component FilterRight {
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: end;
+        TipSegmented {
+            items: ["清單", "樹狀", "看板", "日曆", "甘特"];
+            tips: ["一般清單（可以設定欄位）", "依專案分組，照上下層排成樹", "待處理、進行中、已完成三欄", "月曆；把任務拖到別天就改預計日期", "甘特圖；拖整條平移，拖兩端改預計開始、結束"];
+            current: TasksPageData.view-index;
+            selected(i) => {
+                TasksPageData.view-selected(i);
+            }
+        }
+        MiniSelect {
+            width: 150px;
+            items: TasksPageData.sort-labels;
+            current <=> TasksPageData.sort-index;
+            tip: "排序方式";
+            selected(i) => {
+                TasksPageData.sort-selected(i);
+            }
+        }
+    }
+}
+
+/// 篩選列：寬的時候一列（左篩選、右顯示方式），窄的時候分兩列（C# WrapPanel）。
+export component FilterBar {
+    in property <bool> wrap;
+    // 子項目都在 if 裡，高度要自己給（一列 34、兩列 34＋6＋34）
+    height: root.wrap ? 74px : 34px;
+    vertical-stretch: 0;
+    if !root.wrap: HorizontalLayout {
+        spacing: 8px;
+        FilterLeft {
+            horizontal-stretch: 1;
+        }
+        FilterRight { }
+    }
+    if root.wrap: VerticalLayout {
+        spacing: 6px;
+        FilterLeft { }
+        FilterRight { }
+    }
+}
+
+/// 「清單欄位」：勾要顯示的欄、上下調整順序、填寬度，專案欄可以只顯示代碼。
+export component ColumnsDialog {
+    Modal {
+        width: parent.width;
+        height: parent.height;
+        max-card-width: 470px;
+        card-height: body.preferred-height;
+        close => {
+            TasksPageData.col-cancel();
+        }
+        body := VerticalLayout {
+            padding: 22px;
+            padding-right: 52px;
+            spacing: 4px;
+            Text {
+                text: "清單欄位";
+                color: Theme.ink;
+                font-size: Theme.fs-lg;
+                font-weight: 700;
+            }
+            Text {
+                text: "勾要顯示的欄位，用 ↑↓ 調整順序；寬度也可以在清單的標題列直接拖。";
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+            Rectangle {
+                height: 8px;
+            }
+            // 欄位多、視窗矮時清單可以捲，下面的按鈕永遠看得到
+            cols-sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                vertical-stretch: 1;
+                min-height: min(cols.preferred-height, 120px);
+                preferred-height: cols.preferred-height;
+                content-height: cols.preferred-height;
+                cols := VerticalLayout {
+                    // 靠左（不置中）：勾選框跟下面「專案欄只顯示代碼」對齊，右邊 12px 留給捲軸
+                    x: 0;
+                    width: cols-sv.visible-width - 12px;
+                    spacing: 4px;
+                    for c[i] in TasksPageData.col-draft: HorizontalLayout {
+                        spacing: 4px;
+                        height: 36px;
+                        CheckText {
+                            width: 140px;
+                            y: (parent.height - self.height) / 2;
+                            text: c.label;
+                            checked: c.visible;
+                            enabled: !c.is-title;
+                            tip: c.is-title ? "名稱一定要顯示" : "";
+                            toggled(v) => {
+                                TasksPageData.col-toggle(i, v);
+                            }
+                        }
+                        GlyphButton {
+                            y: (parent.height - self.height) / 2;
+                            glyph: "↑";
+                            enabled: c.can-up;
+                            tip: "往前（往左）";
+                            clicked => {
+                                TasksPageData.col-move(i, -1);
+                            }
+                        }
+                        GlyphButton {
+                            y: (parent.height - self.height) / 2;
+                            glyph: "↓";
+                            enabled: c.can-down;
+                            tip: "往後（往右）";
+                            clicked => {
+                                TasksPageData.col-move(i, 1);
+                            }
+                        }
+                        if c.is-title: Text {
+                            text: "填滿";
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                        }
+                        if !c.is-title: Rectangle {
+                            width: 64px;
+                            HintBox {
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width;
+                                text: c.width-text;
+                                accepted(t) => {
+                                    TasksPageData.col-width(i, t);
+                                }
+                                focus-lost(t) => {
+                                    TasksPageData.col-width(i, t);
+                                }
+                            }
+                            Rectangle {
+                                Tooltip {
+                                    Tip {
+                                        text: "寬度（40～480）";
+                                    }
+                                }
+                            }
+                        }
+                        if !c.is-title: Text {
+                            text: " px";
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                height: 6px;
+            }
+            CheckText {
+                text: "專案欄只顯示代碼（例 F2P）";
+                checked <=> TasksPageData.col-code-only;
+            }
+            Rectangle {
+                height: 12px;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LinkButton {
+                    text: "恢復預設";
+                    clicked => {
+                        TasksPageData.col-reset();
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                SmallButton {
+                    text: "套用";
+                    kind: 0;
+                    horizontal-padding: 18px;
+                    clicked => {
+                        TasksPageData.col-apply();
+                    }
+                }
+                SmallButton {
+                    text: "取消";
+                    horizontal-padding: 18px;
+                    clicked => {
+                        TasksPageData.col-cancel();
+                    }
+                }
+            }
+        }
+    }
+}

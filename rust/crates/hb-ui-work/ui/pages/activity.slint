@@ -1,0 +1,283 @@
+// 工作台「專案動態」頁（對應 C# UI/Work/ActivityPage.cs）。
+// 契約：匯出 global ActivityPageData（Rust 端用 window.global::<ActivityPageData>() 讀寫）與 component ActivityPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+// 誰開始做了什麼、新增了哪些任務、完成了哪些；上方是這段期間的進展摘要；可以選專案、期間、事件類型，只看自己的。
+import { Theme, ScrollView, TipArea, Tip } from "@hb/index.slint";
+import { StatusLine, PageTitle, SelectField, CheckRow, ProjectIcon, ColorKeys } from "@hbc/index.slint";
+import { PageButton, TipSegmented, ItemCard } from "w3-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
+
+/// 摘要數字（新增、開始、完成、逾期）；color：ColorKeys 代碼（0 是 0 的時候用淡色）。
+export struct ActCard {
+    label: string,
+    value: string,
+    color: int,
+}
+
+/// 一段文字；key 不是空的就是任務編號連結（點了在我的任務打開）。
+export struct ActSpan {
+    text: string,
+    key: string,
+}
+
+/// 一則動態：時間、專案圖示、文字。
+export struct ActRow {
+    time: string,
+    glyph: string,
+    tint: color,
+    project: string,
+    text: string,
+    spans: [ActSpan],
+}
+
+/// 一天的動態。
+export struct ActDay {
+    label: string,
+    rows: [ActRow],
+}
+
+export global ActivityPageData {
+    in-out property <bool> loading;
+    in-out property <[string]> projects;
+    in-out property <int> project-index: 0;
+    in-out property <string> project-glyph;
+    in-out property <color> project-tint;
+    in-out property <int> period: 0;
+    in-out property <[bool]> types: [true, false, false, false];
+    in-out property <bool> only-me;
+    in-out property <[ActCard]> cards;
+    in-out property <string> top;
+    in-out property <string> status;
+    in-out property <int> status-tone;
+    in-out property <[ActDay]> days;
+    in-out property <string> empty-text;
+    callback project-selected(int);
+    callback period-selected(int);
+    callback type-toggled(int, bool);
+    callback only-me-toggled(bool);
+    callback reload();
+    callback open-task(string);
+}
+
+export component ActivityPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時篩選列分兩列
+    property <bool> narrow: root.width < 1000px;
+    VerticalLayout {
+        padding-left: 24px;
+        padding-right: 24px;
+        padding-top: 18px;
+        padding-bottom: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            PageTitle {
+                text: "專案動態";
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            PageButton {
+                text: "⟳ 重新整理";
+                clicked => {
+                    ActivityPageData.reload();
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            if ActivityPageData.project-glyph != "": ProjectIcon {
+                y: (parent.height - self.height) / 2;
+                glyph: ActivityPageData.project-glyph;
+                tint: ActivityPageData.project-tint;
+                size: 22px;
+            }
+            SelectField {
+                width: root.narrow ? 200px : 220px;
+                height: 40px;
+                items: ActivityPageData.projects;
+                current <=> ActivityPageData.project-index;
+                selected(i) => {
+                    ActivityPageData.project-selected(i);
+                }
+            }
+            TipSegmented {
+                y: (parent.height - self.height) / 2;
+                items: ["本週", "上週", "最近 30 天"];
+                current <=> ActivityPageData.period;
+                selected(i) => {
+                    ActivityPageData.period-selected(i);
+                }
+            }
+            if !root.narrow: Rectangle {
+                width: 4px;
+            }
+            if !root.narrow: HorizontalLayout {
+                spacing: 8px;
+                for label[i] in ["進展", "指派", "討論", "其他"]: CheckRow {
+                    y: (parent.height - self.height) / 2;
+                    text: label;
+                    checked: i < ActivityPageData.types.length && ActivityPageData.types[i];
+                    toggled(c) => {
+                        ActivityPageData.type-toggled(i, c);
+                    }
+                }
+                CheckRow {
+                    y: (parent.height - self.height) / 2;
+                    text: "只看我";
+                    checked <=> ActivityPageData.only-me;
+                    toggled(c) => {
+                        ActivityPageData.only-me-toggled(c);
+                    }
+                }
+            }
+        }
+        // 頁面窄時類型勾選換到下一列
+        if root.narrow: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            for label[i] in ["進展", "指派", "討論", "其他"]: CheckRow {
+                y: (parent.height - self.height) / 2;
+                text: label;
+                checked: i < ActivityPageData.types.length && ActivityPageData.types[i];
+                toggled(c) => {
+                    ActivityPageData.type-toggled(i, c);
+                }
+            }
+            CheckRow {
+                y: (parent.height - self.height) / 2;
+                text: "只看我";
+                checked <=> ActivityPageData.only-me;
+                toggled(c) => {
+                    ActivityPageData.only-me-toggled(c);
+                }
+            }
+        }
+        StatusLine {
+            text: ActivityPageData.status;
+            tone: ActivityPageData.status-tone;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            for c[ai] in ActivityPageData.cards: Appear {
+                index: ai;
+                horizontal-stretch: 1;
+                stagger: 45ms;
+                ItemCard {
+                    horizontal-stretch: 1;
+                    pad-x: 14px;
+                    pad-y: 10px;
+                    Text {
+                        text: c.label;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                    }
+                    Text {
+                        text: c.value;
+                        color: ColorKeys.color(c.color);
+                        font-family: Theme.font-num;
+                        font-size: 22px;
+                        font-weight: 700;
+                    }
+                }
+            }
+        }
+        if ActivityPageData.top != "": Text {
+            text: ActivityPageData.top;
+            color: Theme.muted;
+            font-size: Theme.fs-md;
+            wrap: word-wrap;
+        }
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: ActivityPageData.period;
+            vertical-stretch: 1;
+            ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding-right: 8px;
+                    spacing: 4px;
+                    alignment: start;
+                    if ActivityPageData.empty-text != "": Text {
+                        text: ActivityPageData.empty-text;
+                        color: Theme.muted;
+                        font-size: Theme.fs-md;
+                    }
+                    for day[ai] in ActivityPageData.days: Appear {
+                        index: ai;
+                        stagger: 45ms;
+                        VerticalLayout {
+                            spacing: 4px;
+                            padding-top: 10px;
+                            Text {
+                                text: day.label;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 700;
+                            }
+                            ItemCard {
+                                pad-x: 12px;
+                                pad-y: 6px;
+                                for r in day.rows: HorizontalLayout {
+                                    height: 28px;
+                                    Text {
+                                        width: 48px;
+                                        text: r.time;
+                                        font-family: Theme.font-num;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-md;
+                                        vertical-alignment: center;
+                                    }
+                                    Rectangle {
+                                        width: 28px;
+                                        TipArea {
+                                            text: r.project;
+                                            ProjectIcon {
+                                                y: (parent.height - self.height) / 2;
+                                                glyph: r.glyph;
+                                                tint: r.tint;
+                                                size: 18px;
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            // 任務編號不縮（看得到是哪個任務），其他文字放不下時才省略
+                                            for s in r.spans: Text {
+                                                min-width: s.key != "" ? self.preferred-width : min(self.preferred-width, 28px);
+                                                text: s.text;
+                                                color: s.key != "" ? Theme.accent-ink : Theme.ink;
+                                                font-weight: s.key != "" ? 600 : 400;
+                                                font-size: Theme.fs-md;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                                TouchArea {
+                                                    enabled: s.key != "";
+                                                    mouse-cursor: s.key != "" ? pointer : default;
+                                                    clicked => {
+                                                        ActivityPageData.open-task(s.key);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Rectangle {
+                                            Tooltip {
+                                                Tip {
+                                                    text: r.text;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

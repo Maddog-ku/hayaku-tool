@@ -1,0 +1,3 @@
+# 全部 crate 統一格式：cargo fmt --all
+max_width = 120
+use_small_heuristics = "Max"

@@ -1,0 +1,329 @@
+// 工作台「工作日誌」頁（對應 C# UI/Work/WorkLogPage.xaml）：照計時紀錄整理的任務與時數，加上自己在網頁寫的日誌。
+// 契約：匯出 global WorkLogPageData（Rust 端用 window.global::<WorkLogPageData>() 讀寫）與 component WorkLogPage；
+// 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
+import { Theme, ScrollView } from "@hb/index.slint";
+import { GroupLabel, StatusLine, TextArea, PlainText, LinkButton } from "@hbc/index.slint";
+import { W2, W2Button, W2Card, W2Confirm, W2Title } from "w2-common.slint";
+import { Appear } from "../shared/anim.slint";
+
+export struct WorkLogRow {
+    task: string,
+    hours: string,
+    ranges: string,
+}
+
+export global WorkLogPageData {
+    in-out property <bool> loading;
+    in-out property <string> date-text;
+    in-out property <bool> today-enabled;
+    in-out property <string> total-text;
+    in-out property <string> status-text;
+    in-out property <int> status-tone;
+    in-out property <[WorkLogRow]> entries;
+    in-out property <bool> empty;
+    in-out property <bool> copy-enabled;
+    in-out property <string> note-text;
+    in-out property <bool> note-visible;
+    in-out property <string> draft-button: "✦ Claude 整理";
+    in-out property <bool> draft-enabled: true;
+    in-out property <bool> draft-visible;
+    in-out property <string> draft-info;
+    in-out property <string> draft-text;
+    in-out property <string> notes-button;
+    in-out property <bool> notes-enabled;
+    in-out property <bool> capture-enabled: true;
+    in-out property <bool> confirm-open;
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+    callback confirm-ok();
+    callback confirm-cancel();
+    callback prev();
+    callback next();
+    callback today();
+    callback copy();
+    callback draft();
+    callback close-draft();
+    callback copy-draft();
+    callback capture-draft();
+    callback apply-notes();
+    callback open-entries();
+    callback open-web();
+}
+
+export component WorkLogPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時日誌卡片的按鈕換到第二列
+    property <bool> narrow: root.width < 1000px;
+    VerticalLayout {
+        padding-left: W2.pad-x;
+        padding-right: W2.pad-x;
+        padding-top: W2.pad-top;
+        padding-bottom: W2.pad-bottom;
+        spacing: 10px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            padding-bottom: 4px;
+            W2Title {
+                text: "工作日誌";
+                horizontal-stretch: 1;
+            }
+            W2Button {
+                text: "‹";
+                tip: "前一天";
+                font-size: 15px;
+                clicked => { WorkLogPageData.prev(); }
+            }
+            Text {
+                text: WorkLogPageData.date-text;
+                min-width: 120px;
+                color: Theme.ink;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            W2Button {
+                text: "›";
+                tip: "後一天";
+                font-size: 15px;
+                clicked => { WorkLogPageData.next(); }
+            }
+            W2Button {
+                text: "今天";
+                enabled: WorkLogPageData.today-enabled;
+                clicked => { WorkLogPageData.today(); }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 0;
+            border-width: 1px;
+            border-color: Theme.line;
+            border-radius: W2.card-radius;
+            VerticalLayout {
+                HorizontalLayout {
+                    padding: 16px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text {
+                            text: WorkLogPageData.total-text;
+                            color: Theme.ink;
+                            font-family: Theme.font-num;
+                            font-size: 22px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "照計時紀錄整理；同時計時的時間各任務都會算";
+                            color: Theme.muted;
+                            font-size: 11.5px;
+                            wrap: word-wrap;
+                        }
+                    }
+                    // 頁面窄時按鈕換到下一列，不會疊在說明上
+                    if !root.narrow: HorizontalLayout {
+                        spacing: 6px;
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: WorkLogPageData.draft-button;
+                            primary: true;
+                            enabled: WorkLogPageData.draft-enabled;
+                            tip: "把這天的 Claude Code 對話與 commit 整理成日誌草稿，也能寫進計時段的備註";
+                            clicked => { WorkLogPageData.draft(); }
+                        }
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "複製成文字";
+                            enabled: WorkLogPageData.copy-enabled;
+                            tip: "複製成「任務 時數」清單，貼到日報";
+                            clicked => { WorkLogPageData.copy(); }
+                        }
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "工時紀錄";
+                            tip: "查看、修改、補登這天的計時";
+                            clicked => { WorkLogPageData.open-entries(); }
+                        }
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "在網頁寫日誌 ↗";
+                            clicked => { WorkLogPageData.open-web(); }
+                        }
+                    }
+                }
+                if root.narrow: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 14px;
+                    spacing: 6px;
+                    alignment: start;
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: WorkLogPageData.draft-button;
+                        primary: true;
+                        enabled: WorkLogPageData.draft-enabled;
+                        tip: "把這天的 Claude Code 對話與 commit 整理成日誌草稿，也能寫進計時段的備註";
+                        clicked => { WorkLogPageData.draft(); }
+                    }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "複製成文字";
+                        enabled: WorkLogPageData.copy-enabled;
+                        tip: "複製成「任務 時數」清單，貼到日報";
+                        clicked => { WorkLogPageData.copy(); }
+                    }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "工時紀錄";
+                        tip: "查看、修改、補登這天的計時";
+                        clicked => { WorkLogPageData.open-entries(); }
+                    }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "在網頁寫日誌 ↗";
+                        clicked => { WorkLogPageData.open-web(); }
+                    }
+                }
+            }
+        }
+
+        StatusLine {
+            text: WorkLogPageData.status-text;
+            tone: WorkLogPageData.status-tone;
+        }
+
+        sv := ScrollView {
+            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+            content-width: self.visible-width;
+            vertical-stretch: 1;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                x: 0;
+                width: sv.visible-width - 14px;
+                spacing: 8px;
+                if WorkLogPageData.draft-visible: VerticalLayout {
+                    spacing: 6px;
+                    padding-bottom: 6px;
+                    HorizontalLayout {
+                        GroupLabel {
+                            text: "Claude 整理的草稿";
+                            horizontal-stretch: 1;
+                            vertical-alignment: bottom;
+                        }
+                        LinkButton {
+                            text: "收起";
+                            clicked => { WorkLogPageData.close-draft(); }
+                        }
+                    }
+                    W2Card {
+                        outline: true;
+                        spacing: 8px;
+                        pad-y: 14px;
+                        Text {
+                            text: WorkLogPageData.draft-info;
+                            color: Theme.muted;
+                            font-size: 11.5px;
+                            wrap: word-wrap;
+                        }
+                        TextArea {
+                            min-height: 140px;
+                            preferred-height: 260px;
+                            max-height: 360px;
+                            text <=> WorkLogPageData.draft-text;
+                            font-size: 12px;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            padding-top: 4px;
+                            W2Button {
+                                text: "複製";
+                                clicked => { WorkLogPageData.copy-draft(); }
+                            }
+                            W2Button {
+                                text: "存到隨手記";
+                                enabled: WorkLogPageData.capture-enabled;
+                                tip: "把上面的草稿（可以先改）存到 Hayaku 的隨手記";
+                                clicked => { WorkLogPageData.capture-draft(); }
+                            }
+                            W2Button {
+                                text: WorkLogPageData.notes-button;
+                                enabled: WorkLogPageData.notes-enabled;
+                                tip: "只寫進還沒有備註的計時段，內容是那段時間裡同一個任務送出的指令與 commit";
+                                clicked => { WorkLogPageData.apply-notes(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
+                }
+                for e[ai] in WorkLogPageData.entries: Appear {
+                    index: ai;
+                    stagger: 35ms;
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: 16px;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: e.task;
+                                    color: Theme.ink;
+                                    font-weight: 600;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: e.ranges;
+                                    color: Theme.muted;
+                                    font-family: Theme.font-num;
+                                    font-size: 11.5px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Text {
+                                text: e.hours;
+                                color: Theme.ink;
+                                font-family: Theme.font-num;
+                                font-size: 15px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                if WorkLogPageData.empty: Text {
+                    text: "這天沒有計時紀錄";
+                    color: Theme.muted;
+                    height: 36px;
+                    vertical-alignment: center;
+                    x: 4px;
+                }
+                if WorkLogPageData.note-visible: VerticalLayout {
+                    spacing: 6px;
+                    padding-top: 6px;
+                    GroupLabel {
+                        text: "我寫的日誌";
+                    }
+                    W2Card {
+                        PlainText {
+                            text: WorkLogPageData.note-text;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    W2Confirm {
+        width: parent.width;
+        height: parent.height;
+        open: WorkLogPageData.confirm-open;
+        heading: WorkLogPageData.confirm-title;
+        message: WorkLogPageData.confirm-text;
+        ok => { WorkLogPageData.confirm-ok(); }
+        cancel => { WorkLogPageData.confirm-cancel(); }
+    }
+}

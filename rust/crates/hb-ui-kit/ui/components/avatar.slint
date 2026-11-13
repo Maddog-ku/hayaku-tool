@@ -1,0 +1,50 @@
+// 字首圓頭像。
+import { Theme, Motion } from "../theme.slint";
+
+export enum AvatarTone { ink, accent, fill, outline }
+
+/// 字首圓頭像；shown 由 false 變 true 時以彈簧從 0 放大（delay 可錯開；reduce-motion 時不回彈）。
+export component Avatar {
+    in property <string> text;
+    in property <AvatarTone> tone: AvatarTone.fill;
+    in property <length> size: 46px;
+    in property <bool> shown: true;
+    in property <duration> delay: 0ms;
+    /// 外圈（設計稿 box-shadow:0 0 0 3px var(--card)）
+    in property <length> ring: 0px;
+    in property <color> ring-color: Theme.card;
+    property <float> s: shown ? 1 : 0;
+    animate s {
+        duration: Motion.spring-dur;
+        easing: Motion.spring;
+        delay: root.delay;
+    }
+    width: size;
+    height: size;
+    // 軟體繪圖不支援 transform-scale：彈出改成圓的直徑從 0 長到 size（以中心為準），字跟著放大
+    property <float> k: max(0, root.s);
+    property <length> d: root.size * root.k;
+    Rectangle {
+        opacity: clamp(root.s * 3, 0, 1);
+        if root.ring > 0: Rectangle {
+            width: root.d + 2 * root.ring * min(1, root.k);
+            height: self.width;
+            border-radius: self.width / 2;
+            background: root.ring-color;
+        }
+        Rectangle {
+            width: root.d;
+            height: root.d;
+            border-radius: self.width / 2;
+            background: root.tone == AvatarTone.ink ? Theme.ink : root.tone == AvatarTone.accent ? Theme.accent : root.tone == AvatarTone.outline ? Theme.card : Theme.fill;
+            border-width: root.tone == AvatarTone.outline ? 1.5px : 0px;
+            border-color: Theme.line;
+            if root.k > 0.2: Text {
+                text: root.text;
+                color: root.tone == AvatarTone.ink ? Theme.on-ink : root.tone == AvatarTone.accent ? Theme.on-accent : Theme.ink;
+                font-size: root.size * 0.35 * root.k;
+                font-weight: 700;
+            }
+        }
+    }
+}
