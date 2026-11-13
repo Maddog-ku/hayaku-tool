@@ -339,3 +339,33 @@ fn current_是最後建立還活著的engine() {
     // 只存弱參照：engine 不在了就是 None，不會讓它多活
     assert!(TimerEngine::current().is_none());
 }
+
+#[test]
+fn 按了暫停或開始_還在等_hayaku_時先照按下的結果顯示() {
+    use hb_api::TimeEntry;
+    let now = crate::time::now_offset();
+    let mut list = vec![
+        TimeEntry::new("e1", "F2P-1", "一", Some(now), None, None, true, None),
+        TimeEntry::new("e2", "F2P-2", "二", Some(now), Some(now), Some(10), false, None),
+    ];
+    let mut pause = CiSet::new();
+    pause.insert("f2p-1");
+    let mut start = CiSet::new();
+    start.insert("F2P-2");
+    start.insert("F2P-3");
+    apply_pending(&pause, &start, &mut list, now);
+    // 暫停的那筆先標成停了
+    assert!(!list[0].running);
+    assert_eq!(Some(now), list[0].ended_at);
+    // 開始的：沒有計時中的紀錄就先放一筆暫時的，標題沿用今天的紀錄
+    let added: Vec<_> = list.iter().filter(|e| e.id.starts_with("pending:")).collect();
+    assert_eq!(2, added.len());
+    assert!(added.iter().all(|e| e.running));
+    assert_eq!("二", added.iter().find(|e| e.task == "F2P-2").unwrap().title);
+    assert_eq!("", added.iter().find(|e| e.task == "F2P-3").unwrap().title);
+
+    // 同步讀回真的計時中紀錄後再套一次：不會重複放暫時的
+    let mut list = vec![TimeEntry::new("e3", "F2P-3", "三", Some(now), None, None, true, None)];
+    apply_pending(&CiSet::new(), &start, &mut list, now);
+    assert_eq!(1, list.iter().filter(|e| e.task == "F2P-3").count());
+}

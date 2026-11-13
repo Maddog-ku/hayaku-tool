@@ -159,6 +159,18 @@ impl Toast {
                 t.dismiss();
             }
         });
+        // 內容高度變了（顯示後長文字換行才算出真正的高度）：等 Slint 套用新大小後重排位置與裁切
+        let weak = Rc::downgrade(&toast);
+        toast.ui.on_height_changed(move || {
+            let weak = weak.clone();
+            slint::Timer::single_shot(Duration::ZERO, move || {
+                if let Some(t) = weak.upgrade()
+                    && let Some(f) = t.relayout.borrow().as_ref()
+                {
+                    f();
+                }
+            });
+        });
         // 滑鼠移上去時不會自動關閉
         let weak = Rc::downgrade(&toast);
         toast.ui.on_hover_changed(move |over| {
@@ -235,12 +247,11 @@ impl Toast {
         }
     }
 
-    /// 估計的大小（實體像素）：還沒顯示時用 Slint 算的內容高度。
+    /// 大小（實體像素）：寬度固定，高度就是內容的高度（視窗 min／max-height 都綁它）。
+    /// 不讀原生視窗的大小：內容剛變高時原生視窗還沒跟上，用它算裁切會把下面切掉。
     fn size(&self, scale: f32) -> (i32, i32) {
-        popup::outer_size(self.ui.window()).unwrap_or_else(|| {
-            let h = self.ui.get_pref_h();
-            ((CARD_WIDTH * scale).round() as i32, (h * scale).round() as i32)
-        })
+        let h = self.ui.get_pref_h();
+        ((CARD_WIDTH * scale).round() as i32, (h * scale).round() as i32)
     }
 
     fn show(&self) {

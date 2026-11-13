@@ -112,6 +112,9 @@ struct S {
 
     suppressed: CiSet,
     self_paused: CiSet,
+    /// 使用者剛按了暫停／開始、還在等 Hayaku（C# 沒有：按下就先照結果顯示，見 apply_pending）
+    pending_pause: CiSet,
+    pending_start: CiSet,
     prev_running: CiSet,
     claude_desired: CiSet,
     schedule_fetched: NaiveDateTime,
@@ -174,6 +177,8 @@ impl S {
             error: None,
             suppressed: CiSet::new(),
             self_paused: CiSet::new(),
+            pending_pause: CiSet::new(),
+            pending_start: CiSet::new(),
             prev_running: CiSet::new(),
             claude_desired: CiSet::new(),
             schedule_fetched: MIN,
@@ -707,11 +712,47 @@ impl TimerEngine {
             .any(|b| b.at <= now && !state.handled_boundaries.contains(&b.id))
     }
 
+    /// 按了開始／暫停：還沒等到 Hayaku 就先把畫面改成按下的結果（C# 要等請求與同步做完畫面才變，會慢好幾秒）。
+    /// 等待期間同步讀回來的舊狀態也照樣套用；做完才拿掉，失敗時重新同步回實際狀態。
+    fn begin_pending(&self, key: &str, start: bool) {
+        {
+            let mut s = self.s_mut();
+            if start {
+                s.pending_start.insert(key);
+                s.pending_pause.remove(key);
+            } else {
+                s.pending_pause.insert(key);
+                s.pending_start.remove(key);
+            }
+            let mut list = s.entries.as_ref().clone();
+            apply_pending(&s.pending_pause, &s.pending_start, &mut list, time::now_offset());
+            s.entries = Rc::new(list);
+        }
+        self.raise();
+    }
+
+    async fn end_pending(&self, key: &str, failed: bool) {
+        {
+            let mut s = self.s_mut();
+            s.pending_pause.remove(key);
+            s.pending_start.remove(key);
+        }
+        if failed {
+            self.refresh(true).await; // 失敗：畫面上先改的狀態不對，重新同步回實際狀態（錯誤訊息照樣顯示）
+        } else {
+            self.raise();
+        }
+    }
+
     pub async fn start_task(&self, key: &str) {
+        let key = key.trim().to_uppercase();
+        self.begin_pending(&key, true);
+        let ok = Cell::new(false);
         self.guarded(
             async {
-                let key = key.trim().to_uppercase();
+                let key = key.clone();
                 self.0.api.start_timer(&key).await?;
+                ok.set(true);
                 self.s_mut().suppressed.remove(&key);
                 self.remove_claude_owned(&key); // 使用者手動開始的，不再標成 Claude 的
                 self.add_known_project(&key);
@@ -720,13 +761,17 @@ impl TimerEngine {
             true,
         )
         .await;
+        self.end_pending(&key, !ok.get()).await;
     }
 
     pub async fn pause_task(&self, key: &str) {
+        self.begin_pending(key, false);
+        let ok = Cell::new(false);
         self.guarded(
             async {
                 self.s_mut().self_paused.insert(key);
                 self.0.api.pause_timer(Some(key)).await?;
+                ok.set(true);
                 {
                     let mut s = self.s_mut();
                     if s.claude_desired.contains(key) {
@@ -740,6 +785,7 @@ impl TimerEngine {
             true,
         )
         .await;
+        self.end_pending(key, !ok.get()).await;
     }
 
     /// 可恢復的任務：上次記下的那組；沒有的話用今天被午休自動暫停（BREAK）的。
@@ -954,6 +1000,7 @@ impl TimerEngine {
             let mut list: Vec<TimeEntry> = entries.into_values().collect();
             list.sort_by_key(|e| e.started_at.map(|t| t.timestamp_micros()).unwrap_or(i64::MIN));
             let mut s = self.s_mut();
+            apply_pending(&s.pending_pause, &s.pending_start, &mut list, time::now_offset());
             s.entries = Rc::new(list);
             s.entries_fetched = now;
             s.entries_day = today;
@@ -1246,6 +1293,24 @@ impl TimerEngine {
 
     fn raise(&self) {
         self.0.events.changed.invoke(&());
+    }
+}
+
+/// 剛按了暫停／開始、還在等 Hayaku 的任務：暫停的那筆先標成停了；開始的若還沒有計時中的紀錄，先放一筆暫時的
+/// （id 是 `pending:任務`，下次同步讀到真的紀錄就換掉）。
+fn apply_pending(pause: &CiSet, start: &CiSet, list: &mut Vec<TimeEntry>, now: DateTimeOffset) {
+    for e in list.iter_mut() {
+        if e.running && pause.contains(&e.task) {
+            e.running = false;
+            e.ended_at = Some(now);
+        }
+    }
+    for key in start.iter() {
+        if list.iter().any(|e| e.running && eq_ic(&e.task, key)) {
+            continue;
+        }
+        let title = list.iter().rev().find(|e| eq_ic(&e.task, key)).map(|e| e.title.clone()).unwrap_or_default();
+        list.push(TimeEntry::new(format!("pending:{key}"), key, title, Some(now), None, None, true, None));
     }
 }
 
