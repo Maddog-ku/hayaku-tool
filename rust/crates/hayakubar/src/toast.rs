@@ -147,6 +147,12 @@ impl Toast {
             countdown_started: Cell::new(None),
             relayout: RefCell::new(None),
         });
+        let weak_ui = toast.ui.as_weak();
+        toast.slide.set_on_reveal(move || {
+            if let Some(u) = weak_ui.upgrade() {
+                u.set_repaint_token(u.get_repaint_token().wrapping_add(1));
+            }
+        });
         let weak = Rc::downgrade(&toast);
         toast.ui.on_action(move |i| {
             if let Some(t) = weak.upgrade() {

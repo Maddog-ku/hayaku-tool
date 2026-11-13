@@ -2,7 +2,7 @@
 // 視窗就是卡片本身（沒有留陰影的透明邊）：進出場由 Rust 移動原生視窗並裁切（src/slide.rs），
 // 這裡只負責關閉時內容淡出、停留倒數的進度條。
 import { Theme, Motion } from "@hb/index.slint";
-import { GlyphButton, SmallButton, WrapText } from "widgets.slint";
+import { GlyphButton, SmallButton, WrapText, FullRepaint } from "widgets.slint";
 
 export struct ToastButton {
     label: string,
@@ -40,6 +40,13 @@ export component ToastWindow inherits Window {
     width: 344px;
     min-height: lay.preferred-height;
     max-height: lay.preferred-height;
+    // 視窗大小變了整個重畫（見 FullRepaint）；要是第一個子元素
+    in-out property <int> repaint-token;
+    FullRepaint {
+        win-width: root.width;
+        win-height: root.height;
+        token: root.repaint-token;
+    }
 
     in property <string> title-text;
     in property <string> message;

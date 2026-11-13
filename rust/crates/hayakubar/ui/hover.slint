@@ -2,7 +2,7 @@
 // 視窗由 Rust 從工作列滑出來、滑回去（src/slide.rs）；這裡只負責內容淡入淡出。
 import { Theme, Motion } from "@hb/index.slint";
 import { DayTimeline, DayTimelineModel, ColorKeys } from "@hbc/index.slint";
-import { WrapText } from "widgets.slint";
+import { WrapText, FullRepaint } from "widgets.slint";
 
 export struct HoverRow {
     icon: string,
@@ -20,6 +20,13 @@ export component HoverCard inherits Window {
     background: Theme.card;
     default-font-family: Theme.font-ui;
     default-font-size: 12px;
+    // 視窗大小變了整個重畫（見 FullRepaint）；要是第一個子元素
+    in-out property <int> repaint-token;
+    FullRepaint {
+        win-width: root.width;
+        win-height: root.height;
+        token: root.repaint-token;
+    }
     in property <string> header;
     in property <string> sub;
     in property <DayTimelineModel> timeline;

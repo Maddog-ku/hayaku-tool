@@ -51,12 +51,14 @@ impl HoverCard {
         match popup::create(PopupKind::Hover, HoverCardWindow::new) {
             Ok(ui) => {
                 crate::track_theme!(ui);
-                Some(Self {
-                    ui,
-                    created: std::cell::Cell::new(false),
-                    visible: std::cell::Cell::new(false),
-                    slide: WindowSlide::new(),
-                })
+                let slide = WindowSlide::new();
+                let weak_ui = ui.as_weak();
+                slide.set_on_reveal(move || {
+                    if let Some(u) = weak_ui.upgrade() {
+                        u.set_repaint_token(u.get_repaint_token().wrapping_add(1));
+                    }
+                });
+                Some(Self { ui, created: std::cell::Cell::new(false), visible: std::cell::Cell::new(false), slide })
             }
             Err(e) => {
                 log::error!("建立工時摘要失敗: {e}");
