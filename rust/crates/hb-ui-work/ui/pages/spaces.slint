@@ -5,6 +5,7 @@
 import { Theme, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
 import { StatusLine, PageTitle, SelectField, MutedText } from "@hbc/index.slint";
 import { W3Row, PageButton, RowList, MdArea, Reader, ConfirmOverlay, ListRow } from "w3-common.slint";
+import { Appear, CardShadow } from "../shared/anim.slint";
 
 export global SpacesPageData {
     in-out property <bool> loading;
@@ -86,10 +87,20 @@ export global SpacesPageData {
 }
 
 component MoveOverlay inherits Rectangle {
-    visible: SpacesPageData.move-open;
-    background: Theme.dark ? #00000080 : #0E0F1333;
-    border-radius: Theme.radius-card;
+    // 打開：底色淡入、卡片往上浮出（340ms）；關閉反向淡出（160ms），播完才不顯示
     property <bool> open: SpacesPageData.move-open;
+    property <float> t: root.open ? 1 : 0;
+    animate t {
+        duration: root.open ? (Theme.reduce-motion ? 160ms : 340ms) : 160ms;
+        easing: root.open ? Motion.soft : Motion.out;
+    }
+    visible: root.open || root.t > 0.01;
+    border-radius: Theme.radius-card;
+    Rectangle {
+        border-radius: Theme.radius-card;
+        background: Theme.dark ? #00000080 : #0E0F1333;
+        opacity: clamp(root.t, 0, 1);
+    }
     changed open => {
         if self.open {
             keys.focus();
@@ -104,18 +115,22 @@ component MoveOverlay inherits Rectangle {
             }
             reject
         }
-        Rectangle {
-            property <float> t: SpacesPageData.move-open ? 1 : 0;
-            animate t {
-                duration: Motion.spring-dur;
-                easing: Motion.spring;
-            }
+        // 假陰影（軟體繪製畫不出 drop-shadow）
+        CardShadow {
+            x: move-card.x;
+            y: move-card.y;
+            width: move-card.width;
+            height: move-card.height;
+            radius: Theme.radius-card;
+            strength: clamp(root.t, 0, 1);
+        }
+        move-card := Rectangle {
             width: min(460px, root.width - 40px);
-            height: lay.preferred-height;
+            height: min(lay.preferred-height, root.height - 32px);
             x: (root.width - self.width) / 2;
-            y: (root.height - self.height) / 2;
-            transform-scale: 0.94 + 0.06 * self.t;
-            opacity: clamp(self.t * 1.5, 0, 1);
+            y: (root.height - self.height) / 2 + (Theme.reduce-motion ? 0px : (1 - root.t) * 24px);
+            opacity: clamp(root.t * 1.5, 0, 1);
+            clip: true;
             background: Theme.card;
             border-radius: Theme.radius-card;
             drop-shadow-color: Theme.shadow;
@@ -220,7 +235,7 @@ export component SpacesPage inherits Rectangle {
             TipArea {
                 text: SpacesPageData.space-index >= 0 && SpacesPageData.space-index < SpacesPageData.space-tips.length ? SpacesPageData.space-tips[SpacesPageData.space-index] : "";
                 SelectField {
-                    width: 260px;
+                    width: root.width < 760px ? 200px : 260px;
                     height: 40px;
                     items: SpacesPageData.spaces;
                     current <=> SpacesPageData.space-index;
@@ -229,8 +244,12 @@ export component SpacesPage inherits Rectangle {
                     }
                 }
             }
+            // 頁面窄時搜尋框縮，不把右邊按鈕擠出去
             TextField {
-                width: 300px;
+                min-width: 120px;
+                preferred-width: 300px;
+                max-width: 300px;
+                horizontal-stretch: 1;
                 height: 40px;
                 font-size: Theme.fs-md;
                 placeholder: "🔍 搜尋這個空間的頁名、內容與檔名（Enter）";
@@ -254,8 +273,9 @@ export component SpacesPage inherits Rectangle {
         HorizontalLayout {
             spacing: 18px;
             vertical-stretch: 1;
+            // 左欄：頁面窄時縮到 230，右邊閱讀區多一點寬度
             VerticalLayout {
-                width: 300px;
+                width: root.width < 760px ? 230px : 300px;
                 spacing: 6px;
                 if SpacesPageData.left-message != "": Text {
                     text: SpacesPageData.left-message;
@@ -291,6 +311,8 @@ export component SpacesPage inherits Rectangle {
                 }
             }
             ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
                 horizontal-stretch: 1;
                 VerticalLayout {
                     spacing: 4px;
@@ -357,16 +379,20 @@ export component SpacesPage inherits Rectangle {
                             }
                             VerticalLayout {
                                 spacing: 1px;
-                                for f[i] in SpacesPageData.files: ListRow {
-                                    data: f;
-                                    selected: i == SpacesPageData.file-current;
-                                    clicked => {
-                                        SpacesPageData.file-current = i;
-                                        files-keys.focus();
-                                    }
-                                    double-clicked => {
-                                        SpacesPageData.file-current = i;
-                                        SpacesPageData.file-activated(i);
+                                for f[i] in SpacesPageData.files: Appear {
+                                    index: i;
+                                    rise: 6px;
+                                    ListRow {
+                                        data: f;
+                                        selected: i == SpacesPageData.file-current;
+                                        clicked => {
+                                            SpacesPageData.file-current = i;
+                                            files-keys.focus();
+                                        }
+                                        double-clicked => {
+                                            SpacesPageData.file-current = i;
+                                            SpacesPageData.file-activated(i);
+                                        }
                                     }
                                 }
                             }

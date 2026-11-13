@@ -4,6 +4,7 @@
 import { Theme, Motion, ScrollView, Segmented, TipArea } from "@hb/index.slint";
 import { GroupLabel, StatusLine } from "@hbc/index.slint";
 import { W2, W2Button, W2Link, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch, FadeText } from "../shared/anim.slint";
 
 /// 一格（C# Cell）。tone：0 線條色、1 強調色、2 綠色、3 紅色。
 export struct WorkloadCell {
@@ -46,6 +47,7 @@ export global WorkloadPageData {
 
 component DayCard inherits Rectangle {
     in property <WorkloadCell> data;
+    in property <bool> compact;
     background: Theme.fill;
     border-radius: 16px;
     border-width: root.data.today ? 1.5px : 0px;
@@ -65,9 +67,11 @@ component DayCard inherits Rectangle {
             font-weight: root.data.today || root.data.total ? 600 : 400;
             overflow: elide;
         }
-        Text {
+        // 數字變化時新數字從下方淡入
+        FadeText {
             text: root.data.value;
-            font-size: 17px;
+            // 頁面窄（視窗小）時數字小一號，四位數工時也放得下
+            font-size: root.compact ? 14px : 17px;
             font-weight: 600;
             font-family: Theme.font-num;
             color: Theme.ink;
@@ -194,46 +198,35 @@ export component WorkloadPage inherits Rectangle {
             tone: WorkloadPageData.status-tone;
         }
 
-        sv := ScrollView {
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: WorkloadPageData.mode-index;
             vertical-stretch: 1;
-            content-height: body.preferred-height;
-            body := VerticalLayout {
-                width: sv.visible-width - 14px;
-                spacing: 6px;
-                HorizontalLayout {
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    width: sv.visible-width - 14px;
                     spacing: 6px;
-                    padding-bottom: 8px;
-                    for d in WorkloadPageData.days: DayCard {
-                        data: d;
-                    }
-                }
-                GroupLabel {
-                    text: "這週的任務";
-                }
-                Rectangle {
-                    background: Theme.fill;
-                    border-radius: W2.card-radius;
-                    VerticalLayout {
-                        padding-left: 14px;
-                        padding-right: 14px;
-                        padding-top: 8px;
+                    HorizontalLayout {
+                        spacing: 6px;
                         padding-bottom: 8px;
-                        if WorkloadPageData.tasks-empty != "": Text {
-                            text: WorkloadPageData.tasks-empty;
-                            color: Theme.muted;
-                            height: 26px;
-                            vertical-alignment: center;
-                        }
-                        for t in WorkloadPageData.tasks: TaskLine {
-                            data: t;
+                        for d[ai] in WorkloadPageData.days: Appear {
+                            index: ai;
+                            horizontal-stretch: 1;
+                            stagger: 35ms;
+                            DayCard {
+                                compact: root.width < 1000px;
+                                data: d;
+                            }
                         }
                     }
-                }
-                if WorkloadPageData.incomplete-title != "": VerticalLayout {
-                    spacing: 6px;
-                    padding-top: 8px;
                     GroupLabel {
-                        text: WorkloadPageData.incomplete-title;
+                        text: "這週的任務";
                     }
                     Rectangle {
                         background: Theme.fill;
@@ -243,8 +236,42 @@ export component WorkloadPage inherits Rectangle {
                             padding-right: 14px;
                             padding-top: 8px;
                             padding-bottom: 8px;
-                            for t in WorkloadPageData.incomplete: TaskLine {
-                                data: t;
+                            if WorkloadPageData.tasks-empty != "": Text {
+                                text: WorkloadPageData.tasks-empty;
+                                color: Theme.muted;
+                                height: 26px;
+                                vertical-alignment: center;
+                            }
+                            for t[ai] in WorkloadPageData.tasks: Appear {
+                                index: ai;
+                                rise: 6px;
+                                TaskLine {
+                                    data: t;
+                                }
+                            }
+                        }
+                    }
+                    if WorkloadPageData.incomplete-title != "": VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 8px;
+                        GroupLabel {
+                            text: WorkloadPageData.incomplete-title;
+                        }
+                        Rectangle {
+                            background: Theme.fill;
+                            border-radius: W2.card-radius;
+                            VerticalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                padding-top: 8px;
+                                padding-bottom: 8px;
+                                for t[ai] in WorkloadPageData.incomplete: Appear {
+                                    index: ai;
+                                    rise: 6px;
+                                    TaskLine {
+                                        data: t;
+                                    }
+                                }
                             }
                         }
                     }

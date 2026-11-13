@@ -1,7 +1,7 @@
 // 清單挑選類的視窗：移動任務（C# UI/MoveTaskWindow.cs）與選擇任務（C# UI/TaskPickerWindow.xaml）。
-import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icons } from "@hb/index.slint";
+import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icons, Stagger, Tip } from "@hb/index.slint";
 import { MutedText, StatusLine, CheckRow } from "../common.slint";
-import { DialogBody, DialogButtons } from "dialog.slint";
+import { DialogBody, DialogButtons, DialogFade, DialogMotion, Section, ListIntro } from "dialog.slint";
 
 export struct MoveRow {
     text: string,
@@ -16,10 +16,12 @@ export struct PickRow {
     selected: bool,
 }
 
-/// 選取列：淡色底＋左邊橘色細條，滑過淡灰（設計稿清單的 active）。
+/// 選取列：淡色底＋左邊橘色細條（彈出），滑過淡灰（設計稿清單的 active）。
 component ListRow {
     in property <bool> selected;
     in property <length> radius: 12px;
+    /// 滑過的提示（文字被截掉時放完整文字）；空字串不顯示
+    in property <string> tip;
     callback clicked(event: PointerEvent);
     callback double-clicked();
     Rectangle {
@@ -49,6 +51,12 @@ component ListRow {
         }
         double-clicked => {
             root.double-clicked();
+        }
+        if root.tip != "": Tooltip {
+            Tip {
+                text: root.tip;
+                max-bubble-width: 420px;
+            }
         }
     }
 }
@@ -88,11 +96,18 @@ export component MoveTaskWindow inherits Window {
             list.content-y = list.visible-height - top - root.row-height;
         }
     }
+    // 清單依序浮現：開窗、讀好、篩選字或「不顯示完成」改變時重播
+    intro := ListIntro {
+        key: root.filter + "|" + (root.hide-done ? "1" : "0") + "|" + (root.rows.length > 0 ? "1" : "0");
+    }
     body := DialogBody {
         cancel => {
             root.cancel();
         }
         capture-key-pressed(e) => {
+            if DialogMotion.closing {
+                return EventResult.accept;
+            }
             if e.text == Key.Escape {
                 root.cancel();
                 return EventResult.accept;
@@ -113,62 +128,75 @@ export component MoveTaskWindow inherits Window {
             }
             EventResult.reject
         }
-        MutedText {
-            text: root.intro;
-            font-size: Theme.fs-md;
-        }
-        HorizontalLayout {
-            spacing: 12px;
-            filter-box := TextField {
-                height: 42px;
-                icon: Icons.search;
-                text <=> root.filter;
+        Section {
+            index: 0;
+            MutedText {
+                text: root.intro;
                 font-size: Theme.fs-md;
-                edited(t) => {
-                    root.filter-edited(t);
-                }
             }
-            CheckRow {
-                y: (parent.height - self.height) / 2;
-                text: "不顯示完成及不處理";
-                checked <=> root.hide-done;
-                toggled(on) => {
-                    root.hide-done-toggled(on);
+        }
+        Section {
+            index: 1;
+            HorizontalLayout {
+                spacing: 12px;
+                filter-box := TextField {
+                    height: 42px;
+                    icon: Icons.search;
+                    text <=> root.filter;
+                    font-size: Theme.fs-md;
+                    edited(t) => {
+                        root.filter-edited(t);
+                    }
+                }
+                CheckRow {
+                    y: (parent.height - self.height) / 2;
+                    text: "不顯示完成及不處理";
+                    checked <=> root.hide-done;
+                    toggled(on) => {
+                        root.hide-done-toggled(on);
+                    }
                 }
             }
         }
-        Rectangle {
-            height: 360px;
-            border-radius: Theme.radius-input;
-            background: Theme.fill;
-            list := ScrollView {
-                x: 6px;
-                y: 6px;
-                width: parent.width - 12px;
-                height: parent.height - 12px;
-                content-height: root.rows.length * root.row-height;
-                for r[i] in root.rows: ListRow {
-                    x: 0;
-                    y: i * root.row-height;
-                    width: list.visible-width - 4px;
-                    height: root.row-height;
-                    selected: i == root.current;
-                    clicked => {
-                        root.current = i;
-                    }
-                    double-clicked => {
-                        root.current = i;
-                        root.accept();
-                    }
-                    Text {
-                        x: 12px + r.depth * 18px;
-                        width: parent.width - self.x - 8px;
-                        text: r.text;
-                        color: Theme.ink;
-                        opacity: r.dim ? 0.55 : 1;
-                        font-size: Theme.fs-md;
-                        vertical-alignment: center;
-                        overflow: elide;
+        Section {
+            index: 2;
+            Rectangle {
+                height: 360px;
+                border-radius: Theme.radius-input;
+                background: Theme.fill;
+                list := ScrollView {
+                    x: 6px;
+                    y: 6px;
+                    width: parent.width - 12px;
+                    height: parent.height - 12px;
+                    content-height: root.rows.length * root.row-height;
+                    for r[i] in root.rows: ListRow {
+                        property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                        x: 0;
+                        y: i * root.row-height + (1 - self.a) * Motion.rise;
+                        opacity: self.a;
+                        width: list.visible-width - 4px;
+                        height: root.row-height;
+                        selected: i == root.current;
+                        // 名稱被截掉時，滑過顯示完整文字
+                        tip: row-text.preferred-width > row-text.width ? r.text : "";
+                        clicked => {
+                            root.current = i;
+                        }
+                        double-clicked => {
+                            root.current = i;
+                            root.accept();
+                        }
+                        row-text := Text {
+                            x: 12px + r.depth * 18px;
+                            width: parent.width - self.x - 8px;
+                            text: r.text;
+                            color: Theme.ink;
+                            opacity: r.dim ? 0.55 : 1;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
             }
@@ -177,19 +205,22 @@ export component MoveTaskWindow inherits Window {
             text: root.message;
             tone: root.message-tone;
         }
-        DialogButtons {
-            Button {
-                text: "移到這裡";
-                kind: ButtonKind.primary;
-                clicked => {
-                    root.accept();
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: "移到這裡";
+                    kind: ButtonKind.primary;
+                    clicked => {
+                        root.accept();
+                    }
                 }
-            }
-            Button {
-                text: "取消";
-                kind: ButtonKind.secondary;
-                clicked => {
-                    root.cancel();
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    clicked => {
+                        root.cancel();
+                    }
                 }
             }
         }
@@ -233,8 +264,15 @@ export component TaskPickerWindow inherits Window {
     changed current => {
         root.scroll-to-current();
     }
+    // 清單依序浮現：開窗或搜尋字改變時重播（點選只重建列，不重播）
+    intro := ListIntro {
+        key: root.search;
+    }
     FocusScope {
         capture-key-pressed(e) => {
+            if DialogMotion.closing {
+                return EventResult.accept;
+            }
             if e.text == Key.Escape {
                 root.cancel();
                 return EventResult.accept;
@@ -253,96 +291,120 @@ export component TaskPickerWindow inherits Window {
             }
             EventResult.reject
         }
-        VerticalLayout {
-            padding: 18px;
-            spacing: 8px;
-            Text {
-                text: root.prompt;
-                color: Theme.ink;
-                font-size: Theme.fs-base;
-                font-weight: 700;
-                wrap: word-wrap;
-            }
-            Text {
-                text: "搜尋，或直接輸入任務編號（例 F2P-97）";
-                color: Theme.muted;
-                font-size: Theme.fs-sm;
-            }
-            search-box := TextField {
-                height: 44px;
-                icon: Icons.search;
-                text <=> root.search;
-                font-size: Theme.fs-md;
-                edited(t) => {
-                    root.search-edited(t);
+        DialogFade {
+            VerticalLayout {
+                padding: 18px;
+                spacing: 8px;
+                Section {
+                    index: 0;
+                    Text {
+                        text: root.prompt;
+                        color: Theme.ink;
+                        font-size: Theme.fs-base;
+                        font-weight: 700;
+                        wrap: word-wrap;
+                        // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+                        min-width: 0px;
+                    }
                 }
-            }
-            Rectangle {
-                vertical-stretch: 1;
-                border-radius: Theme.radius-input;
-                background: Theme.fill;
-                list := ScrollView {
-                    x: 6px;
-                    y: 6px;
-                    width: parent.width - 12px;
-                    height: parent.height - 12px;
-                    content-height: root.rows.length * root.row-height;
-                    for r[i] in root.rows: ListRow {
-                        x: 0;
-                        y: i * root.row-height;
-                        width: list.visible-width - 4px;
-                        height: root.row-height;
-                        selected: r.selected;
-                        clicked(e) => {
-                            root.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                Section {
+                    index: 0;
+                    Text {
+                        text: "搜尋，或直接輸入任務編號（例 F2P-97）";
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                    }
+                }
+                Section {
+                    index: 1;
+                    search-box := TextField {
+                        height: 44px;
+                        icon: Icons.search;
+                        text <=> root.search;
+                        font-size: Theme.fs-md;
+                        edited(t) => {
+                            root.search-edited(t);
                         }
-                        double-clicked => {
-                            root.accept();
-                        }
-                        VerticalLayout {
-                            padding-left: 14px;
-                            padding-right: 10px;
-                            alignment: center;
-                            spacing: 2px;
-                            HorizontalLayout {
-                                spacing: 6px;
-                                Text {
-                                    text: r.key;
-                                    color: Theme.ink;
-                                    font-size: Theme.fs-md;
-                                    font-weight: 700;
+                    }
+                }
+                Section {
+                    index: 2;
+                    vertical-stretch: 1;
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: Theme.radius-input;
+                        background: Theme.fill;
+                        list := ScrollView {
+                            x: 6px;
+                            y: 6px;
+                            width: parent.width - 12px;
+                            height: parent.height - 12px;
+                            content-height: root.rows.length * root.row-height;
+                            for r[i] in root.rows: ListRow {
+                                property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                                x: 0;
+                                y: i * root.row-height + (1 - self.a) * Motion.rise;
+                                opacity: self.a;
+                                width: list.visible-width - 4px;
+                                height: root.row-height;
+                                selected: r.selected;
+                                // 名稱被截掉時，滑過顯示完整名稱
+                                tip: title-text.preferred-width > title-text.width ? r.title : "";
+                                clicked(e) => {
+                                    root.row-clicked(i, e.modifiers.control, e.modifiers.shift);
                                 }
-                                Text {
-                                    horizontal-stretch: 1;
-                                    text: r.title;
-                                    color: Theme.ink;
-                                    font-size: Theme.fs-md;
-                                    overflow: elide;
+                                double-clicked => {
+                                    root.accept();
                                 }
-                            }
-                            Text {
-                                text: r.detail;
-                                color: Theme.muted;
-                                font-size: 11px;
-                                overflow: elide;
+                                VerticalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 10px;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        Text {
+                                            text: r.key;
+                                            color: Theme.ink;
+                                            font-size: Theme.fs-md;
+                                            font-weight: 700;
+                                        }
+                                        title-text := Text {
+                                            horizontal-stretch: 1;
+                                            text: r.title;
+                                            color: Theme.ink;
+                                            font-size: Theme.fs-md;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    Text {
+                                        text: r.detail;
+                                        color: Theme.muted;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-            DialogButtons {
-                Button {
-                    text: "確定";
-                    kind: ButtonKind.primary;
-                    clicked => {
-                        root.accept();
-                    }
-                }
-                Button {
-                    text: "取消";
-                    kind: ButtonKind.secondary;
-                    clicked => {
-                        root.cancel();
+                Section {
+                    index: 3;
+                    DialogButtons {
+                        Button {
+                            text: "確定";
+                            kind: ButtonKind.primary;
+                            clicked => {
+                                root.accept();
+                            }
+                        }
+                        Button {
+                            text: "取消";
+                            kind: ButtonKind.secondary;
+                            clicked => {
+                                root.cancel();
+                            }
+                        }
                     }
                 }
             }

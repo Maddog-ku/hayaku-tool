@@ -4,6 +4,7 @@
 import { Theme, Motion, Tip } from "@hb/index.slint";
 import { FieldLabel } from "@hbc/index.slint";
 import { W2, W2Button, W2Stat, W2Title } from "w2-common.slint";
+import { ListReveal } from "../shared/anim.slint";
 
 /// 月曆的一格（C# DayCellVm）。bg：0 空格、1 不用上班、2 一般、3 填滿、4 不足、5 沒填；value-tone：0 一般、1 淡色、2 紅色。
 export struct HoursDayCell {
@@ -61,18 +62,31 @@ component Legend {
 
 component DayCell inherits Rectangle {
     in property <HoursDayCell> cell;
+    in property <int> index;
     callback clicked;
+    // 載入、換月時由左上往右下一格一格浮現（ListReveal 開著才播）
+    property <float> t: ListReveal.on && !Theme.reduce-motion ? 0 : 1;
+    init => {
+        t = 1;
+    }
+    animate t {
+        delay: Theme.reduce-motion ? 0ms : (mod(root.index, 7) + floor(root.index / 7)) * 22ms;
+        duration: Theme.reduce-motion ? 0ms : 300ms;
+        easing: Motion.out;
+    }
     border-radius: 12px;
     background: !cell.has-date ? transparent : cell.bg == 1 ? Theme.sched-off : cell.bg == 3 ? Theme.sched-filled : cell.bg == 4 ? Theme.sched-partial : cell.bg == 5 ? Theme.sched-missing : Theme.card;
     border-width: !cell.has-date ? 0px : cell.today ? 2px : 1px;
     border-color: cell.today ? Theme.accent : ta.has-hover ? Theme.faint : Theme.line;
-    opacity: cell.future ? 0.75 : 1;
+    opacity: (cell.future ? 0.75 : 1) * root.t;
     animate border-color { duration: 180ms; }
     if cell.has-date: VerticalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-        padding-top: 7px;
-        padding-bottom: 7px;
+        y: (1 - root.t) * 8px;
+        // 視窗矮、格子矮的時候上下少留一點，兩行字不會跟下一格疊在一起
+        padding-left: root.width < 80px ? 6px : 10px;
+        padding-right: root.width < 80px ? 6px : 10px;
+        padding-top: root.height < 52px ? 2px : 7px;
+        padding-bottom: root.height < 52px ? 2px : 7px;
         HorizontalLayout {
             Text {
                 text: root.cell.day-text;
@@ -160,22 +174,26 @@ export component HoursPage inherits Rectangle {
         HorizontalLayout {
             spacing: 8px;
             W2Stat {
+                compact: root.width < 1000px;
                 label: "已填";
                 value: HoursPageData.filled;
                 desc: "同時計時只算一次";
             }
             W2Stat {
+                compact: root.width < 1000px;
                 label: "應出勤";
                 value: HoursPageData.expected;
                 desc: HoursPageData.expected-to-date;
             }
             W2Stat {
+                compact: root.width < 1000px;
                 label: "還差";
                 value: HoursPageData.missing;
                 value-color: HoursPageData.missing-error ? Theme.error : Theme.ink;
                 desc: "到今天為止";
             }
             W2Stat {
+                compact: root.width < 1000px;
                 label: "沒填滿的日子";
                 value: HoursPageData.unfilled;
                 desc: HoursPageData.unfilled-detail;
@@ -206,9 +224,14 @@ export component HoursPage inherits Rectangle {
                     width: grid.cw - 6px;
                     height: grid.ch - 6px;
                     cell: cell;
+                    index: i;
                     clicked => { HoursPageData.open-day(i); }
                 }
+                // 讀取中／錯誤訊息：寬度跟著月曆，長的錯誤訊息換行（不會超出左右）
                 if HoursPageData.loading-text != "": Text {
+                    x: 20px;
+                    width: parent.width - 40px;
+                    height: parent.height;
                     text: HoursPageData.loading-text;
                     color: Theme.muted;
                     horizontal-alignment: center;

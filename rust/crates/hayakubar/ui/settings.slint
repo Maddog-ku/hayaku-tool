@@ -1,9 +1,11 @@
 // 設定（對應 C# UI/SettingsWindow.xaml）：左側分頁、右側卡片，改了立刻生效。
 // 最後多一頁「關於」放 Slint 的 AboutSlint（Slint 免版稅授權的要求）。
+// 動畫：左側選取底色滑到選的那一項；換頁時內容從切換的方向滑入、淡入，卡片由上往下依序浮現
+// （Theme.reduce-motion 時不播）。
 import { AboutSlint } from "std-widgets.slint";
 import { Theme, Motion, Toggle, Dropdown, Segmented, TextField, ScrollView, Pill, Tone } from "@hb/index.slint";
-import { ColorKeys, LinkButton, CheckRow, NavItem, InfoCard, GroupLabel, PageTitle, FieldLabel } from "@hbc/index.slint";
-import { Hint, SmallButton, GlyphButton } from "widgets.slint";
+import { ColorKeys, LinkButton, CheckRow, GroupLabel, PageTitle, FieldLabel } from "@hbc/index.slint";
+import { Hint, SmallButton, GlyphButton, WrapText } from "widgets.slint";
 
 /// 主資料夾裡的一個專案（C# ProjectItem）。
 export struct ProjectRow {
@@ -34,19 +36,83 @@ export struct RepoCard {
     projects: [ProjectRow],
 }
 
-/// 卡片（C# Card 樣式）。
-component SettingCard inherits Rectangle {
+/// 卡片（C# Card 樣式）：依在頁面裡的位置，由上往下依序浮現（往上 10px＋淡入）。
+component SettingCard {
     in property <length> pad-x: 18px;
     in property <length> pad-y: 15px;
-    background: Theme.card;
-    border-radius: 18px;
+    in property <length> spacing: 0px;
+    in property <brush> card-background: Theme.card;
+    in property <length> radius: 18px;
+    /// 換頁時卡片依序浮現的進度（0 → 1，設定視窗的 card-t）
+    in property <float> stagger: 1;
+    // 越下面的卡片越晚出現：每 70px 晚 35ms，最多晚 280ms；各自 260ms 減速
+    property <float> rise-x: clamp((root.stagger * 600 - min(root.y / 70px, 8) * 35) / 260, 0, 1);
+    property <float> rise: 1 - (1 - self.rise-x) * (1 - self.rise-x) * (1 - self.rise-x);
+    min-height: lay.min-height;
+    preferred-height: lay.preferred-height;
+    min-width: lay.min-width;
+    preferred-width: lay.preferred-width;
+    Rectangle {
+        y: (1 - root.rise) * 10px;
+        height: root.height;
+        background: root.card-background;
+        border-radius: root.radius;
+        opacity: root.rise;
+    }
     lay := VerticalLayout {
+        y: (1 - root.rise) * 10px;
+        height: root.height;
+        opacity: root.rise;
         padding-left: root.pad-x;
         padding-right: root.pad-x;
         padding-top: root.pad-y;
         padding-bottom: root.pad-y;
-        spacing: 0px;
+        spacing: root.spacing;
         @children
+    }
+}
+
+/// 淡底的說明卡片（hb-ui-common InfoCard 的樣式：fill 底、16 內距、6 間距），跟其他卡片一起依序浮現。
+component InfoCard inherits SettingCard {
+    card-background: Theme.fill;
+    radius: Theme.radius-field;
+    pad-x: 16px;
+    pad-y: 16px;
+    spacing: 6px;
+}
+
+/// 左側導覽的一項（hb-ui-common NavItem 的樣式；選取的底色與橘條由外面滑動的指示器畫）。
+component SettingsNavItem {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: 38px;
+    accessible-role: tab;
+    accessible-label: root.text;
+    accessible-item-selected: root.selected;
+    Rectangle {
+        border-radius: 12px;
+        background: !root.selected && ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: Theme.reduce-motion ? 0ms : 180ms; }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 10px;
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: Theme.ink;
+            font-size: Theme.fs-md;
+            font-weight: root.selected ? 700 : 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
     }
 }
 
@@ -59,27 +125,24 @@ component SettingText {
     VerticalLayout {
         spacing: 3px;
         alignment: center;
-        Text {
+        WrapText {
             color: Theme.ink;
             text: root.title;
             font-size: 13.5px;
             font-weight: root.bold ? 700 : 600;
-            wrap: word-wrap;
         }
-        if root.desc != "": Text {
+        if root.desc != "": WrapText {
             text: root.desc;
             color: Theme.muted;
             font-size: 12px;
-            wrap: word-wrap;
         }
     }
 }
 
 /// 說明文字（C# CardDesc）。
-component Desc inherits Text {
+component Desc inherits WrapText {
     color: Theme.muted;
     font-size: 12px;
-    wrap: word-wrap;
 }
 
 /// 開關卡片：左邊標題說明、右邊開關。
@@ -158,6 +221,94 @@ component HotkeyBox {
     }
     Hint {
         text: "點這裡後按下組合鍵，例 Win+Shift+H";
+    }
+}
+
+/// 帳號頁「Hayaku 個人設定」的網頁連結，放不下時換到下一排
+/// （Slint 的 if 裡直接放 FlexboxLayout 時換行後的高度會少算，包成元件才照實際寬度算）。
+component WebLinks inherits VerticalLayout {
+    callback open(string);
+    FlexboxLayout {
+        padding-top: 8px;
+        spacing: 16px;
+        Rectangle {
+            width: l1.preferred-width;
+            height: l1.preferred-height;
+            l1 := LinkButton {
+                text: "基本資料與偏好";
+                clicked => {
+                    root.open("/me");
+                }
+            }
+            Hint {
+                text: "頭像、顯示名稱、職稱、工時顯示單位、同一時間只能有一個進行中任務";
+            }
+        }
+        Rectangle {
+            width: l2.preferred-width;
+            height: l2.preferred-height;
+            l2 := LinkButton {
+                text: "外觀";
+                clicked => {
+                    root.open("/me?tab=appearance");
+                }
+            }
+            Hint {
+                text: "網頁的淺色、暗色、跟隨系統";
+            }
+        }
+        Rectangle {
+            width: l3.preferred-width;
+            height: l3.preferred-height;
+            l3 := LinkButton {
+                text: "工作時間";
+                clicked => {
+                    root.open("/me?tab=work-time");
+                }
+            }
+            Hint {
+                text: "依工作時間自動暫停計時（午休、下班）";
+            }
+        }
+        Rectangle {
+            width: l4.preferred-width;
+            height: l4.preferred-height;
+            l4 := LinkButton {
+                text: "通知";
+                clicked => {
+                    root.open("/me?tab=notifications");
+                }
+            }
+            Hint {
+                text: "通知量、各類通知要不要推播、提醒的預設方式、Hayaku 的 Slack 開通";
+            }
+        }
+        Rectangle {
+            width: l5.preferred-width;
+            height: l5.preferred-height;
+            l5 := LinkButton {
+                text: "安全";
+                clicked => {
+                    root.open("/me?tab=security");
+                }
+            }
+            Hint {
+                text: "兩步驟驗證";
+            }
+        }
+        Rectangle {
+            width: l6.preferred-width;
+            height: l6.preferred-height;
+            l6 := LinkButton {
+                text: "已連線的應用程式";
+                clicked => {
+                    root.open("/me?tab=claude");
+                }
+            }
+            Hint {
+                text: "Claude Code、HayakuBar 等已授權的應用程式，可以中斷連線";
+            }
+        }
     }
 }
 
@@ -290,6 +441,41 @@ export component SettingsWindow inherits Window {
     callback open-data-dir();
 
     property <[string]> nav: ["帳號", "工作列", "上下班", "專案", "Claude Code", "EIP 請假", "Slack", "一般", "關於"];
+    // 換頁：內容從切換的方向滑入、淡入，卡片依序浮現
+    property <float> page-t: 1;
+    property <int> page-dir: 1;
+    property <int> last-page;
+    property <bool> page-snap;
+    animate page-t {
+        duration: Theme.reduce-motion || root.page-snap ? 0ms : 280ms;
+        easing: Motion.out;
+    }
+    changed page => {
+        root.page-dir = root.page >= root.last-page ? 1 : -1;
+        root.last-page = root.page;
+        root.page-snap = true;
+        root.page-t = 0;
+        root.page-snap = false;
+        root.page-t = 1;
+        root.replay-cards();
+    }
+    init => {
+        root.last-page = root.page;
+        root.replay-cards();
+    }
+    // 卡片依序浮現的進度（0 → 1）
+    property <float> card-t: 1;
+    property <bool> card-snap;
+    animate card-t {
+        duration: Theme.reduce-motion || root.card-snap ? 0ms : 600ms;
+        easing: linear;
+    }
+    function replay-cards() {
+        root.card-snap = true;
+        root.card-t = 0;
+        root.card-snap = false;
+        root.card-t = 1;
+    }
 
     HorizontalLayout {
         // ---- 導覽 ----
@@ -325,12 +511,35 @@ export component SettingsWindow inherits Window {
                     }
                 }
             }
-            for item[i] in root.nav: NavItem {
-                text: item;
-                selected: i == root.page;
-                clicked => {
-                    root.page = i;
-                    root.page-selected(i);
+            Rectangle {
+                height: root.nav.length * 40px - 2px;
+                // 選取的底色與左側橘條：以彈簧滑到選的那一項
+                Rectangle {
+                    y: root.page * 40px;
+                    height: 38px;
+                    border-radius: 12px;
+                    background: Theme.selected;
+                    animate y {
+                        duration: Theme.reduce-motion ? 0ms : 320ms;
+                        easing: Motion.spring;
+                    }
+                    Rectangle {
+                        x: 4px;
+                        y: (parent.height - self.height) / 2;
+                        width: 3px;
+                        height: 16px;
+                        border-radius: 1.5px;
+                        background: Theme.accent;
+                    }
+                }
+                for item[i] in root.nav: SettingsNavItem {
+                    y: i * 40px;
+                    text: item;
+                    selected: i == root.page;
+                    clicked => {
+                        root.page = i;
+                        root.page-selected(i);
+                    }
                 }
             }
             Rectangle {
@@ -348,7 +557,8 @@ export component SettingsWindow inherits Window {
         sv := ScrollView {
             content-height: content.preferred-height;
             content := VerticalLayout {
-                x: 0;
+                x: (1 - root.page-t) * root.page-dir * 24px;
+                opacity: root.page-t;
                 width: min(sv.visible-width, 720px + 52px);
                 padding-left: 24px;
                 padding-right: 28px;
@@ -359,6 +569,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 0: Page {
                     title: "帳號";
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 14px;
                             Rectangle {
@@ -394,6 +605,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -412,90 +624,14 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         SettingText {
                             title: "Hayaku 個人設定";
                             desc: "這些設定 Hayaku 還沒開放給應用程式改，點了直接開網頁的那一頁。";
                         }
-                        FlexboxLayout {
-                            padding-top: 8px;
-                            spacing: 16px;
-                            Rectangle {
-                                width: l1.preferred-width;
-                                height: l1.preferred-height;
-                                l1 := LinkButton {
-                                    text: "基本資料與偏好";
-                                    clicked => {
-                                        root.web-setting("/me");
-                                    }
-                                }
-                                Hint {
-                                    text: "頭像、顯示名稱、職稱、工時顯示單位、同一時間只能有一個進行中任務";
-                                }
-                            }
-                            Rectangle {
-                                width: l2.preferred-width;
-                                height: l2.preferred-height;
-                                l2 := LinkButton {
-                                    text: "外觀";
-                                    clicked => {
-                                        root.web-setting("/me?tab=appearance");
-                                    }
-                                }
-                                Hint {
-                                    text: "網頁的淺色、暗色、跟隨系統";
-                                }
-                            }
-                            Rectangle {
-                                width: l3.preferred-width;
-                                height: l3.preferred-height;
-                                l3 := LinkButton {
-                                    text: "工作時間";
-                                    clicked => {
-                                        root.web-setting("/me?tab=work-time");
-                                    }
-                                }
-                                Hint {
-                                    text: "依工作時間自動暫停計時（午休、下班）";
-                                }
-                            }
-                            Rectangle {
-                                width: l4.preferred-width;
-                                height: l4.preferred-height;
-                                l4 := LinkButton {
-                                    text: "通知";
-                                    clicked => {
-                                        root.web-setting("/me?tab=notifications");
-                                    }
-                                }
-                                Hint {
-                                    text: "通知量、各類通知要不要推播、提醒的預設方式、Hayaku 的 Slack 開通";
-                                }
-                            }
-                            Rectangle {
-                                width: l5.preferred-width;
-                                height: l5.preferred-height;
-                                l5 := LinkButton {
-                                    text: "安全";
-                                    clicked => {
-                                        root.web-setting("/me?tab=security");
-                                    }
-                                }
-                                Hint {
-                                    text: "兩步驟驗證";
-                                }
-                            }
-                            Rectangle {
-                                width: l6.preferred-width;
-                                height: l6.preferred-height;
-                                l6 := LinkButton {
-                                    text: "已連線的應用程式";
-                                    clicked => {
-                                        root.web-setting("/me?tab=claude");
-                                    }
-                                }
-                                Hint {
-                                    text: "Claude Code、HayakuBar 等已授權的應用程式，可以中斷連線";
-                                }
+                        WebLinks {
+                            open(path) => {
+                                root.web-setting(path);
                             }
                         }
                     }
@@ -505,6 +641,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 1: Page {
                     title: "工作列";
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -525,6 +662,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -544,6 +682,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -589,6 +728,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     InfoCard {
+                        stagger: root.card-t;
                         Desc {
                             text: "在工作列的工時上按右鍵，也可以切換位置和顯示方式。";
                         }
@@ -599,6 +739,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 2: Page {
                     title: "上下班";
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "依班表自動上下班";
                         desc: "班表、請假、國定假日都以 Hayaku 為準。";
                         checked <=> root.auto-schedule;
@@ -607,14 +748,14 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         SettingText {
                             title: "今天的班表";
                         }
-                        Text {
+                        WrapText {
                             text: root.schedule-text;
                             color: Theme.muted;
                             font-size: 13px;
-                            wrap: word-wrap;
                         }
                     }
                     GroupLabel {
@@ -623,6 +764,7 @@ export component SettingsWindow inherits Window {
                         vertical-alignment: bottom;
                     }
                     InfoCard {
+                        stagger: root.card-t;
                         GridLayout {
                             spacing-horizontal: 18px;
                             spacing-vertical: 6px;
@@ -632,10 +774,9 @@ export component SettingsWindow inherits Window {
                                     text: "上班時間到";
                                     font-weight: 700;
                                 }
-                                Text {
+                                WrapText {
                                     color: Theme.ink;
                                     text: "恢復上次那組任務開始計時";
-                                    wrap: word-wrap;
                                 }
                             }
                             Row {
@@ -644,10 +785,9 @@ export component SettingsWindow inherits Window {
                                     text: "休息開始";
                                     font-weight: 700;
                                 }
-                                Text {
+                                WrapText {
                                     color: Theme.ink;
                                     text: "全部暫停";
-                                    wrap: word-wrap;
                                 }
                             }
                             Row {
@@ -656,10 +796,9 @@ export component SettingsWindow inherits Window {
                                     text: "休息結束";
                                     font-weight: 700;
                                 }
-                                Text {
+                                WrapText {
                                     color: Theme.ink;
                                     text: "自動恢復休息前在跑的任務";
-                                    wrap: word-wrap;
                                 }
                             }
                             Row {
@@ -668,10 +807,9 @@ export component SettingsWindow inherits Window {
                                     text: "下班時間到";
                                     font-weight: 700;
                                 }
-                                Text {
+                                WrapText {
                                     color: Theme.ink;
                                     text: "全部停止";
-                                    wrap: word-wrap;
                                 }
                             }
                             Row {
@@ -680,10 +818,9 @@ export component SettingsWindow inherits Window {
                                     text: "手動";
                                     font-weight: 700;
                                 }
-                                Text {
+                                WrapText {
                                     color: Theme.ink;
                                     text: "面板上的「上班／下班」隨時可按；按了下班當天就不再自動上班。";
-                                    wrap: word-wrap;
                                 }
                             }
                         }
@@ -731,6 +868,7 @@ export component SettingsWindow inherits Window {
                         font-size: 13px;
                     }
                     for r[i] in root.repos: SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 12px;
                             // 資料夾圖示（C# RepoCard 的 Path）
@@ -757,6 +895,7 @@ export component SettingsWindow inherits Window {
                                         text: r.name;
                                         font-size: 13.5px;
                                         font-weight: 700;
+                                        overflow: elide;
                                     }
                                     Text {
                                         text: r.path;
@@ -804,11 +943,23 @@ export component SettingsWindow inherits Window {
                             Rectangle {
                                 horizontal-stretch: 1;
                             }
-                            Text {
-                                text: r.hooks-text;
-                                color: ColorKeys.color(r.hooks-color);
-                                font-size: 12px;
-                                vertical-alignment: center;
+                            // 視窗窄時 Hooks 狀態截掉（滑過看完整），按鈕才不會被擠出卡片
+                            Rectangle {
+                                horizontal-stretch: 0;
+                                min-width: 30px;
+                                preferred-width: hooks-lbl.preferred-width;
+                                hooks-lbl := Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: r.hooks-text;
+                                    color: ColorKeys.color(r.hooks-color);
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Hint {
+                                    text: r.hooks-text;
+                                }
                             }
                             Rectangle {
                                 width: 4px;
@@ -838,13 +989,12 @@ export component SettingsWindow inherits Window {
                                 background: Theme.fill;
                                 border-radius: 10px;
                                 min-height: act.preferred-height + 14px;
-                                act := Text {
+                                act := WrapText {
                                     x: 10px;
                                     width: parent.width - 20px;
                                     text: r.activity-text;
                                     color: ColorKeys.color(r.activity-color);
                                     font-size: 12px;
-                                    wrap: word-wrap;
                                 }
                             }
                         }
@@ -860,9 +1010,11 @@ export component SettingsWindow inherits Window {
                                 Text {
                                     color: Theme.ink;
                                     horizontal-stretch: 1;
+                                    min-width: 40px;
                                     text: r.projects-header;
                                     font-weight: 700;
                                     vertical-alignment: center;
+                                    overflow: elide;
                                 }
                                 Text {
                                     text: "自動偵測";
@@ -923,6 +1075,7 @@ export component SettingsWindow inherits Window {
                                                 color: Theme.ink;
                                                 text: p.name;
                                                 font-weight: 700;
+                                                overflow: elide;
                                             }
                                             Text {
                                                 text: p.detail;
@@ -983,12 +1136,12 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     if root.repos.length == 0: SettingCard {
+                        stagger: root.card-t;
                         pad-y: 22px;
-                        Text {
+                        WrapText {
                             text: "還沒有加入資料夾。按「選擇資料夾」加入主資料夾，或「從最近的 session 加入」挑 Claude 用過的資料夾。";
                             color: Theme.muted;
                             horizontal-alignment: center;
-                            wrap: word-wrap;
                         }
                     }
                     GroupLabel {
@@ -997,6 +1150,7 @@ export component SettingsWindow inherits Window {
                         vertical-alignment: bottom;
                     }
                     InfoCard {
+                        stagger: root.card-t;
                         Desc {
                             text: "選用。沒裝也會讀 session 紀錄；裝了會寫進主資料夾和各專案的 .claude/settings.local.json，送出指令就會馬上開始計時。";
                         }
@@ -1007,6 +1161,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 4: Page {
                     title: "Claude Code";
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "自動計時";
                         desc: "Claude 在「專案」頁的資料夾裡有動作時，為對應任務開始計時，之後持續計時到休息、下班或手動暫停。";
                         checked <=> root.claude-enabled;
@@ -1015,6 +1170,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "只在上班時間自動計時";
                         desc: "下班後或休息時 Claude 有動作不會開始計時（你有手動計時在跑時除外）。";
                         checked <=> root.claude-only-work;
@@ -1028,17 +1184,16 @@ export component SettingsWindow inherits Window {
                         vertical-alignment: bottom;
                     }
                     InfoCard {
+                        stagger: root.card-t;
                         VerticalLayout {
                             spacing: 8px;
-                            Text {
+                            WrapText {
                                 color: Theme.ink;
                                 text: "依序看：面板上手動指定 → 對話裡提到的任務編號 → git 分支名稱（例 feature/F2P-97-xxx）。都偵測不到就不計時，可在面板的 Claude 區按「選擇」指定這個 session 的任務。";
-                                wrap: word-wrap;
                             }
-                            Text {
+                            WrapText {
                                 color: Theme.ink;
                                 text: "在「專案」頁勾了「自動建立任務」的專案：Claude 開始改程式、卻對應不到任務時，會跳提示問要不要建立任務（只是問問題、規劃不會跳，同一個 session 只問一次）。建立時專案會自動選好，你選專案樹上的位置、狀態與預計起訖，建好後就為這個 session 計時。";
-                                wrap: word-wrap;
                             }
                             Desc {
                                 text: "CLI 和桌面版的 session 都存在 %USERPROFILE%\\.claude\\projects，兩邊都會偵測到。要監看哪些資料夾、停用哪些專案，在「專案」頁設定。";
@@ -1051,6 +1206,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 5: Page {
                     title: "EIP 請假";
                     SettingCard {
+                        stagger: root.card-t;
                         if root.eip-logged-in: HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1132,16 +1288,16 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
-                        if root.eip-status != "": Text {
+                        if root.eip-status != "": WrapText {
                             text: root.eip-status;
                             color: ColorKeys.color(root.eip-status-color);
                             font-size: 12px;
-                            wrap: word-wrap;
                             height: self.preferred-height + 10px;
                             vertical-alignment: bottom;
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1162,12 +1318,11 @@ export component SettingsWindow inherits Window {
                         HorizontalLayout {
                             padding-top: 12px;
                             spacing: 16px;
-                            Text {
+                            WrapText {
                                 horizontal-stretch: 1;
                                 text: root.eip-sync-status;
                                 color: ColorKeys.color(root.eip-sync-color);
                                 font-size: 12px;
-                                wrap: word-wrap;
                                 vertical-alignment: center;
                             }
                             VerticalLayout {
@@ -1184,6 +1339,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     InfoCard {
+                        stagger: root.card-t;
                         VerticalLayout {
                             spacing: 8px;
                             Desc {
@@ -1203,6 +1359,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 6: Page {
                     title: "Slack";
                     if root.slack-connected: SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 8px;
                             SettingText {
@@ -1239,6 +1396,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     if root.slack-connected: SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1255,16 +1413,16 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
-                        if root.slack-live != "": Text {
+                        if root.slack-live != "": WrapText {
                             text: root.slack-live;
                             color: ColorKeys.color(root.slack-live-color);
                             font-size: 12px;
-                            wrap: word-wrap;
                             height: self.preferred-height + 12px;
                             vertical-alignment: bottom;
                         }
                     }
                     if !root.slack-connected: SettingCard {
+                        stagger: root.card-t;
                         SettingText {
                             title: "1. 在 Slack 建立 App";
                             desc: "按「複製 App 設定」，再按「開啟 Slack App 管理頁」→ Create New App → From a manifest → 選公司的工作區 → 貼上 → Create。";
@@ -1289,6 +1447,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     if !root.slack-connected: SettingCard {
+                        stagger: root.card-t;
                         VerticalLayout {
                             spacing: 4px;
                             SettingText {
@@ -1368,14 +1527,14 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    if root.slack-status != "": Text {
+                    if root.slack-status != "": WrapText {
                         x: 2px;
                         text: root.slack-status;
                         color: ColorKeys.color(root.slack-status-color);
                         font-size: 12px;
-                        wrap: word-wrap;
                     }
                     InfoCard {
+                        stagger: root.card-t;
                         VerticalLayout {
                             spacing: 8px;
                             Desc {
@@ -1395,6 +1554,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 7: Page {
                     title: "一般";
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1415,6 +1575,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1435,6 +1596,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1471,6 +1633,7 @@ export component SettingsWindow inherits Window {
                         vertical-alignment: bottom;
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 14px;
                             SettingText {
@@ -1500,6 +1663,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "也提醒我專案裡的其他會議";
                         desc: "你看得到的專案裡、你還不是參加者的會議也會提醒並列在面板上；按「加入並計時」會自動把你加為參加者。";
                         checked <=> root.meeting-all-projects;
@@ -1508,6 +1672,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "加入會議時暫停其他計時";
                         desc: "按「加入並計時」時先暫停正在跑的其他計時；按「離開會議」（或在網頁上離開、停掉會議計時）後自動恢復。";
                         checked <=> root.meeting-pauses-others;
@@ -1516,6 +1681,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "提醒到點時跳出提示";
                         desc: "Hayaku 的提醒到了就跳出，可選「10 分鐘後再提醒」。";
                         checked <=> root.reminder-alerts;
@@ -1524,6 +1690,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 14px;
                             SettingText {
@@ -1560,6 +1727,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "全螢幕或簡報時先不跳提示";
                         desc: "全螢幕、簡報、Windows 的勿擾時段或鎖定螢幕時先把提示存起來，結束後再一起跳出；會議快開始的提示照樣跳。";
                         checked <=> root.quiet-when-busy;
@@ -1568,6 +1736,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "下班時工時沒滿提示補登";
                         desc: "按下班時今天還沒滿應出勤，提示框會多一個「補登工時」。";
                         checked <=> root.prompt-unfilled;
@@ -1581,6 +1750,7 @@ export component SettingsWindow inherits Window {
                         vertical-alignment: bottom;
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "開機時自動啟動";
                         desc: "登入 Windows 後自動開啟 HayakuBar。";
                         checked <=> root.startup;
@@ -1589,6 +1759,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     ToggleCard {
+                        stagger: root.card-t;
                         title: "只在上班時間自動同步";
                         desc: "下班、休息、請假、放假時不自動跟 Hayaku 要資料；還有計時在跑（加班）時照常同步。打開面板或按 ⟳ 仍會同步。";
                         checked <=> root.sync-only-work;
@@ -1597,6 +1768,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             VerticalLayout {
@@ -1624,6 +1796,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 16px;
                             SettingText {
@@ -1647,6 +1820,7 @@ export component SettingsWindow inherits Window {
                 if root.page == 8: Page {
                     title: "關於";
                     SettingCard {
+                        stagger: root.card-t;
                         HorizontalLayout {
                             spacing: 14px;
                             Image {
@@ -1662,6 +1836,7 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     SettingCard {
+                        stagger: root.card-t;
                         SettingText {
                             title: "使用的介面套件";
                             desc: "介面以 Slint 製作（免版稅授權）。";

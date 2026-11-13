@@ -206,6 +206,10 @@
 
 深色模式跟隨 Windows，或在設定指定淺色／深色；面板高度可固定或跟著內容伸縮。
 
+介面有大量動畫：面板、摘要從工作列往上滑出、收起時滑回工作列；提示從工作列那一側滑入、關閉時往外滑出；
+工作台與設定換頁時內容滑入，清單依序浮現，彈窗往上浮出，展開收合有高度動畫，按鈕、開關、勾選、下拉都有過渡效果。
+Windows 關閉「顯示動畫」（設定 › 協助工具 › 視覺效果 › 動畫效果）時，這些動畫都不播或直接完成。
+
 ## 工時怎麼算
 
 - **今天工時是所有計時段的聯集**：同時有好幾個任務在計時（例如手動一個、Claude 一個），重疊的時間只算一次。
@@ -324,14 +328,16 @@ git push origin v2.0.1
 
 | 參數 | 用途 |
 | --- | --- |
-| `--settings[:分頁]` | 開設定頁（account、taskbar、schedule、repos、claude、general） |
+| `--settings[:分頁]` | 開設定頁（account、taskbar、schedule、repos、claude、eip、slack、general、about） |
 | `--workspace[:頁面]` | 開工作台（tasks、projects、tests、reviews、hours、entries、worklog、reminders、meetings、chat、team、activity、workload、leaves、stats；`eipleaves` 打開請假頁的 EIP 假單分頁） |
 | `--panel[:分頁]` | 打開面板且不會自動收起（timer、tasks、today、notify），檢查畫面用 |
 | `--entries` | 開工作台的工時紀錄（今天） |
-| `--shot:頁面,…` | 把各頁畫面存成 PNG 到 `%APPDATA%\HayakuBar\shots`（例 `panel-today,tasks,tests=overview,settings-general,toast`；`testfix`、`testadd` 是測試結果小視窗的範例） |
+| `--shot:頁面,…` | 把各頁畫面存成 PNG 到 `%APPDATA%\HayakuBar\shots`（例 `panel-today,tasks,tests=overview,settings-general,toast`；`testfix`、`testadd` 是測試結果小視窗的範例；`hover` 是滑過工時的摘要，`widget` 從螢幕拍工作列上的工時） |
 | `--toast-test` | 顯示一則範例提示 |
 | `--meeting-test` | 模擬兩場快開始的會議提示（參加者／不是參加者），按鈕不會真的加入 |
 | `--mcp-call <工具> <參數JSON> <輸出檔>` | 診斷：用目前登入呼叫一支 MCP 工具（先關掉執行中的 HayakuBar） |
+
+開發測試用的環境變數：`HAYAKUBAR_DATA_DIR=<資料夾>` 讓設定、紀錄改放那個資料夾，單一執行個體也換名稱，可以跟正在用的 HayakuBar 同時開；`SLINT_BACKEND=winit-skia`（或其他 Slint 後端）可以換掉預設的軟體繪圖，除錯用。
 
 ## 檔案位置
 
@@ -357,33 +363,47 @@ git push origin v2.0.1
 
 ## 程式結構
 
-v2.0.0 起發佈的是 `rust/`（各 crate 對應下面的 C# 資料夾，說明見 [`rust/README.md`](rust/README.md)）；以下是保留對照的 C# 版結構。
+v2.0.0 起發佈的是 Rust 版（`rust/`，Cargo workspace）；改寫規則與各 crate 的對應見 [`rust/README.md`](rust/README.md)。
 
 ```
-src/HayakuBar
-├─ Auth/      OAuthClient（動態註冊、PKCE、refresh）、TokenStore（DPAPI）
-├─ Config/    AppConfig（config.json）、AppState（state.json）
-├─ Mcp/       McpClient（JSON-RPC over POST /mcp）、McpStats（請求統計）、HayakuApi（計時、班表、任務、會議、提醒、待辦、通知、
-│             聊天、請假、團隊、工作日誌、統計、托盤、變更申請、專案動態、工作負荷、測試流程、讀檔案內容、問題回報等 Hayaku MCP 工具的強型別包裝）
-├─ Core/      TimerEngine（同步、上下班自動化、Claude 計時、提示）、WorkMath（工時聯集、顯示格式、班表空檔）、
-│             KeyFinder（找任務編號）、TaskTree／MyTaskTree／TaskOrder（任務樹、排序、狀態篩選）、TaskColumns（清單欄位）、ProjectGuess（資料夾對應專案）、SyncPolicy（同步時機）、
-│             FileReader（讀檔案內容的快取與限流）
-├─ Eip/       EipClient（登入 EIP、讀假單）、EipCredentials（DPAPI）、LeavePlanner（假單換成 Hayaku 請假的規則）、EipSyncState
-├─ Slack/     SlackClient（Web API）、SocketModeClient（WebSocket 收按鈕）、SlackBridge（通知傳出去、按鈕回來）、
-│             SlackMessages（要傳哪些、Block Kit 訊息與表單）、SlackCredentials（DPAPI）、SlackState
-├─ Claude/    ClaudeMonitor（讀 session jsonl、hook 事件）、SessionDigest（對話與 commit 整理成日誌）、HookInstaller
-├─ UI/        TaskbarWidget（嵌進 Shell_TrayWnd 的 layered 子視窗）、TaskbarIconScanner（UIA 讀圖示範圍）、
-│             PanelWindow（彈出面板）、DayTimeline（時間軸）、HoverCard、ToastWindow、TaskPickerWindow、
-│             QuickCreateWindow（自動建立任務）、MoveTaskWindow（移動任務）、ProjectIcons（專案圖示）、
-│             DateRangePicker、SettingsWindow、TrayIcon、ThemeManager、
-│             TestActionWindow（開始修、退回）、AddTestResultWindow（加入測試結果）、FilePreviewWindow（看檔案內容）、FeedbackWindow（問題回報）
-│  └─ Work/   WorkspaceWindow（工作台）與各頁、MarkdownTable（Excel 貼上變表格）
-├─ Themes/    Light／Dark 色彩
-└─ Infra/     MiniHttpServer、GlobalHotkey、Housekeeping（清暫存）、Log（一天一個紀錄檔）、JsonFile、StartupRegistration
-tests/HayakuBar.Tests   xUnit 單元測試
+rust/crates
+├─ hb-api        HayakuApi：Hayaku MCP 工具的強型別包裝（計時、班表、任務、會議、提醒、待辦、通知、聊天、請假、團隊、
+│                工作日誌、統計、托盤、變更申請、專案動態、工作負荷、測試流程、讀檔案內容、問題回報等）、資料型別、
+│                WorkMath（工時聯集、顯示格式、班表空檔）、KeyFinder（找任務編號）
+├─ hb-backend    McpClient（JSON-RPC over POST /mcp）、McpStats、OAuthClient（動態註冊、PKCE、refresh）、TokenStore（DPAPI）、
+│                AppConfig（config.json）、AppState（state.json）、Log（一天一個紀錄檔）、JsonFile、MiniHttpServer、
+│                Housekeeping（清暫存）、StartupRegistration、背景網路執行緒（tokio）
+├─ hb-win        原生 Win32：TaskbarWidget（嵌進 Shell_TrayWnd 的 layered 子視窗，自己畫）、TaskbarIconScanner（UIA 讀圖示範圍）、
+│                TrayIcon、GlobalHotkey、系統事件（喚醒、鎖定）、單一執行個體
+├─ hb-claude     ClaudeMonitor（讀 session jsonl、hook 事件）、SessionDigest（對話與 commit 整理成日誌）、HookInstaller、ClaudeEstimator
+├─ hb-eip        EipClient（登入 EIP、讀假單）、EipCredentials（DPAPI）、LeavePlanner（假單換成 Hayaku 請假的規則）、EipSyncState
+├─ hb-core       TimerEngine（同步、上下班自動化、Claude 計時、提示）、TaskTree／MyTaskTree／TaskOrder、TaskColumns、
+│                ProjectGuess、SyncPolicy、FileReader
+├─ hb-slack      SlackClient（Web API）、SocketModeClient（WebSocket 收按鈕）、SlackBridge、SlackMessages、SlackCredentials、SlackState
+├─ hb-ui-kit     Slint 主題（淺色／深色、動畫緩動）、基本元件、字型（Inter、Space Grotesk）
+├─ hb-ui-common  共用介面：TaskText、ProjectIcons、ViewModels、DayTimeline、DateRangePicker、任務右鍵選單、MarkdownTable，
+│                以及 QuickCreate、MoveTask、TaskPicker、TestAction、AddTestResult、FilePreview、Feedback 等小視窗
+├─ hb-ui-work    工作台（外框與 18 個頁面）
+└─ hayakubar     執行檔：App 接線、面板、HoverCard、提示、設定、啟動參數；assets/ 放 app.ico、app.manifest
 ```
+
+C# 版（`src/HayakuBar`、`tests/HayakuBar.Tests`）暫時保留對照，不再發佈；每個 Rust 模組開頭都註明對應的 C# 檔。
 
 ## 版本紀錄
+
+### v2.0.1
+- **大量動畫**：
+  - 面板、摘要從工作列往上長出來，收起時滑回工作列；工作列在上、左、右時方向跟著換。
+  - 提示從工作列那一側滑入、關閉時往外滑出，其他則平滑補位，下緣有停留倒數條。
+  - 工作台換頁、切分頁與檢視時內容滑入；清單、卡片依序浮現；彈窗與確認框往上浮出；展開收合、數字變化都有過渡。
+  - 設定的選取指示器滑動、換頁滑入、卡片依序浮現；小視窗開啟時內容浮出、關閉時淡出；下拉與日曆往下滑開。
+  - Windows 關閉「顯示動畫」時都不播。
+- 修正 v2.0.0 改用軟體繪圖後失效的動畫：讀取中的轉圈、按鈕按壓、勾選；陰影改成軟體繪圖畫得出來的寫法。
+- 修正視窗窄、文字長、縮放 125%／150% 時的切字與重疊：面板與工作台的捲動區最後幾列捲不到、提示的長網址把版面撐寬、
+  通知與 Claude Code 列被擠出視窗、設定頁縮小時按鈕被切、工作台各頁篩選列與按鈕被擠出卡片、看板與會議卡片被切等；
+  被省略的文字滑過可以看完整內容。
+- 工作台左側導覽放不下時，上下緣有漸層並顯示捲軸，用 Ctrl+數字切到看不到的頁面時會自動捲過去。
+- 已知問題：視窗很小又有很長的聊天時，任務詳細最下面的送出列可能被切到一部分，把視窗拉大即可。
 
 ### v2.0.0
 - **全面改寫成 Rust**（`rust/`）：功能、畫面文字、設定檔都跟 v1.9.1 一樣，`%APPDATA%\HayakuBar` 的設定、登入、EIP、Slack 資料直接沿用，不用重新登入。
@@ -392,7 +412,7 @@ tests/HayakuBar.Tests   xUnit 單元測試
 - 修正工時紀錄頁修改、移動紀錄失敗時，錯誤訊息一閃就被重新讀取清掉、看不到的問題。
 - 「設定 › 關於」新增版本與 Slint 授權標示。
 - 已知差異：確認視窗畫在頁面裡（不是系統對話框）；面板、提示沒有陰影；少數符號（例如 🗓）顯示成方框；
-  工作台左側導覽在視窗不夠高時要往下捲才看得到最後幾頁。
+  工作台左側導覽在視窗不夠高時要往下捲才看得到最後幾頁（v2.0.1 加上捲動提示）。
 
 ### v1.9.1
 - 工作台「請假」與「EIP 請假紀錄」合併成一頁：左邊選單只剩「請假」，右上切換 **Hayaku**（Hayaku 上所有人的請假與出差，可以登記、取消）

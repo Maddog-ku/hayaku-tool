@@ -2,6 +2,7 @@
 import { Theme, ScrollView, Tip } from "@hb/index.slint";
 import { DateRangePicker, FieldLabel, GroupLabel, LinkButton, PlainText, StatusLine, TextArea, InlineEdit } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, HintBox, CheckText, Expander } from "../../shared/index.slint";
+import { Reader } from "../w3-common.slint";
 import { TasksPageData, TkLine, TkDep } from "data.slint";
 
 /// 任務編號連結（點了在這裡打開那個任務）。
@@ -84,7 +85,8 @@ component Field {
 export component DetailView {
     callback focus-dialog();
     property <length> pad-left: 26px;
-    property <length> pad-right: 52px;
+    // 窄的時候右邊少留一點（✕ 在右上角，只壓到第一行的路徑）
+    property <length> pad-right: root.width < 640px ? 40px : 52px;
     changed visible => {
         sv.content-y = 0;
     }
@@ -124,6 +126,7 @@ export component DetailView {
                 color: Theme.muted;
                 font-size: Theme.fs-sm;
                 font-family: Theme.font-num;
+                overflow: elide;
             }
             Rectangle {
                 height: 4px;
@@ -211,6 +214,7 @@ export component DetailView {
                     text: TasksPageData.d-test-summary;
                     color: Theme.ink;
                     font-size: Theme.fs-md;
+                    wrap: word-wrap;
                 }
                 if TasksPageData.d-test-has-progress: Rectangle {
                     height: 6px;
@@ -671,12 +675,18 @@ export component DetailView {
                         padding-bottom: 4px;
                         spacing: 6px;
                         HintBox {
-                            width: 110px;
+                            // 窄的時候可以縮（文字省略），不把詳細撐寬
+                            min-width: 70px;
+                            preferred-width: 110px;
+                            horizontal-stretch: 1;
                             text <=> TasksPageData.d-dep-other;
                             placeholder: "任務編號";
                         }
                         if TasksPageData.d-dep-quick.length > 0: MiniSelect {
-                            width: 150px;
+                            // 窄的時候可以縮（文字省略），不把詳細撐寬
+                            min-width: 90px;
+                            preferred-width: 150px;
+                            horizontal-stretch: 1;
                             items: TasksPageData.d-dep-quick;
                             current <=> TasksPageData.d-dep-quick-index;
                             tip: "快速選同一層的任務";
@@ -685,12 +695,18 @@ export component DetailView {
                             }
                         }
                         MiniSelect {
-                            width: 130px;
+                            // 窄的時候可以縮（文字省略），不把詳細撐寬
+                            min-width: 90px;
+                            preferred-width: 130px;
+                            horizontal-stretch: 1;
                             items: ["這個任務等它", "它等這個任務", "關聯（不擋開始）"];
                             current <=> TasksPageData.d-dep-dir-index;
                         }
                         if TasksPageData.d-dep-dir-index != 2: MiniSelect {
-                            width: 170px;
+                            // 窄的時候可以縮（文字省略），不把詳細撐寬
+                            min-width: 100px;
+                            preferred-width: 170px;
+                            horizontal-stretch: 1;
                             items: TasksPageData.d-dep-templates;
                             current <=> TasksPageData.d-dep-template-index;
                         }
@@ -771,6 +787,7 @@ export component DetailView {
                             color: Theme.ink;
                             font-size: Theme.fs-md;
                             font-weight: 700;
+                            wrap: word-wrap;
                         }
                         Rectangle {
                             border-radius: 12px;
@@ -844,11 +861,13 @@ export component DetailView {
                     HorizontalLayout {
                         spacing: 8px;
                         alignment: start;
+                        // 名字很長時省略：不省略會把內容撐寬，換行的訊息高度就算少了，最後幾則捲不到
                         Text {
                             text: m.author;
                             color: Theme.ink;
                             font-size: Theme.fs-md;
                             font-weight: 600;
+                            overflow: elide;
                         }
                         Text {
                             text: m.time;
@@ -857,11 +876,15 @@ export component DetailView {
                             vertical-alignment: center;
                         }
                     }
-                    PlainText {
+                    Reader {
                         text: m.body;
+                        font-size: Theme.fs-md;
                     }
-                    if m.poll-id != "": HorizontalLayout {
+                    // 不用 if：for 裡的 if 子元素高度不會算進捲動範圍，最後一則的連結會捲不到
+                    HorizontalLayout {
                         alignment: start;
+                        visible: m.poll-id != "";
+                        height: m.poll-id != "" ? self.preferred-height : 0px;
                         LinkButton {
                             text: "看投票結果";
                             clicked => {
@@ -870,7 +893,9 @@ export component DetailView {
                         }
                     }
                 }
-                if TasksPageData.d-chat-empty != "": Text {
+                Text {
+                    visible: TasksPageData.d-chat-empty != "";
+                    height: TasksPageData.d-chat-empty != "" ? self.preferred-height : 0px;
                     text: TasksPageData.d-chat-empty;
                     color: Theme.muted;
                     font-size: Theme.fs-md;

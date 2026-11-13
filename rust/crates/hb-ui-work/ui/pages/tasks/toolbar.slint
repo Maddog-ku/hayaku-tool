@@ -1,6 +1,6 @@
 // 我的任務：清單上方的篩選列（狀態、專案、已完成期間、只看沒有子任務的…）與顯示方式、排序；
 // 「清單欄位」對話框（C# TasksPage.Columns.cs 的 Columns_Click）。有套用條件的控制項會亮起來。
-import { Theme, Motion, Checkbox, Tip } from "@hb/index.slint";
+import { Theme, Motion, Checkbox, Tip, ScrollView } from "@hb/index.slint";
 import { LinkButton } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, CheckText, TipSegmented, Modal, GlyphButton, HintBox } from "../../shared/index.slint";
 import { TasksPageData } from "data.slint";
@@ -242,73 +242,86 @@ export component ColumnsDialog {
             Rectangle {
                 height: 8px;
             }
-            for c[i] in TasksPageData.col-draft: HorizontalLayout {
-                spacing: 4px;
-                height: 36px;
-                CheckText {
-                    width: 140px;
-                    y: (parent.height - self.height) / 2;
-                    text: c.label;
-                    checked: c.visible;
-                    enabled: !c.is-title;
-                    tip: c.is-title ? "名稱一定要顯示" : "";
-                    toggled(v) => {
-                        TasksPageData.col-toggle(i, v);
-                    }
-                }
-                GlyphButton {
-                    y: (parent.height - self.height) / 2;
-                    glyph: "↑";
-                    enabled: c.can-up;
-                    tip: "往前（往左）";
-                    clicked => {
-                        TasksPageData.col-move(i, -1);
-                    }
-                }
-                GlyphButton {
-                    y: (parent.height - self.height) / 2;
-                    glyph: "↓";
-                    enabled: c.can-down;
-                    tip: "往後（往右）";
-                    clicked => {
-                        TasksPageData.col-move(i, 1);
-                    }
-                }
-                if c.is-title: Text {
-                    text: "填滿";
-                    color: Theme.muted;
-                    font-size: Theme.fs-md;
-                    vertical-alignment: center;
-                }
-                if !c.is-title: Rectangle {
-                    width: 64px;
-                    HintBox {
-                        y: (parent.height - self.height) / 2;
-                        width: parent.width;
-                        text: c.width-text;
-                        accepted(t) => {
-                            TasksPageData.col-width(i, t);
-                        }
-                        focus-lost(t) => {
-                            TasksPageData.col-width(i, t);
-                        }
-                    }
-                    Rectangle {
-                        Tooltip {
-                            Tip {
-                                text: "寬度（40～480）";
+            // 欄位多、視窗矮時清單可以捲，下面的按鈕永遠看得到
+            cols-sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                vertical-stretch: 1;
+                min-height: min(cols.preferred-height, 120px);
+                preferred-height: cols.preferred-height;
+                content-height: cols.preferred-height;
+                cols := VerticalLayout {
+                    width: cols-sv.visible-width - 12px;
+                    spacing: 4px;
+                    for c[i] in TasksPageData.col-draft: HorizontalLayout {
+                        spacing: 4px;
+                        height: 36px;
+                        CheckText {
+                            width: 140px;
+                            y: (parent.height - self.height) / 2;
+                            text: c.label;
+                            checked: c.visible;
+                            enabled: !c.is-title;
+                            tip: c.is-title ? "名稱一定要顯示" : "";
+                            toggled(v) => {
+                                TasksPageData.col-toggle(i, v);
                             }
                         }
+                        GlyphButton {
+                            y: (parent.height - self.height) / 2;
+                            glyph: "↑";
+                            enabled: c.can-up;
+                            tip: "往前（往左）";
+                            clicked => {
+                                TasksPageData.col-move(i, -1);
+                            }
+                        }
+                        GlyphButton {
+                            y: (parent.height - self.height) / 2;
+                            glyph: "↓";
+                            enabled: c.can-down;
+                            tip: "往後（往右）";
+                            clicked => {
+                                TasksPageData.col-move(i, 1);
+                            }
+                        }
+                        if c.is-title: Text {
+                            text: "填滿";
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                        }
+                        if !c.is-title: Rectangle {
+                            width: 64px;
+                            HintBox {
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width;
+                                text: c.width-text;
+                                accepted(t) => {
+                                    TasksPageData.col-width(i, t);
+                                }
+                                focus-lost(t) => {
+                                    TasksPageData.col-width(i, t);
+                                }
+                            }
+                            Rectangle {
+                                Tooltip {
+                                    Tip {
+                                        text: "寬度（40～480）";
+                                    }
+                                }
+                            }
+                        }
+                        if !c.is-title: Text {
+                            text: " px";
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
                     }
-                }
-                if !c.is-title: Text {
-                    text: " px";
-                    color: Theme.muted;
-                    font-size: Theme.fs-md;
-                    vertical-alignment: center;
-                }
-                Rectangle {
-                    horizontal-stretch: 1;
                 }
             }
             Rectangle {

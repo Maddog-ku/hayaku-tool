@@ -3,6 +3,7 @@
 // 外觀照元件牆設計稿：冷灰底、白色大圓角卡片、ink 指示器以彈簧滑到選取的頁面、橘色只用在徽章與強調。
 import { Theme, Motion, Tip } from "@hb/index.slint";
 import { LinkButton } from "@hbc/index.slint";
+import { ListReveal, FadeText } from "shared/anim.slint";
 
 import { TasksPage, TasksPageData } from "pages/tasks.slint";
 import { ProjectsPage, ProjectsPageData } from "pages/projects.slint";
@@ -28,6 +29,8 @@ export { TasksPageData, ProjectsPageData, TestsPageData, ReviewsPageData, HoursP
 // Rust 端要設深淺色（Theme）與右鍵選單（TaskMenuState，整個視窗共用一份，由外框分派給目前的頁面）
 export { Theme } from "@hb/index.slint";
 export { TaskMenuState } from "@hbc/index.slint";
+// Rust 端在頁面載入中把 ListReveal.busy 加一（載入、切換時新清單依序浮現）
+export { ListReveal }
 
 export struct NavItem {
     key: string,
@@ -57,8 +60,14 @@ component NavRow {
         background: !root.selected && ta.has-hover ? Theme.hover : transparent;
         animate background { duration: 160ms; }
     }
+    // 滑過時文字往右推 3px（選取的不動）
+    property <length> nudge: !root.selected && ta.has-hover && !Theme.reduce-motion ? 3px : 0px;
+    animate nudge {
+        duration: 200ms;
+        easing: Motion.out;
+    }
     HorizontalLayout {
-        padding-left: 14px;
+        padding-left: 14px + root.nudge;
         padding-right: 8px;
         spacing: 6px;
         Text {
@@ -71,13 +80,26 @@ component NavRow {
             overflow: elide;
             animate color { duration: 260ms; }
         }
+        // 徽章出現時從右邊彈進來並淡入，數字變化時新數字從下方淡入
         if root.item.badge != "": badge := Rectangle {
+            property <float> t: 0;
+            init => {
+                t = 1;
+            }
+            animate t {
+                duration: Theme.reduce-motion ? 0ms : 420ms;
+                easing: Motion.soft;
+            }
             y: (parent.height - self.height) / 2;
             height: 20px;
             width: max(20px, lbl.preferred-width + 12px);
+            opacity: clamp(self.t, 0, 1);
             border-radius: 10px;
             background: root.item.badge-tone == 1 ? Theme.error-soft : Theme.accent-soft;
-            lbl := Text {
+            lbl := FadeText {
+                x: (1 - badge.t) * 8px;
+                width: parent.width;
+                height: parent.height;
                 text: root.item.badge;
                 color: root.item.badge-tone == 1 ? Theme.error : Theme.accent-ink;
                 font-size: 11px;
@@ -85,6 +107,7 @@ component NavRow {
                 font-family: Theme.font-num;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+                overflow: clip;
             }
             if root.item.badge-tip != "": TouchArea {
                 Tooltip {
@@ -121,17 +144,38 @@ export component WorkspaceWindow inherits Window {
     callback open-web();
     callback key-pressed(KeyEvent) -> bool;
 
-    // 換頁時頁面由下往上淡入（Windows「顯示動畫」關掉時不動）
+    // 換頁時頁面由下往上滑入 18px 並淡入（320ms）；Windows「顯示動畫」關掉時不動
     property <float> enter: 1;
+    property <bool> enter-snap;
     changed page-index => {
+        ListReveal.on = true;
         if !Theme.reduce-motion {
+            enter-snap = true;
             enter = 0;
+            enter-snap = false;
             enter = 1;
+        }
+        // 用 Ctrl+數字切到導覽看不到的頁面：把那一列捲進來
+        if root.page-index >= 0 && root.page-index < root.nav-items.length {
+            let top = root.nav-items[root.page-index].top;
+            if top + nav-flick.content-y < 0 {
+                nav-flick.content-y = -max(0px, top - 30px);
+            } else if top + 36px + nav-flick.content-y > nav-flick.height {
+                nav-flick.content-y = -min(top + 36px + 8px - nav-flick.height, nav-col.preferred-height - nav-flick.height);
+            }
         }
     }
     animate enter {
-        duration: Theme.reduce-motion ? 0ms : 420ms;
+        duration: enter-snap || Theme.reduce-motion ? 0ms : 320ms;
         easing: Motion.out;
+    }
+    // 新清單依序浮現的開關：頁面載入完（busy 歸零）450ms 後關掉，之後的刷新不播
+    Timer {
+        interval: 450ms;
+        running: ListReveal.on && ListReveal.busy <= 0;
+        triggered => {
+            ListReveal.on = false;
+        }
     }
 
     forward-focus: keys;
@@ -145,8 +189,13 @@ export component WorkspaceWindow inherits Window {
             spacing: 12px;
 
             // ───── 導覽 ─────
+            // 視窗接近最小寬度（900）時導覽縮到 188，頁面至少留 676（頁面區 min-width）
             Rectangle {
-                width: 216px;
+                min-width: 188px;
+                preferred-width: 216px;
+                max-width: 216px;
+                // 要能縮（stretch 0 的項目版面不會幫它縮）；最寬 216
+                horizontal-stretch: 1;
                 background: Theme.card;
                 border-radius: Theme.radius-card;
                 VerticalLayout {
@@ -201,57 +250,103 @@ export component WorkspaceWindow inherits Window {
                     }
 
                     // 頁面多：視窗矮時導覽可以捲動；選取的那一列底下是 ink 指示器，以彈簧滑過去
-                    nav-flick := Flickable {
+                    // 導覽放不下時：上下緣漸層遮罩＋右邊細捲軸（捲動時變深，停下來後淡掉）
+                    nav-box := Rectangle {
                         vertical-stretch: 1;
-                        content-height: nav-col.preferred-height;
-                        indicator := Rectangle {
-                            property <bool> ready;
-                            x: 0;
-                            y: root.page-index >= 0 && root.page-index < root.nav-items.length ? root.nav-items[root.page-index].top : 0;
+                        property <length> overflow: max(0px, nav-col.preferred-height - nav-flick.height);
+                        property <float> glow: 0;
+                        property <bool> glow-snap;
+                        nav-flick := Flickable {
                             width: parent.width;
-                            height: 36px;
-                            border-radius: 12px;
-                            background: Theme.ink;
-                            // 第一次畫的時候直接放好，之後才用彈簧
-                            Timer {
-                                interval: 250ms;
-                                running: !indicator.ready;
-                                triggered => {
-                                    indicator.ready = true;
+                            height: parent.height;
+                            content-height: nav-col.preferred-height;
+                            changed content-y => {
+                                if nav-box.overflow > 0 {
+                                    nav-box.glow-snap = true;
+                                    nav-box.glow = 1;
+                                    nav-box.glow-snap = false;
+                                    nav-box.glow = 0;
                                 }
                             }
-                            animate y {
-                                duration: self.ready ? Motion.spring-dur : 0ms;
-                                easing: Motion.spring;
+                            indicator := Rectangle {
+                                property <bool> ready;
+                                x: 0;
+                                y: root.page-index >= 0 && root.page-index < root.nav-items.length ? root.nav-items[root.page-index].top : 0;
+                                width: parent.width;
+                                height: 36px;
+                                border-radius: 12px;
+                                background: Theme.ink;
+                                // 第一次畫的時候直接放好，之後才用彈簧
+                                Timer {
+                                    interval: 250ms;
+                                    running: !indicator.ready;
+                                    triggered => {
+                                        indicator.ready = true;
+                                    }
+                                }
+                                animate y {
+                                    duration: self.ready ? Motion.spring-dur : 0ms;
+                                    easing: Motion.spring;
+                                }
+                            }
+                            nav-col := VerticalLayout {
+                                width: parent.width;
+                                spacing: 2px;
+                                alignment: start;
+                                // 每一項的 top（指示器的位置）由 Rust 照這裡的高度算：分組標題 22px（第一組）／34px，列 36px，間距 2px
+                                for item[i] in root.nav-items: VerticalLayout {
+                                    spacing: 0px;
+                                    if item.group != "": HorizontalLayout {
+                                        padding-left: 14px;
+                                        height: i == 0 ? 22px : 34px;
+                                        Text {
+                                            text: item.group;
+                                            color: Theme.muted;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            letter-spacing: 1px;
+                                            vertical-alignment: bottom;
+                                        }
+                                    }
+                                    NavRow {
+                                        item: item;
+                                        selected: root.page-index == i;
+                                        clicked => {
+                                            root.nav-selected(i);
+                                        }
+                                    }
+                                }
                             }
                         }
-                        nav-col := VerticalLayout {
-                            width: parent.width;
-                            spacing: 2px;
-                            alignment: start;
-                            // 每一項的 top（指示器的位置）由 Rust 照這裡的高度算：分組標題 22px（第一組）／34px，列 36px，間距 2px
-                            for item[i] in root.nav-items: VerticalLayout {
-                                spacing: 0px;
-                                if item.group != "": HorizontalLayout {
-                                    padding-left: 14px;
-                                    height: i == 0 ? 22px : 34px;
-                                    Text {
-                                        text: item.group;
-                                        color: Theme.muted;
-                                        font-size: 11px;
-                                        font-weight: 600;
-                                        letter-spacing: 1px;
-                                        vertical-alignment: bottom;
-                                    }
-                                }
-                                NavRow {
-                                    item: item;
-                                    selected: root.page-index == i;
-                                    clicked => {
-                                        root.nav-selected(i);
-                                    }
-                                }
-                            }
+                        animate glow {
+                            delay: self.glow-snap ? 0ms : 700ms;
+                            duration: self.glow-snap || Theme.reduce-motion ? 0ms : 400ms;
+                        }
+                        // 上緣：已經往下捲時出現
+                        Rectangle {
+                            y: 0;
+                            height: 22px;
+                            opacity: nav-flick.content-y < -1px ? 1 : 0;
+                            animate opacity { duration: 180ms; }
+                            background: @linear-gradient(180deg, Theme.card 0%, Theme.card.transparentize(1) 100%);
+                        }
+                        // 下緣：下面還有時出現
+                        Rectangle {
+                            y: parent.height - self.height;
+                            height: 30px;
+                            opacity: nav-box.overflow > 0 && -nav-flick.content-y < nav-box.overflow - 1px ? 1 : 0;
+                            animate opacity { duration: 180ms; }
+                            background: @linear-gradient(0deg, Theme.card 0%, Theme.card.transparentize(1) 100%);
+                        }
+                        // 細捲軸（只在放不下時）
+                        if nav-box.overflow > 0: Rectangle {
+                            x: parent.width + 5px;
+                            width: 3px;
+                            height: max(24px, parent.height * nav-flick.height / max(1px, nav-col.preferred-height));
+                            y: (-nav-flick.content-y / nav-box.overflow) * (parent.height - self.height);
+                            border-radius: 1.5px;
+                            background: Theme.scroll-thumb;
+                            opacity: 0.55 + 0.45 * nav-box.glow;
                         }
                     }
 
@@ -277,12 +372,14 @@ export component WorkspaceWindow inherits Window {
 
             // ───── 頁面區 ─────
             Rectangle {
+                min-width: 676px;
+                horizontal-stretch: 1;
                 background: Theme.card;
                 border-radius: Theme.radius-card;
                 clip: true;
                 Rectangle {
-                    y: (1 - root.enter) * 10px;
-                    opacity: 0.35 + 0.65 * root.enter;
+                    y: (1 - root.enter) * 18px;
+                    opacity: root.enter;
                     width: parent.width;
                     height: parent.height;
                     if root.created[0] : TasksPage { visible: root.page-index == 0; width: parent.width; height: parent.height; }

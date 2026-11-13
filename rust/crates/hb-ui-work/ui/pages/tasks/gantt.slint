@@ -1,10 +1,10 @@
 // 我的任務：甘特圖（C# TasksPage.Gantt.cs）。左邊任務名稱（照目前的排序），右邊日期軸（週末底色、今天一條線，天數照寬度）。
 // 拖整條平移、拖兩端改預計開始或結束；沒有預計日期的任務在自己那列拉出一段就是設定起訖。
 // 不在畫面範圍的任務在邊上標日期，點了跳過去。
-import { Theme, ScrollView, Tip } from "@hb/index.slint";
+import { Theme, Motion, ScrollView, Tip } from "@hb/index.slint";
 import { TaskMenuArea } from "@hbc/index.slint";
 import { TasksPageData, TkGanttRow } from "data.slint";
-import { BarLook, ScheduleToolbar } from "calendar.slint";
+import { BarLook, ScheduleToolbar, BarMotion, DropFx } from "calendar.slint";
 
 component GanttRowView {
     in property <TkGanttRow> item;
@@ -129,9 +129,21 @@ component GanttRowView {
             y: 4px;
             width: max(root.day-width - 2px, (root.item.end + 1 - root.item.start) * root.day-width - 2px);
             height: root.height - 8px;
+            // 拖拉時一天一天滑過去，不是跳過去
+            animate x, width {
+                duration: Theme.reduce-motion ? 0ms : 120ms;
+                easing: Motion.out;
+            }
+            fx := BarMotion {
+                key: root.item.key;
+                index: root.index;
+            }
             BarLook {
-                width: parent.width;
+                x: 0;
+                y: (1 - fx.settle) * -6px;
+                width: parent.width * fx.grow;
                 height: parent.height;
+                opacity: (TasksPageData.drag-key == root.item.key ? 0.5 : root.item.bar.done ? 0.55 : 1) * fx.grow;
                 bar: root.item.bar;
                 dragging: TasksPageData.drag-key == root.item.key;
             }
@@ -145,6 +157,11 @@ component GanttRowView {
                         bar.py = self.absolute-position.y + self.mouse-y;
                         bar.mode = self.mouse-x <= root.edge ? 1 : self.mouse-x >= self.width - root.edge ? 2 : 0;
                     } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                        if bar.started {
+                            // 放開：落下回彈一下（重畫後新的那一條也會播）
+                            DropFx.key = root.item.key;
+                            fx.bounce();
+                        }
                         bar.started = false;
                         TasksPageData.gantt-release(root.index);
                     } else if e.kind == PointerEventKind.cancel {
@@ -187,6 +204,14 @@ export component GanttView {
     }
     init => {
         TasksPageData.gantt-resized(self.width);
+    }
+    // 放開的回彈播完就清掉，之後的重畫不再播
+    Timer {
+        interval: 1500ms;
+        running: DropFx.key != "";
+        triggered => {
+            DropFx.key = "";
+        }
     }
     VerticalLayout {
         ScheduleToolbar { }

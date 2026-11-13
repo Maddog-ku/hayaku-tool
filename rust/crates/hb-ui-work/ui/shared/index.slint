@@ -3,6 +3,9 @@
 // 外觀沿用 hb-ui-kit 的 Theme 與彈簧緩動；Windows「顯示動畫」關掉時 Motion 自動改成不回彈。
 import { Theme, Motion, Icon, Icons, Tip, Checkbox } from "@hb/index.slint";
 import { ProjectIcon } from "@hbc/index.slint";
+import { ListReveal, Appear, SlideSwitch, FadeText, Collapse, CardShadow } from "anim.slint";
+
+export { ListReveal, Appear, SlideSwitch, FadeText, Collapse, CardShadow }
 
 /// 小按鈕（C# FlatButton／PrimaryButton 的緊湊版，高 32）。
 /// kind：0 主要（ink 底）、1 次要（淡灰底）、2 外框、3 幽靈（透明）、4 強調（橘底）。
@@ -31,15 +34,16 @@ export component SmallButton {
         background: root.active ? Theme.selected : root.kind == 0 ? Theme.ink : root.kind == 1 ? Theme.fill : root.kind == 4 ? Theme.accent : transparent;
         border-width: root.active || root.kind == 2 ? 1.5px : 0px;
         border-color: root.active ? Theme.accent : Theme.line;
-        transform-scale: ta.pressed ? 0.95 : 1;
-        animate transform-scale {
+        // 按下往下沉 1px（軟體繪製不支援縮放），放開以彈簧彈回
+        y: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
+        animate y {
             duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
             easing: ta.pressed ? Motion.press : Motion.spring;
         }
         animate background, border-color { duration: 220ms; }
         Rectangle {
             border-radius: parent.border-radius;
-            background: ta.has-hover && root.enabled ? (root.kind == 0 ? Theme.on-ink.with-alpha(0.12) : Theme.ink.with-alpha(0.06)) : transparent;
+            background: ta.pressed && root.enabled ? (root.kind == 0 ? Theme.on-ink.with-alpha(0.2) : Theme.ink.with-alpha(0.1)) : ta.has-hover && root.enabled ? (root.kind == 0 ? Theme.on-ink.with-alpha(0.12) : Theme.ink.with-alpha(0.06)) : transparent;
             animate background { duration: 160ms; }
         }
         lbl := Text {
@@ -84,14 +88,16 @@ export component GlyphButton {
     accessible-label: tip != "" ? tip : glyph;
     Rectangle {
         border-radius: self.height / 2;
-        background: ta.has-hover && root.enabled ? Theme.hover : transparent;
-        transform-scale: ta.pressed ? 0.88 : 1;
-        animate transform-scale {
-            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
-            easing: ta.pressed ? Motion.press : Motion.spring;
-        }
+        background: ta.pressed && root.enabled ? Theme.line : ta.has-hover && root.enabled ? Theme.hover : transparent;
         animate background { duration: 150ms; }
         Text {
+            // 按下往下沉一點，放開彈回（軟體繪製不支援縮放）
+            property <length> sink: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
+            y: (parent.height - self.height) / 2 + self.sink;
+            animate sink {
+                duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+                easing: ta.pressed ? Motion.press : Motion.spring;
+            }
             text: root.glyph;
             color: root.color;
             font-size: root.font-size;
@@ -113,9 +119,9 @@ export component GlyphButton {
     }
 }
 
-/// 分頁切換（膠囊底、選取的那格 ink 底以彈簧放大淡入，按下縮一下），每一格可以有提示。
+/// 分頁切換（膠囊底、ink 指示器以彈簧滑到選取的那格，寬度一起變；按下文字往下沉一點），每一格可以有提示。
 /// current 由呼叫端決定（點了只呼叫 selected，呼叫端改 current）。
-/// （不做滑動指示器：分頁標題會跟著數量變，重建時拿不到各格的位置。）
+/// 分頁標題跟著數量變、項目重建時，各格在 init／changed 裡回報自己的位置，指示器跟著滑過去。
 export component TipSegmented {
     in property <[string]> items;
     in property <[string]> tips;
@@ -123,41 +129,80 @@ export component TipSegmented {
     in property <length> font-size: Theme.fs-sm;
     in property <length> item-padding: 13px;
     callback selected(index: int);
+    property <length> ind-x;
+    property <length> ind-w;
+    property <bool> ready;
     height: 34px;
     horizontal-stretch: 0;
     preferred-width: hl.preferred-width;
     min-width: hl.min-width;
     max-width: hl.preferred-width;
+    // 第一次畫的時候直接放好，之後才滑
+    Timer {
+        interval: 250ms;
+        running: !root.ready;
+        triggered => {
+            root.ready = true;
+        }
+    }
     Rectangle {
         x: 0;
         width: min(root.width, hl.preferred-width);
         background: Theme.fill;
         border-radius: self.height / 2;
     }
+    Rectangle {
+        x: root.ind-x;
+        y: 3px;
+        width: root.ind-w;
+        height: root.height - 6px;
+        visible: root.ind-w > 0;
+        border-radius: self.height / 2;
+        background: Theme.ink;
+        animate x, width {
+            duration: root.ready ? Motion.spring-dur : 0ms;
+            easing: Motion.spring;
+        }
+    }
     hl := HorizontalLayout {
         padding: 3px;
         alignment: start;
         for item[i] in root.items: Rectangle {
             property <bool> on: i == root.current;
-            property <float> t: on ? 1 : 0;
-            animate t {
-                duration: Motion.spring-dur;
-                easing: Motion.spring;
+            init => {
+                if self.on {
+                    root.ind-x = self.x;
+                    root.ind-w = self.width;
+                }
+            }
+            changed on => {
+                if self.on {
+                    root.ind-x = self.x;
+                    root.ind-w = self.width;
+                }
+            }
+            changed x => {
+                if self.on {
+                    root.ind-x = self.x;
+                }
+            }
+            changed width => {
+                if self.on {
+                    root.ind-w = self.width;
+                }
             }
             horizontal-stretch: 0;
             min-width: lbl.preferred-width + 2 * root.item-padding;
             accessible-role: tab;
             accessible-label: item;
             accessible-item-selected: self.on;
-            Rectangle {
-                // 用大小做彈出（軟體繪製不支援縮放）
-                width: parent.width * (0.82 + 0.18 * clamp(parent.t, 0, 1.2));
-                height: parent.height * (0.82 + 0.18 * clamp(parent.t, 0, 1.2));
-                border-radius: self.height / 2;
-                background: Theme.ink;
-                opacity: clamp(parent.t, 0, 1);
-            }
             lbl := Text {
+                property <length> sink: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
+                y: (parent.height - self.height) / 2 + self.sink;
+                animate sink {
+                    duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+                    easing: ta.pressed ? Motion.press : Motion.spring;
+                }
                 text: item;
                 color: on ? Theme.on-ink : ta.has-hover ? Theme.ink : Theme.muted;
                 font-size: root.font-size;
@@ -235,15 +280,11 @@ export component MiniSelect {
             }
             Icon {
                 y: (parent.height - self.height) / 2;
-                path: Icons.chevron-down;
+                // 軟體繪製不支援旋轉：打開時換成向上的箭頭
+                path: root.open ? Icons.chevron-up : Icons.chevron-down;
                 color: Theme.ink;
                 width: 14px;
                 height: 14px;
-                transform-rotation: root.open ? 180deg : 0deg;
-                animate transform-rotation {
-                    duration: Theme.reduce-motion ? 300ms : 500ms;
-                    easing: Motion.spring;
-                }
             }
         }
     }
@@ -265,6 +306,14 @@ export component MiniSelect {
         width: max(root.width, 200px) + 24px;
         height: min(root.max-rows, root.items.length) * root.item-height + 10px + 24px;
         close-policy: PopupClosePolicy.close-on-click-outside;
+        CardShadow {
+            x: menu.x;
+            y: menu.y;
+            width: menu.width;
+            height: menu.height;
+            radius: 14px;
+            strength: menu.opacity;
+        }
         menu := Rectangle {
             property <float> t: 0;
             init => {
@@ -364,12 +413,15 @@ export component CheckText {
                 root.toggled(c);
             }
         }
-        Text {
+        // 窄的時候省略（滑過看提示），不把整列撐寬
+        lbl := Text {
+            min-width: min(self.preferred-width, 48px);
             text: root.text;
             color: !root.enabled ? Theme.muted : root.accent && root.checked ? Theme.accent-ink : Theme.ink;
             font-size: Theme.fs-sm;
             font-weight: root.accent && root.checked ? 600 : 400;
             vertical-alignment: center;
+            overflow: elide;
             animate color { duration: 200ms; }
         }
     }
@@ -380,9 +432,9 @@ export component CheckText {
             root.checked = !root.checked;
             root.toggled(root.checked);
         }
-        if root.tip != "": Tooltip {
+        if root.tip != "" || lbl.width < lbl.preferred-width - 1px: Tooltip {
             Tip {
-                text: root.tip;
+                text: root.tip != "" ? root.tip : root.text;
             }
         }
     }
@@ -511,21 +563,23 @@ export component Expander {
                 }
             }
         }
-        // @children 不能放在 if 裡：收起時高度 0、不顯示
-        VerticalLayout {
-            visible: root.expanded;
-            height: root.expanded ? self.preferred-height : 0px;
-            padding-left: 24px;
-            padding-top: 4px;
-            padding-bottom: 4px;
-            spacing: 2px;
-            @children
+        // @children 不能放在 if 裡：收起時高度 0、不顯示；高度以 260ms 長出來／收回去（Collapse）
+        Collapse {
+            open: root.expanded;
+            VerticalLayout {
+                padding-left: 24px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 2px;
+                @children
+            }
         }
     }
 }
 
 /// 頁面上的彈窗（C# TasksPage 的 Overlay）：半透明底，點外面的空白、✕ 或 Esc（呼叫端處理）關閉；
-/// 卡片從下面帶彈簧淡入。max-card-width：最寬多少（視窗窄時跟著縮）。
+/// 打開時底色淡入、卡片往上浮出（340ms），點外面或 ✕ 關閉時反向淡出（160ms）後才呼叫 close。
+/// reduce-motion 時只淡入淡出、不位移。max-card-width：最寬多少（視窗窄時跟著縮）。
 export component Modal {
     in property <length> max-card-width: 700px;
     in property <length> card-height: -1px;
@@ -533,13 +587,31 @@ export component Modal {
     callback close();
     /// 點了卡片上的空白（呼叫端通常把焦點拉回彈窗）
     callback card-clicked();
+    /// 先播關閉動畫再呼叫 close（ConfirmDialog 選了按鈕也走這裡）
+    public function dismiss() {
+        if !root.closing {
+            root.closing = true;
+            root.t = 0;
+        }
+    }
     property <float> t: 0;
+    property <bool> closing;
     init => {
         t = 1;
     }
     animate t {
-        duration: Theme.reduce-motion ? 160ms : Motion.soft-dur;
-        easing: Motion.soft;
+        duration: root.closing ? 160ms : Theme.reduce-motion ? 160ms : 340ms;
+        easing: root.closing ? Motion.out : Motion.soft;
+    }
+    // 關閉動畫播完才真的關（呼叫端沒把彈窗拿掉時再浮回來）
+    Timer {
+        interval: 170ms;
+        running: root.closing;
+        triggered => {
+            root.closing = false;
+            root.close();
+            root.t = 1;
+        }
     }
     Rectangle {
         background: #000000;
@@ -549,7 +621,7 @@ export component Modal {
         TouchArea {
             clicked => {
                 if root.closable {
-                    root.close();
+                    root.dismiss();
                 }
             }
             // 擋掉滾輪，不讓底下的清單跟著捲
@@ -558,12 +630,22 @@ export component Modal {
             }
         }
     }
+    // 假陰影（軟體繪製畫不出 drop-shadow），跟著卡片浮起、淡入
+    CardShadow {
+        x: card.x;
+        y: card.y;
+        width: card.width;
+        height: card.height;
+        radius: 24px;
+        strength: clamp(root.t, 0, 1);
+    }
     card := Rectangle {
-        property <length> w: min(root.max-card-width, root.width - 80px);
+        // 頁面窄的時候兩邊只留 16，卡片寬一點
+        property <length> w: max(0px, min(root.max-card-width, root.width - (root.width < 760px ? 32px : 80px)));
         width: self.w;
-        height: root.card-height > 0 ? min(root.card-height, root.height - 56px) : root.height - 56px;
+        height: max(0px, root.card-height > 0 ? min(root.card-height, root.height - 56px) : root.height - 56px);
         x: (root.width - self.w) / 2;
-        y: (root.height - self.height) / 2 + (1 - root.t) * 18px;
+        y: (root.height - self.height) / 2 + (Theme.reduce-motion ? 0px : (1 - root.t) * 24px);
         opacity: clamp(root.t * 1.4, 0, 1);
         border-radius: 24px;
         background: Theme.card;
@@ -594,7 +676,7 @@ export component Modal {
                 size: 34px;
                 tip: "關閉（Esc）";
                 clicked => {
-                    root.close();
+                    root.dismiss();
                 }
             }
         }
@@ -602,19 +684,21 @@ export component Modal {
 }
 
 /// 確認對話框（C# MessageBox）：標題、說明、一排按鈕（第一個是主要按鈕）；picked(按鈕的順序)。
+/// 選了按鈕先播關閉動畫（160ms）再回報。內容太長時說明可以捲動，按鈕永遠看得到。
 export component ConfirmDialog {
     in property <string> title;
     in property <string> text;
     in property <[string]> buttons;
     callback picked(index: int);
-    Modal {
+    property <int> choice: -1;
+    m := Modal {
         width: parent.width;
         height: parent.height;
         max-card-width: 460px;
         card-height: body.preferred-height;
         closable: false;
         close => {
-            root.picked(root.buttons.length - 1);
+            root.picked(root.choice >= 0 ? root.choice : root.buttons.length - 1);
         }
         body := VerticalLayout {
             padding: 24px;
@@ -624,6 +708,7 @@ export component ConfirmDialog {
                 color: Theme.ink;
                 font-size: Theme.fs-lg;
                 font-weight: 700;
+                wrap: word-wrap;
             }
             Text {
                 text: root.text;
@@ -639,7 +724,8 @@ export component ConfirmDialog {
                     kind: i == 0 ? 0 : 1;
                     horizontal-padding: 18px;
                     clicked => {
-                        root.picked(i);
+                        root.choice = i;
+                        m.dismiss();
                     }
                 }
             }

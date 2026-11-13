@@ -1,4 +1,5 @@
 //! 對應 C# `UI/HoverCard.xaml.cs`：滑鼠停在工作列的工時上時，顯示今天各任務的明細（不接收滑鼠、不搶焦點）。
+//! 出現時從工作列往上長出來並淡入，離開時滑回工作列並淡出（[`crate::slide`]；「顯示動畫」關閉時直接出現、消失）。
 
 use chrono::Local;
 use hb_api::{TimeEntry, WorkMath};
@@ -7,13 +8,21 @@ use hb_ui_common::{DayTimelineData, TaskRowVm};
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::popup::{self, PopupKind};
+use crate::slide::WindowSlide;
+use crate::theme_manager::ThemeManager;
 use crate::ui::{DayTimelineModel, HoverCard as HoverCardWindow, HoverRow};
+
+/// 長出來、滑回去的時間（完整走一趟）。
+const SHOW_DURATION: std::time::Duration = std::time::Duration::from_millis(220);
+const HIDE_DURATION: std::time::Duration = std::time::Duration::from_millis(170);
 
 pub struct HoverCard {
     ui: HoverCardWindow,
     /// 第一次顯示過了（之後用 Win32 顯示／隱藏，才不會搶焦點）。
     created: std::cell::Cell<bool>,
+    /// 顯示中（滑回去的途中不算）
     visible: std::cell::Cell<bool>,
+    slide: WindowSlide,
 }
 
 /// 今天各任務：計時中的在前，再依今天累計多到少，最多 8 個（C# 的 LINQ）。
@@ -42,7 +51,12 @@ impl HoverCard {
         match popup::create(PopupKind::Hover, HoverCardWindow::new) {
             Ok(ui) => {
                 crate::track_theme!(ui);
-                Some(Self { ui, created: std::cell::Cell::new(false), visible: std::cell::Cell::new(false) })
+                Some(Self {
+                    ui,
+                    created: std::cell::Cell::new(false),
+                    visible: std::cell::Cell::new(false),
+                    slide: WindowSlide::new(),
+                })
             }
             Err(e) => {
                 log::error!("建立工時摘要失敗: {e}");
@@ -114,22 +128,49 @@ impl HoverCard {
         self.ui.set_rows(ModelRc::new(VecModel::from(rows)));
 
         // 先用 Slint 算的大小擺好位置再顯示；顯示後用實際大小再擺一次
-        self.place(anchor, align_left);
-        if !self.created.get() {
-            if let Err(e) = self.ui.show() {
-                log::error!("顯示工時摘要失敗: {e}");
-                return;
+        let reduce = ThemeManager::reduce_motion();
+        let was_visible = self.visible.replace(true);
+        if !was_visible {
+            // 從工作列那一側長出來：先擺在藏起來的位置（滑回去的途中被叫回來時，從目前的位置接著播）
+            let start = if reduce {
+                1.0
+            } else if self.slide.is_running() {
+                self.slide.progress()
+            } else {
+                0.0
+            };
+            if !self.slide.is_running() {
+                self.ui.invoke_hide_content();
             }
-            popup::apply_styles(self.ui.window(), PopupKind::Hover);
-            self.created.set(true);
-        } else {
-            popup::show_no_activate(self.ui.window());
+            self.place(anchor, align_left, Some(start));
+            if !self.created.get() {
+                if let Err(e) = self.ui.show() {
+                    log::error!("顯示工時摘要失敗: {e}");
+                    self.visible.set(false);
+                    return;
+                }
+                popup::apply_styles(self.ui.window(), PopupKind::Hover);
+                self.created.set(true);
+            } else {
+                popup::show_no_activate(self.ui.window());
+            }
         }
-        self.visible.set(true);
-        self.place(anchor, align_left);
+        // 事件迴圈還沒開始時連原生視窗都還沒有，沒辦法播：直接出現在定位
+        let ready = popup::hwnd(self.ui.window()).is_some();
+        if !ready {
+            self.slide.jump(1.0);
+        }
+        self.place(anchor, align_left, None);
+        self.ui.invoke_show_content();
+        if reduce {
+            self.slide.stop();
+        } else if !was_visible && ready {
+            self.slide.run(1.0, SHOW_DURATION, || {});
+        }
     }
 
-    fn place(&self, anchor: hb_win::Rect, align_left: bool) {
+    /// 擺到工時正上方；p 是進度（None 照目前的進度，0 藏在工作列那一側、1 在定位）。
+    fn place(&self, anchor: hb_win::Rect, align_left: bool, p: Option<f32>) {
         let scale = popup::scale_at(anchor.left, anchor.top - 1);
         let size = if self.created.get() {
             // 內容變了大小也會跟著變：用 Slint 算的大小（實體像素）
@@ -140,15 +181,35 @@ impl HoverCard {
         } else {
             ((self.ui.get_pref_w() * scale).round() as i32, (self.ui.get_pref_h() * scale).round() as i32)
         };
-        let work = popup::work_area_at(anchor.left, anchor.top - 1);
-        let (x, y) = popup::place_above(anchor, align_left, size, work, (8.0 * scale).round() as i32);
-        self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+        let (target, clip, edge) = popup::above_anchor(anchor, align_left, size, scale);
+        let hwnd = popup::hwnd(self.ui.window());
+        match p {
+            Some(p) => self.slide.prepare(hwnd, target, clip, edge, popup::corner_radius(scale), p),
+            None => self.slide.retarget(hwnd, target, clip, edge),
+        }
+        if hwnd.is_none() {
+            let (x, y) = self.slide.position();
+            self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+        }
     }
 
+    /// 滑回工作列並淡出，播完才藏起來（途中又要顯示時由 show_for 接手）。
     pub fn hide(&self) {
-        if self.visible.replace(false) {
-            popup::hide_native(self.ui.window());
+        if !self.visible.replace(false) {
+            return;
         }
+        if ThemeManager::reduce_motion() {
+            self.slide.stop();
+            popup::hide_native(self.ui.window());
+            return;
+        }
+        self.ui.invoke_fade_content();
+        let window = self.ui.as_weak();
+        self.slide.run(0.0, HIDE_DURATION, move || {
+            if let Some(ui) = window.upgrade() {
+                popup::hide_native(ui.window());
+            }
+        });
     }
 
     pub fn window(&self) -> &slint::Window {

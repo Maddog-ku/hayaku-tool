@@ -4,6 +4,7 @@
 import { Theme, ScrollView, Tip } from "@hb/index.slint";
 import { DayTimeline, DayTimelineModel, ComboField, LinkButton } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Confirm } from "w2-common.slint";
+import { Appear } from "../shared/anim.slint";
 
 /// 一段計時紀錄（C# EntryRowVm）。
 export struct EntriesRow {
@@ -274,13 +275,19 @@ export component EntriesPage inherits Rectangle {
         Rectangle {
             vertical-stretch: 1;
             sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
                 content-height: list.preferred-height;
                 list := VerticalLayout {
                     width: sv.visible-width - 14px;
                     spacing: 6px;
-                    for row[i] in EntriesPageData.rows: EntryRow {
-                        data: row;
+                    for row[i] in EntriesPageData.rows: Appear {
                         index: i;
+                        rise: 8px;
+                        EntryRow {
+                            data: row;
+                            index: i;
+                        }
                     }
                 }
             }

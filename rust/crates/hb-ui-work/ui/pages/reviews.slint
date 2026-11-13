@@ -5,6 +5,7 @@
 import { Theme, ScrollView, Segmented } from "@hb/index.slint";
 import { ProjectIcon, StatusLine } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Link, W2Confirm, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
 
 /// 清單的一項：header 是專案標題（glyph、tint、project、count），其他是一張申請卡。
 /// busy：執行中的按鈕（withdraw、approve、watch、reject）；status-text／tone 是卡片底下的訊息。
@@ -89,10 +90,12 @@ component RequestCard inherits Rectangle {
                 vertical-alignment: center;
             }
         }
+        // 申請人很長時換行，不把卡片撐寬
         Text {
             text: root.data.meta;
             font-size: 11.5px;
             color: Theme.muted;
+            wrap: word-wrap;
         }
         for c in root.data.changes: Text {
             text: c;
@@ -183,39 +186,53 @@ export component ReviewsPage inherits Rectangle {
             tone: ReviewsPageData.status-tone;
         }
 
-        sv := ScrollView {
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: ReviewsPageData.tab-index;
             vertical-stretch: 1;
-            content-height: list.preferred-height;
-            list := VerticalLayout {
-                width: sv.visible-width - 14px;
-                spacing: 8px;
-                for item[i] in ReviewsPageData.items: VerticalLayout {
-                    if item.header: HorizontalLayout {
-                        padding-top: 6px;
-                        spacing: 8px;
-                        ProjectIcon {
-                            y: (parent.height - self.height) / 2;
-                            glyph: item.glyph;
-                            tint: item.tint;
-                            size: 20px;
-                        }
-                        Text {
-                            text: item.project;
-                            color: Theme.ink;
-                            font-weight: 600;
-                            font-size: 14px;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: item.count;
-                            color: Theme.muted;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
-                    }
-                    if !item.header: RequestCard {
-                        data: item;
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                content-height: list.preferred-height;
+                list := VerticalLayout {
+                    width: sv.visible-width - 14px;
+                    spacing: 8px;
+                    for item[i] in ReviewsPageData.items: Appear {
                         index: i;
+                        stagger: 40ms;
+                        VerticalLayout {
+                            if item.header: HorizontalLayout {
+                                padding-top: 6px;
+                                spacing: 8px;
+                                ProjectIcon {
+                                    y: (parent.height - self.height) / 2;
+                                    glyph: item.glyph;
+                                    tint: item.tint;
+                                    size: 20px;
+                                }
+                                Text {
+                                    text: item.project;
+                                    color: Theme.ink;
+                                    font-weight: 600;
+                                    font-size: 14px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: item.count;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            if !item.header: RequestCard {
+                                data: item;
+                                index: i;
+                            }
+                        }
                     }
                 }
             }

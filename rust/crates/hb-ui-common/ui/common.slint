@@ -1,6 +1,8 @@
 // 共用的小元件（對應 C# UI/Shared.xaml 裡 hb-ui-kit 沒有的樣式）：欄位標題、訊息列、多行輸入、勾選列、連結按鈕、
 // 可輸入的下拉、可點的編號、專案圖示、色票代碼。外觀沿用 hb-ui-kit 的 Theme 與微互動。
-import { Theme, Motion, Icon, Icons, Checkbox, ScrollView, Tip } from "@hb/index.slint";
+// 程式固定用軟體繪圖：不用 transform-scale／transform-rotation／drop-shadow（畫不出來），
+// 縮放改成內縮或大小變化、箭頭翻轉用 Chevron、陰影用 SoftShadow。
+import { Theme, Motion, Icon, Icons, Chevron, Checkbox, ScrollView, Tip, SoftShadow } from "@hb/index.slint";
 
 /// C# 的 Brush 名稱（hb_ui_common::ColorKey::code）→ Theme 色：0 Text、1 Muted、2 Run、3 Claude、4 Accent、5 Error、6 Warn。
 export global ColorKeys {
@@ -21,6 +23,8 @@ export component FieldLabel inherits Text {
     font-size: Theme.fs-sm;
     font-weight: 500;
     wrap: word-wrap;
+    // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+    min-width: 0px;
 }
 
 /// 次要說明文字（muted、自動換行）。
@@ -28,6 +32,8 @@ export component MutedText inherits Text {
     color: Theme.muted;
     font-size: Theme.fs-sm;
     wrap: word-wrap;
+    // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+    min-width: 0px;
 }
 
 /// 分組標題（C# GroupLabel）。
@@ -44,20 +50,26 @@ export component StatusLine {
     in property <int> tone: 0;
     visible: text != "";
     height: text == "" ? 0px : lbl.preferred-height + 14px;
+    // 長的錯誤訊息照寬度換行，不把視窗撐寬
+    min-width: 0px;
+    // 文字換了就重播一次：從下方 6px 浮上來並淡入（snap 讓 t 先瞬間回到 0）
     property <float> t: 0;
+    property <bool> snap;
     changed text => {
+        snap = true;
         t = 0;
+        snap = false;
         t = 1;
     }
     init => {
         t = 1;
     }
     animate t {
-        duration: Motion.soft-dur;
+        duration: snap ? 0ms : Theme.reduce-motion ? 120ms : Motion.soft-dur;
         easing: Motion.soft;
     }
     Rectangle {
-        y: (1 - root.t) * 6px;
+        y: Theme.reduce-motion ? 0px : (1 - root.t) * 6px;
         opacity: clamp(root.t, 0, 1);
         border-radius: Theme.radius-small;
         background: root.tone == 0 ? Theme.error-soft : root.tone == 1 ? Theme.run-soft : root.tone == 2 ? Theme.warn-soft : Theme.fill;
@@ -105,7 +117,7 @@ export component TextArea {
         border-radius: Theme.radius-input;
         border-width: 1.5px;
         border-color: input.has-focus ? Theme.ink : transparent;
-        animate background, border-color { duration: 300ms; }
+        animate background, border-color { duration: Motion.fast + 60ms; }
     }
     TouchArea {
         mouse-cursor: MouseCursor.text;
@@ -120,12 +132,16 @@ export component TextArea {
         height: parent.height - 8px;
         content-height: max(self.visible-height, input.preferred-height + 16px);
         content-width: self.visible-width;
+        // 提示字：取得焦點時往右滑開淡出；一打字就直接消失
         Text {
-            x: 10px;
+            property <float> on: root.text == "" && !input.has-focus ? 1 : 0;
+            animate on { duration: root.text != "" ? 0ms : Motion.fast; easing: Motion.out; }
+            x: 10px + (Theme.reduce-motion ? 0px : (1 - self.on) * 8px);
             y: 8px;
             width: parent.width - 20px;
             text: root.placeholder;
-            visible: root.text == "" && !input.has-focus;
+            visible: self.on > 0;
+            opacity: self.on;
             color: Theme.muted;
             font-size: root.font-size;
             wrap: word-wrap;
@@ -205,11 +221,14 @@ export component CheckRow {
         }
         Text {
             text: root.text;
-            color: root.enabled ? Theme.ink : Theme.muted;
+            color: !root.enabled ? Theme.muted : ta.has-hover ? Theme.accent-ink : Theme.ink;
+            animate color { duration: Motion.fast; }
             font-size: Theme.fs-md;
             vertical-alignment: center;
             // 欄位窄的時候換行（不會被截掉）
             wrap: word-wrap;
+            // 中文長句沒有空白，換行文字的最小寬度會變成整句：不讓它把視窗撐寬（照樣換行）
+            min-width: 0px;
             horizontal-stretch: 1;
         }
     }
@@ -254,8 +273,9 @@ export component RadioDot {
             height: 18px;
             border-radius: 9px;
             border-width: 1.5px;
-            border-color: root.on ? Theme.ink : Theme.faint;
-            animate border-color { duration: 300ms; }
+            border-color: root.on ? Theme.ink : radio-ta.has-hover ? Theme.muted : Theme.faint;
+            background: !root.on && radio-ta.has-hover ? Theme.hover : transparent;
+            animate border-color, background { duration: Motion.fast; }
             // 用大小做彈出（不用 transform-scale：軟體繪製不支援縮放）
             Rectangle {
                 width: 10px * max(0, root.dot);
@@ -271,7 +291,7 @@ export component RadioDot {
             vertical-alignment: center;
         }
     }
-    TouchArea {
+    radio-ta := TouchArea {
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
@@ -279,7 +299,7 @@ export component RadioDot {
     }
 }
 
-/// 連結樣式的按鈕（C# LinkButton：強調色文字，滑過變淡）。
+/// 連結樣式的按鈕（C# LinkButton：強調色文字，滑過變淡、底線由左往右畫出）。
 export component LinkButton {
     in property <string> text;
     in property <bool> enabled: true;
@@ -296,9 +316,19 @@ export component LinkButton {
             font-size: root.font-size;
             font-weight: 600;
             vertical-alignment: center;
-            opacity: !root.enabled ? 0.45 : ta.has-hover ? 0.75 : 1;
+            opacity: !root.enabled ? 0.45 : ta.pressed ? 0.6 : ta.has-hover ? 0.8 : 1;
             animate opacity { duration: 150ms; }
         }
+    }
+    // 滑過時底線由左往右畫出
+    Rectangle {
+        x: lbl.x;
+        y: lbl.y + (lbl.height + lbl.preferred-height) / 2 - 1px;
+        height: 1px;
+        width: ta.has-hover && root.enabled ? lbl.width : 0px;
+        background: Theme.accent-ink;
+        opacity: 0.6;
+        animate width { duration: Motion.fast + 60ms; easing: Motion.out; }
     }
     ta := TouchArea {
         enabled: root.enabled;
@@ -310,6 +340,7 @@ export component LinkButton {
 }
 
 /// 可以打字、也能從清單挑的輸入框（C# ComboBox IsEditable）：右邊箭頭打開清單，選了就填進去。
+/// 清單往下滑開＋淡入，選了之後往上收起再關；箭頭以彈簧翻成朝上。
 export component ComboField {
     in-out property <string> text;
     in property <[string]> items;
@@ -321,12 +352,19 @@ export component ComboField {
     height: 44px;
     min-width: 120px;
     opacity: enabled ? 1 : 0.5;
+    animate opacity { duration: Motion.fast; }
+    property <bool> shutting;
+    property <float> flip: popup.is-open && !root.shutting ? 1 : 0;
+    animate flip {
+        duration: Theme.reduce-motion ? 200ms : 500ms;
+        easing: Motion.spring;
+    }
     Rectangle {
         background: input.has-focus || popup.is-open ? Theme.card : Theme.fill;
         border-radius: Theme.radius-input;
         border-width: 1.5px;
         border-color: input.has-focus || popup.is-open ? Theme.ink : transparent;
-        animate background, border-color { duration: 300ms; }
+        animate background, border-color { duration: Motion.fast + 60ms; }
     }
     TouchArea {
         mouse-cursor: MouseCursor.text;
@@ -340,11 +378,18 @@ export component ComboField {
         spacing: 6px;
         Rectangle {
             horizontal-stretch: 1;
+            // 打的字比框長時不要畫到框外面；最小寬度 0：不然長字串會把這格撐得比輸入框還寬
+            clip: true;
+            min-width: 0px;
+            // 提示字：取得焦點時往右滑開淡出；一打字就直接消失
             Text {
-                x: 0;
-                width: parent.width;
+                property <float> on: root.text == "" && !input.has-focus ? 1 : 0;
+                animate on { duration: root.text != "" ? 0ms : Motion.fast; easing: Motion.out; }
+                x: Theme.reduce-motion ? 0px : (1 - self.on) * 8px;
+                width: parent.width - self.x;
                 text: root.placeholder;
-                visible: root.text == "" && !input.has-focus;
+                visible: self.on > 0;
+                opacity: self.on;
                 color: Theme.muted;
                 font-size: Theme.fs-md;
                 vertical-alignment: center;
@@ -369,23 +414,32 @@ export component ComboField {
         }
         Rectangle {
             width: 32px;
-            border-radius: 10px;
-            background: arrow-ta.has-hover ? Theme.hover : transparent;
-            Icon {
-                path: Icons.chevron-down;
+            // 按下時底色往內縮一點
+            property <length> inset: arrow-ta.pressed ? 2px : 0px;
+            animate inset {
+                duration: arrow-ta.pressed ? Motion.press-dur : Motion.spring-dur;
+                easing: arrow-ta.pressed ? Motion.press : Motion.spring;
+            }
+            Rectangle {
+                x: parent.inset;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - 2 * parent.inset;
+                height: min(parent.height, 32px) - 2 * parent.inset;
+                border-radius: 10px;
+                background: arrow-ta.has-hover ? Theme.hover : transparent;
+                animate background { duration: Motion.fast; }
+            }
+            Chevron {
+                flip: root.flip;
                 color: Theme.ink;
                 width: 16px;
                 height: 16px;
-                transform-rotation: popup.is-open ? 180deg : 0deg;
-                animate transform-rotation {
-                    duration: 500ms;
-                    easing: Motion.spring;
-                }
             }
             arrow-ta := TouchArea {
                 enabled: root.enabled && root.items.length > 0;
                 mouse-cursor: pointer;
                 clicked => {
+                    root.shutting = false;
                     popup.show();
                 }
             }
@@ -397,46 +451,86 @@ export component ComboField {
         width: root.width + 24px;
         height: min(8, root.items.length) * root.item-height + 10px + 24px;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        Rectangle {
+        menu := Rectangle {
+            property <float> t: 0;
+            // 0 開著、2 收起中
+            property <int> phase: 0;
+            property <length> full: self.height;
+            init => {
+                t = 1;
+            }
+            animate t {
+                duration: menu.phase == 2 ? Motion.exit-dur + 40ms : Motion.enter-dur - 40ms;
+                easing: Motion.out;
+            }
+            // 往下滑開：高度從 40% 長到全高（裁切）、項目從上方 8px 落下；reduce-motion 時只淡入
+            property <length> shown-h: Theme.reduce-motion ? self.full : self.full * (0.4 + 0.6 * self.t);
+            property <length> drop: Theme.reduce-motion ? 0px : (1 - self.t) * 8px;
             x: 12px;
             y: 12px;
             width: parent.width - 24px;
             height: parent.height - 24px;
-            border-radius: 14px;
-            background: Theme.card;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
-            drop-shadow-blur: 20px;
-            drop-shadow-offset-y: 8px;
-            Flickable {
-                x: 5px;
-                y: 5px;
-                width: parent.width - 10px;
-                height: parent.height - 10px;
-                content-height: root.items.length * root.item-height;
-                for item[i] in root.items: Rectangle {
-                    y: i * root.item-height;
-                    height: root.item-height;
-                    border-radius: 10px;
-                    background: row-ta.has-hover ? Theme.fill : transparent;
-                    Text {
-                        x: 10px;
-                        width: parent.width - 20px;
-                        text: item;
-                        color: Theme.ink;
-                        font-size: Theme.fs-md;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-                    row-ta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.text = item;
-                            root.edited(item);
-                            popup.close();
+            SoftShadow {
+                y: 0;
+                height: menu.shown-h;
+                radius: 14px;
+                strength: box.opacity;
+                spread: 10px;
+                offset-y: 5px;
+            }
+            box := Rectangle {
+                y: 0;
+                height: menu.shown-h;
+                opacity: clamp(menu.t * 1.6, 0, 1);
+                border-radius: 14px;
+                background: Theme.card;
+                border-width: 1px;
+                border-color: Theme.line;
+                clip: true;
+                Flickable {
+                    x: 5px;
+                    y: 5px - menu.drop;
+                    width: parent.width - 10px;
+                    height: menu.full - 10px;
+                    content-height: root.items.length * root.item-height;
+                    for item[i] in root.items: Rectangle {
+                        y: i * root.item-height;
+                        height: root.item-height;
+                        border-radius: 10px;
+                        background: row-ta.has-hover ? Theme.fill : transparent;
+                        animate background { duration: Motion.fast; }
+                        Text {
+                            x: 10px + (row-ta.has-hover && !Theme.reduce-motion ? 2px : 0px);
+                            animate x { duration: Motion.fast; easing: Motion.out; }
+                            width: parent.width - 20px;
+                            text: item;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        row-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if menu.phase != 0 {
+                                    return;
+                                }
+                                root.text = item;
+                                root.edited(item);
+                                menu.phase = 2;
+                                root.shutting = true;
+                                menu.t = 0;
+                            }
                         }
                     }
+                }
+            }
+            Timer {
+                interval: Motion.exit-dur + 50ms;
+                running: menu.phase == 2;
+                triggered => {
+                    menu.phase = 0;
+                    popup.close();
                 }
             }
         }
@@ -532,6 +626,8 @@ export component ProjectBadge {
 }
 
 /// 下拉選單（跟 hb-ui-kit Dropdown 同樣的外觀與動畫），清單超過 max-rows 時可以捲動（專案、狀態、範本可能很多）。
+/// 按下時底色往內縮一點；清單往下滑開＋淡入，選了之後勾勾彈出、往上收起再關；箭頭以彈簧翻成朝上。
+/// 選項文字太長被截掉時，滑過那一項會顯示完整文字。
 export component SelectField {
     in property <[string]> items;
     in-out property <int> current: 0;
@@ -543,52 +639,67 @@ export component SelectField {
     height: 44px;
     min-width: 100px;
     opacity: enabled ? 1 : 0.5;
+    animate opacity { duration: Motion.fast; }
     accessible-role: combobox;
     accessible-value: current >= 0 && current < items.length ? items[current] : "";
     property <bool> open: popup.is-open;
+    property <bool> shutting;
+    property <length> inset: ta.pressed ? 1.5px : 0px;
+    animate inset {
+        duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+        easing: ta.pressed ? Motion.press : Motion.spring;
+    }
+    property <float> flip: root.open && !root.shutting ? 1 : 0;
+    animate flip {
+        duration: Theme.reduce-motion ? 200ms : 500ms;
+        easing: Motion.spring;
+    }
+    property <string> shown-text: root.current >= 0 && root.current < root.items.length ? root.items[root.current] : root.placeholder;
     Rectangle {
-        transform-scale: ta.pressed ? 0.97 : 1;
-        animate transform-scale {
-            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
-            easing: ta.pressed ? Motion.press : Motion.spring;
-        }
+        x: root.inset;
+        y: root.inset;
+        width: root.width - 2 * root.inset;
+        height: root.height - 2 * root.inset;
         border-radius: Theme.radius-input;
-        background: root.open ? Theme.card : Theme.fill;
+        background: root.open ? Theme.card : ta.has-hover && root.enabled ? Theme.hover : Theme.fill;
         border-width: 1.5px;
         border-color: root.open ? Theme.ink : transparent;
-        animate background, border-color { duration: 300ms; }
-        HorizontalLayout {
-            padding-left: 14px;
-            padding-right: 12px;
-            spacing: 8px;
-            Text {
-                horizontal-stretch: 1;
-                text: root.current >= 0 && root.current < root.items.length ? root.items[root.current] : root.placeholder;
-                color: root.current >= 0 && root.current < root.items.length ? Theme.ink : Theme.muted;
-                font-size: Theme.fs-md;
-                font-weight: 600;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            Icon {
-                y: (parent.height - self.height) / 2;
-                path: Icons.chevron-down;
-                color: Theme.ink;
-                width: 16px;
-                height: 16px;
-                transform-rotation: root.open ? 180deg : 0deg;
-                animate transform-rotation {
-                    duration: Theme.reduce-motion ? 420ms : 500ms;
-                    easing: Motion.spring;
-                }
-            }
+        animate background, border-color { duration: Motion.fast + 60ms; }
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 12px;
+        spacing: 8px;
+        label := Text {
+            horizontal-stretch: 1;
+            text: root.shown-text;
+            color: root.current >= 0 && root.current < root.items.length ? Theme.ink : Theme.muted;
+            font-size: Theme.fs-md;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Chevron {
+            y: (parent.height - self.height) / 2;
+            flip: root.flip;
+            color: Theme.ink;
+            width: 16px;
+            height: 16px;
         }
     }
     ta := TouchArea {
         enabled: root.enabled && root.items.length > 0;
         mouse-cursor: pointer;
         clicked => {
+            root.shutting = false;
             popup.show();
+        }
+        // 選取的文字被截掉時，滑過顯示完整文字
+        if label.preferred-width > label.width && !root.open: Tooltip {
+            Tip {
+                text: root.shown-text;
+                max-bubble-width: 420px;
+            }
         }
     }
     popup := PopupWindow {
@@ -599,79 +710,131 @@ export component SelectField {
         close-policy: PopupClosePolicy.close-on-click-outside;
         menu := Rectangle {
             property <float> t: 0;
+            // 0 開著、1 選好了（等勾勾彈出）、2 收起中
+            property <int> phase: 0;
+            property <length> full: self.height;
             init => {
                 t = 1;
                 // 打開時把選取的那一項捲進來
                 fl.content-y = -max(0, min(root.current - root.max-rows + 2, root.items.length - root.max-rows)) * root.item-height;
             }
             animate t {
-                duration: Motion.spring-dur;
-                easing: Motion.spring;
+                duration: menu.phase == 2 ? Motion.exit-dur + 40ms : Motion.enter-dur - 40ms;
+                easing: Motion.out;
             }
+            // 往下滑開：高度從 40% 長到全高（裁切）、項目從上方 8px 落下；reduce-motion 時只淡入
+            property <length> shown-h: Theme.reduce-motion ? self.full : self.full * (0.4 + 0.6 * self.t);
+            property <length> drop: Theme.reduce-motion ? 0px : (1 - self.t) * 8px;
             x: 14px;
-            y: 14px - 8px * (1 - self.t);
+            y: 14px;
             width: parent.width - 28px;
             height: parent.height - 28px;
-            opacity: clamp(self.t * 1.5, 0, 1);
-            transform-scale: 0.96 + 0.04 * self.t;
-            transform-origin: { x: self.width / 2, y: 0px };
-            border-radius: 14px;
-            background: Theme.card;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
-            drop-shadow-blur: 22px;
-            drop-shadow-offset-y: 8px;
-            fl := Flickable {
-                x: 5px;
-                y: 5px;
-                width: parent.width - 10px;
-                height: parent.height - 10px;
-                content-height: root.items.length * root.item-height;
-                for item[i] in root.items: Rectangle {
-                    y: i * root.item-height;
-                    height: root.item-height;
-                    border-radius: 10px;
-                    background: row-ta.has-hover ? Theme.fill : transparent;
-                    HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 6px;
-                        Text {
-                            horizontal-stretch: 1;
-                            text: item;
-                            color: Theme.ink;
-                            font-size: Theme.fs-md;
-                            font-weight: i == root.current ? 600 : 400;
-                            vertical-alignment: center;
-                            overflow: elide;
+            SoftShadow {
+                y: 0;
+                height: menu.shown-h;
+                radius: 14px;
+                strength: box.opacity;
+                spread: 11px;
+                offset-y: 5px;
+            }
+            box := Rectangle {
+                y: 0;
+                height: menu.shown-h;
+                opacity: clamp(menu.t * 1.6, 0, 1);
+                border-radius: 14px;
+                background: Theme.card;
+                border-width: 1px;
+                border-color: Theme.line;
+                clip: true;
+                fl := Flickable {
+                    x: 5px;
+                    y: 5px - menu.drop;
+                    width: parent.width - 10px;
+                    height: menu.full - 10px;
+                    content-height: root.items.length * root.item-height;
+                    for item[i] in root.items: row := Rectangle {
+                        property <float> ck: i == root.current ? 1 : 0;
+                        animate ck {
+                            duration: Theme.reduce-motion ? 200ms : 500ms;
+                            easing: Motion.spring;
                         }
-                        if i == root.current: Icon {
-                            y: (parent.height - self.height) / 2;
-                            width: 15px;
-                            height: 15px;
-                            path: Icons.check;
-                            color: Theme.accent;
-                            weight: 2.6;
-                        }
-                    }
-                    row-ta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            if root.current != i {
-                                root.current = i;
-                                root.selected(i);
+                        y: i * root.item-height;
+                        height: root.item-height;
+                        border-radius: 10px;
+                        background: row-ta.has-hover ? Theme.fill : transparent;
+                        animate background { duration: Motion.fast; }
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 6px;
+                            item-text := Text {
+                                horizontal-stretch: 1;
+                                text: item;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: i == root.current ? 600 : 400;
+                                vertical-alignment: center;
+                                overflow: elide;
                             }
-                            popup.close();
+                            // 勾勾彈出（軟體繪圖不能縮放：改成圖示從中心長大）
+                            if row.ck > 0.01: Rectangle {
+                                width: 15px;
+                                Icon {
+                                    width: 15px * clamp(0.4 + 0.6 * row.ck, 0, 1.3);
+                                    height: self.width;
+                                    path: Icons.check;
+                                    color: Theme.accent;
+                                    weight: 2.6;
+                                    opacity: clamp(row.ck * 2, 0, 1);
+                                }
+                            }
+                        }
+                        row-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if menu.phase != 0 {
+                                    return;
+                                }
+                                if root.current != i {
+                                    root.current = i;
+                                    root.selected(i);
+                                }
+                                menu.phase = 1;
+                            }
+                            // 選項被截掉時，滑過顯示完整文字
+                            if item-text.preferred-width > item-text.width: Tooltip {
+                                Tip {
+                                    text: item;
+                                    max-bubble-width: 420px;
+                                }
+                            }
                         }
                     }
+                }
+            }
+            // 選取後讓勾勾彈出，再往上收起（反向）、關掉
+            Timer {
+                interval: Theme.reduce-motion ? 60ms : 200ms;
+                running: menu.phase == 1;
+                triggered => {
+                    menu.phase = 2;
+                    root.shutting = true;
+                    menu.t = 0;
+                }
+            }
+            Timer {
+                interval: Motion.exit-dur + 50ms;
+                running: menu.phase == 2;
+                triggered => {
+                    menu.phase = 0;
+                    popup.close();
                 }
             }
         }
     }
 }
 
-/// 左側導覽的一項（C# Shared.xaml NavItem）：滑過淡灰底，選中時淡色底＋左邊橘色細條、字變粗。
+/// 左側導覽的一項（C# Shared.xaml NavItem）：滑過淡灰底、字往右 2px，選中時淡色底＋左邊橘色細條（彈出）、字變粗。
 export component NavItem {
     in property <string> text;
     in property <bool> selected;
@@ -700,10 +863,13 @@ export component NavItem {
         }
     }
     HorizontalLayout {
-        padding-left: 14px;
+        // 滑過（沒選的）時文字往右 2px
+        property <length> nudge: ta.has-hover && !root.selected && !Theme.reduce-motion ? 2px : 0px;
+        animate nudge { duration: Motion.fast; easing: Motion.out; }
+        padding-left: 14px + self.nudge;
         padding-right: 10px;
         spacing: 6px;
-        Text {
+        nav-text := Text {
             horizontal-stretch: 1;
             text: root.text;
             color: Theme.ink;
@@ -725,10 +891,16 @@ export component NavItem {
         clicked => {
             root.clicked();
         }
+        // 名稱被截掉時，滑過顯示完整文字
+        if nav-text.preferred-width > nav-text.width: Tooltip {
+            Tip {
+                text: root.text;
+            }
+        }
     }
 }
 
-/// 看起來像文字、點了可以直接改（C# InlineEdit，任務名稱）：滑過出現淡底線，編輯時底線變強調色。
+/// 看起來像文字、點了可以直接改（C# InlineEdit，任務名稱）：滑過出現淡底線，編輯時強調色底線從中間往兩邊畫開。
 export component InlineEdit {
     in-out property <string> text;
     in property <length> font-size: Theme.fs-md;
@@ -743,36 +915,52 @@ export component InlineEdit {
     in property <bool> single-line: true;
     forward-focus: input;
     min-height: input.preferred-height + 4px;
-    input := TextInput {
-        y: 1px;
-        width: root.width;
-        text <=> root.text;
-        single-line: root.single-line;
-        wrap: root.single-line ? TextWrap.no-wrap : TextWrap.word-wrap;
-        enabled: root.enabled;
-        color: Theme.ink;
-        font-size: root.font-size;
-        font-weight: root.font-weight;
-        selection-background-color: Theme.accent-soft;
-        selection-foreground-color: Theme.ink;
-        text-cursor-width: 1.5px;
-        accepted => {
-            root.accepted(self.text);
-        }
-        edited => {
-            root.edited(self.text);
-        }
-        changed has-focus => {
-            if !self.has-focus {
-                root.focus-lost(self.text);
+    // 長名稱不要把欄位撐得比版面還寬（超出的部分裁掉，編輯時 TextInput 會跟著游標捲動）
+    min-width: 0px;
+    // 名稱比欄位長時不要畫到外面
+    Rectangle {
+        clip: true;
+        input := TextInput {
+            y: 1px;
+            width: root.width;
+            text <=> root.text;
+            single-line: root.single-line;
+            wrap: root.single-line ? TextWrap.no-wrap : TextWrap.word-wrap;
+            enabled: root.enabled;
+            color: Theme.ink;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            selection-background-color: Theme.accent-soft;
+            selection-foreground-color: Theme.ink;
+            text-cursor-width: 1.5px;
+            accepted => {
+                root.accepted(self.text);
+            }
+            edited => {
+                root.edited(self.text);
+            }
+            changed has-focus => {
+                if !self.has-focus {
+                    root.focus-lost(self.text);
+                }
             }
         }
     }
+    // 滑過：淡底線淡入
+    Rectangle {
+        y: root.height - 1px;
+        height: 1px;
+        background: Theme.line;
+        opacity: ta.has-hover || input.has-focus ? 1 : 0;
+        animate opacity { duration: 180ms; }
+    }
+    // 編輯中：強調色底線從中間往兩邊畫開
     Rectangle {
         y: root.height - 1.5px;
-        height: input.has-focus ? 1.5px : 1px;
-        background: input.has-focus ? Theme.accent : ta.has-hover ? Theme.line : transparent;
-        animate background { duration: 180ms; }
+        height: 1.5px;
+        width: input.has-focus ? root.width : 0px;
+        background: Theme.accent;
+        animate width { duration: Theme.reduce-motion ? 0ms : 260ms; easing: Motion.out; }
     }
     ta := TouchArea {
         mouse-cursor: MouseCursor.text;
@@ -795,6 +983,7 @@ export component InfoCard inherits Rectangle {
     in property <length> content-padding: 16px;
     background: Theme.fill;
     border-radius: Theme.radius-field;
+    animate background { duration: 300ms; }
     VerticalLayout {
         padding: root.content-padding;
         spacing: 6px;

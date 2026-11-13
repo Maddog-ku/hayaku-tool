@@ -15,6 +15,7 @@ pub mod panel;
 pub mod popup;
 pub mod settings;
 pub mod shot;
+pub mod slide;
 pub mod theme_manager;
 pub mod toast;
 

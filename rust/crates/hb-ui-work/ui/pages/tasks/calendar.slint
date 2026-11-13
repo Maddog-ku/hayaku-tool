@@ -3,8 +3,46 @@
 // 沒有預計日期的列在右邊，拖到日期上就把起訖都設成那天。放不下的那天顯示「+N」，點了選要打開哪個。
 import { Theme, Motion, ScrollView, Tip } from "@hb/index.slint";
 import { TaskMenuArea } from "@hbc/index.slint";
-import { SmallButton } from "../../shared/index.slint";
+import { SmallButton, ListReveal } from "../../shared/index.slint";
 import { TasksPageData, TkBar, TkPick } from "data.slint";
+
+/// 剛拖拉放開的任務（日曆、甘特重畫後那一條從上面落下回彈一下；1.5 秒後清掉）
+export global DropFx {
+    in-out property <string> key;
+}
+
+/// 任務條的出現與放開動畫：grow 從 0 長到 1（載入、切換時由左往右長出來並淡入），
+/// settle 從 0 以彈簧回到 1（拖拉放開後從上面 7px 落下、稍微壓過頭再彈回）。reduce-motion 時都不播。
+export component BarMotion {
+    in property <string> key;
+    in property <int> index;
+    out property <float> grow: ListReveal.on && !Theme.reduce-motion ? 0 : 1;
+    out property <float> settle: 1;
+    property <bool> snap;
+    public function bounce() {
+        if !Theme.reduce-motion {
+            snap = true;
+            settle = 0;
+            snap = false;
+            settle = 1;
+        }
+    }
+    init => {
+        grow = 1;
+        if root.key != "" && DropFx.key == root.key {
+            root.bounce();
+        }
+    }
+    animate grow {
+        delay: Theme.reduce-motion ? 0ms : min(root.index, 16) * 22ms;
+        duration: Theme.reduce-motion ? 0ms : 340ms;
+        easing: Motion.out;
+    }
+    animate settle {
+        duration: snap ? 0ms : Motion.spring-dur;
+        easing: Motion.spring;
+    }
+}
 
 /// 任務條的外觀：專案顏色的淡底＋實線邊（左邊粗），逾期是紅邊，完成的變淡，計時中前面加 ●；
 /// from-before／to-after：前一週／下一週還有（那一邊不畫邊、不圓角）。
@@ -97,14 +135,28 @@ export component ScheduleToolbar {
         Rectangle {
             width: 4px;
         }
-        Text {
-            text: TasksPageData.schedule-hint;
-            color: Theme.faint;
-            font-size: Theme.fs-sm;
-            vertical-alignment: center;
-            horizontal-alignment: right;
-            overflow: elide;
+        // 說明放不下時省略，滑過看完整
+        Rectangle {
             horizontal-stretch: 1;
+            min-width: 0px;
+            hint := Text {
+                width: parent.width;
+                height: parent.height;
+                text: TasksPageData.schedule-hint;
+                color: Theme.faint;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                overflow: elide;
+            }
+            if hint.width < hint.preferred-width - 1px: TouchArea {
+                Tooltip {
+                    Tip {
+                        text: TasksPageData.schedule-hint;
+                        max-bubble-width: 320px;
+                    }
+                }
+            }
         }
     }
 }
@@ -113,13 +165,21 @@ export component ScheduleToolbar {
 component CalendarBar {
     in property <TkBar> bar;
     in property <bool> undated;
+    in property <int> index;
     callback day-at(length, length) -> int;
     property <bool> started;
     property <length> px;
     property <length> py;
+    fx := BarMotion {
+        key: root.bar.key;
+        index: root.index;
+    }
     BarLook {
-        width: parent.width;
+        x: 0;
+        y: (1 - fx.settle) * -7px;
+        width: parent.width * fx.grow;
         height: parent.height;
+        opacity: (TasksPageData.drag-key == root.bar.key ? 0.5 : root.bar.done ? 0.55 : 1) * fx.grow;
         bar: root.bar;
         dragging: TasksPageData.drag-key == root.bar.key;
     }
@@ -137,6 +197,11 @@ component CalendarBar {
                 root.py = self.absolute-position.y + self.mouse-y;
                 TasksPageData.bar-press(root.bar.key, root.undated, root.day-at(root.px, root.py));
             } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                if root.started {
+                    // 重畫後這一條落下回彈
+                    DropFx.key = root.bar.key;
+                    fx.bounce();
+                }
                 TasksPageData.bar-release(root.bar.key, root.started);
                 root.started = false;
             } else if e.kind == PointerEventKind.cancel {
@@ -177,6 +242,14 @@ export component CalendarView {
     property <length> more-y;
     changed height => {
         TasksPageData.cal-resized(self.height);
+    }
+    // 放開的回彈播完就清掉，之後的重畫不再播
+    Timer {
+        interval: 1500ms;
+        running: DropFx.key != "";
+        triggered => {
+            DropFx.key = "";
+        }
     }
     init => {
         TasksPageData.cal-resized(self.height);
@@ -252,7 +325,8 @@ export component CalendarView {
                             }
                         }
                     }
-                    for b in TasksPageData.cal-bars: CalendarBar {
+                    for b[bi] in TasksPageData.cal-bars: CalendarBar {
+                        index: bi;
                         x: b.column * root.cell-w + (b.from-before ? 0px : 3px);
                         y: b.week * root.week-h + root.date-row + b.lane * root.lane-row + 1px;
                         width: b.days * root.cell-w - (b.from-before ? 0px : 3px) - (b.to-after ? 1px : 4px);
@@ -263,9 +337,11 @@ export component CalendarView {
                             root.day-at(ax, ay)
                         }
                     }
+                    // 「+N」放在任務條下面；週太矮（視窗矮）放不下時改放在日期那一行的右邊，不會疊到下一週的日期
                     for m[i] in TasksPageData.cal-more: Rectangle {
-                        x: m.column * root.cell-w + 6px;
-                        y: m.week * root.week-h + root.date-row + TasksPageData.cal-lanes * root.lane-row;
+                        property <bool> tight: root.week-h < root.date-row + TasksPageData.cal-lanes * root.lane-row + 15px;
+                        x: self.tight ? (m.column + 1) * root.cell-w - self.width - 3px : m.column * root.cell-w + 6px;
+                        y: m.week * root.week-h + (self.tight ? 3px : root.date-row + TasksPageData.cal-lanes * root.lane-row);
                         width: more-text.preferred-width + 6px;
                         height: 15px;
                         more-text := Text {
@@ -315,7 +391,8 @@ export component CalendarView {
                         width: sv.visible-width - 10px;
                         padding-top: 4px;
                         spacing: 4px;
-                        for b in TasksPageData.cal-undated: CalendarBar {
+                        for b[bi] in TasksPageData.cal-undated: CalendarBar {
+                            index: bi;
                             height: 17px;
                             bar: b;
                             undated: true;

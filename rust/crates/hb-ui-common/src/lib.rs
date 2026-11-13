@@ -55,9 +55,15 @@ pub fn ui_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ui")
 }
 
-/// 給每個視窗套 Theme（深色、減少動畫）。
+/// 給每個視窗套 Theme（深色、減少動畫），以及開關動畫的狀態（ui/windows/dialog.slint 的 DialogMotion）。
 pub(crate) trait Themed {
     fn apply_theme(&self, dark: bool, reduce_motion: bool);
+    /// 視窗顯示了：內容開始依序出現
+    fn set_motion_shown(&self, shown: bool);
+    /// 要關了：內容淡出（之後由 window_util 藏起視窗）
+    fn set_motion_closing(&self, closing: bool);
+    fn motion_closing(&self) -> bool;
+    fn reduce_motion(&self) -> bool;
 }
 
 macro_rules! impl_themed {
@@ -68,6 +74,22 @@ macro_rules! impl_themed {
                 let theme = self.global::<ui::Theme>();
                 theme.set_dark(dark);
                 theme.set_reduce_motion(reduce_motion);
+            }
+            fn set_motion_shown(&self, shown: bool) {
+                use slint::ComponentHandle as _;
+                self.global::<ui::DialogMotion>().set_shown(shown);
+            }
+            fn set_motion_closing(&self, closing: bool) {
+                use slint::ComponentHandle as _;
+                self.global::<ui::DialogMotion>().set_closing(closing);
+            }
+            fn motion_closing(&self) -> bool {
+                use slint::ComponentHandle as _;
+                self.global::<ui::DialogMotion>().get_closing()
+            }
+            fn reduce_motion(&self) -> bool {
+                use slint::ComponentHandle as _;
+                self.global::<ui::Theme>().get_reduce_motion()
             }
         }
     )*};

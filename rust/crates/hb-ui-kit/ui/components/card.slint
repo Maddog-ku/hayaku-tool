@@ -1,5 +1,6 @@
 // 卡片：白底大圓角；inverse（設計稿 .dark）、accent（設計稿 .acc）變體；lbl 標題列（左中文、右英文小字）。
-import { Theme } from "../theme.slint";
+// hoverable 時滑過出現外框、底色略亮（軟體繪圖畫不出 drop-shadow，卡片又會裁切子元素，所以不用陰影）。
+import { Theme, Motion } from "../theme.slint";
 
 export enum CardVariant { normal, inverse, accent }
 
@@ -10,15 +11,22 @@ export component Card inherits Rectangle {
     in property <CardVariant> variant: normal;
     in property <length> content-padding: Theme.pad;
     in property <length> content-spacing: 10px;
+    /// 滑過時浮起（外框＋底色略亮）；預設關（大卡片滑過就變色會太吵）
+    in property <bool> hoverable: false;
     /// 卡片上文字該用的顏色（給子元件參考）
     out property <color> fg: variant == CardVariant.inverse ? Theme.inverse-text : variant == CardVariant.accent ? Theme.on-accent : Theme.ink;
     out property <color> fg-muted: variant == CardVariant.inverse ? Theme.inverse-muted : variant == CardVariant.accent ? #0E0F138C : Theme.muted;
-    background: variant == CardVariant.inverse ? Theme.inverse-bg : variant == CardVariant.accent ? Theme.accent : Theme.card;
+    property <bool> lifted: root.hoverable && hover-ta.has-hover;
+    background: variant == CardVariant.inverse ? Theme.inverse-bg : variant == CardVariant.accent ? Theme.accent : root.lifted && Theme.dark ? Theme.hover : Theme.card;
     border-radius: Theme.radius-card;
-    border-width: Theme.dark && variant == CardVariant.inverse ? 1px : 0px;
-    border-color: Theme.line;
+    border-width: (Theme.dark && variant == CardVariant.inverse) || root.hoverable ? 1px : 0px;
+    border-color: root.lifted ? Theme.faint : root.hoverable && !(Theme.dark && variant == CardVariant.inverse) ? transparent : Theme.line;
     clip: true;
     animate background { duration: 300ms; }
+    animate border-color { duration: Motion.fast + 60ms; }
+    hover-ta := TouchArea {
+        enabled: root.hoverable;
+    }
     VerticalLayout {
         padding: root.content-padding;
         // 底部留白扣掉尾端空白前的 spacing，總和仍是 content-padding

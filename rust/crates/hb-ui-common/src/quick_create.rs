@@ -167,7 +167,11 @@ impl QuickCreate {
         OPEN.with(|o| {
             let mut list = o.borrow_mut();
             list.retain(|(_, w)| w.strong_count() > 0);
-            list.iter().find(|(s, _)| s == session_id).and_then(|(_, w)| w.upgrade()).map(QuickCreate)
+            // 已經關掉（可能還在淡出，還沒放掉）的不算
+            list.iter()
+                .filter_map(|(s, w)| if s == session_id { w.upgrade() } else { None })
+                .find(|inner| !inner.state.borrow().closed)
+                .map(QuickCreate)
         })
     }
 
@@ -266,6 +270,7 @@ impl QuickCreate {
         window_util::set_dark_title_bar(ui.window(), crate::theme::current().0);
         window_util::place_near(ui.window(), anchor, align_left);
         ui.window().request_redraw();
+        window_util::start_intro(ui);
         window_util::activate(ui.window());
         ui.invoke_focus_title();
         if inner.state.borrow().presented {
@@ -325,12 +330,16 @@ impl QuickCreate {
                 a.abort();
             }
         }
-        let _ = inner.ui.hide();
         let result = self.result();
         for f in inner.closed_handlers.borrow().iter() {
             f(&result);
         }
-        window_util::release(inner.id.get());
+        // 顯示中的先淡出再藏起來（reduce-motion、預先建好還沒顯示的直接收）
+        let id = inner.id.get();
+        window_util::fade_out(&inner.ui, move |ui| {
+            let _ = ui.hide();
+            window_util::release(id);
+        });
     }
 
     fn selected_project(&self) -> Option<ProjectInfo> {
@@ -348,9 +357,18 @@ impl QuickCreate {
         };
         {
             let with = with.clone();
+            // 按 ×：close() 會先淡出再藏起來，所以這裡不讓 Slint 直接藏
             ui.window().on_close_requested(move || {
-                with(&|me| me.close());
-                slint::CloseRequestResponse::HideWindow
+                let found = Cell::new(false);
+                with(&|me| {
+                    found.set(true);
+                    me.close();
+                });
+                if found.get() {
+                    slint::CloseRequestResponse::KeepWindowShown
+                } else {
+                    slint::CloseRequestResponse::HideWindow
+                }
             });
         }
         {

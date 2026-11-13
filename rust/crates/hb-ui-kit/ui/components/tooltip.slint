@@ -1,4 +1,4 @@
-// 提示泡泡：ink 底小圓角泡泡，出現時以彈簧從 0.9 放大並淡入。
+// 提示泡泡：ink 底小圓角泡泡，出現時以彈簧從下方浮上來並淡入。
 // Slint 內建 Tooltip 負責 hover 延遲、定位與疊在最上層；這裡只提供外觀（Tip）與包裝（TipArea）。
 import { Theme, Motion } from "../theme.slint";
 
@@ -11,13 +11,14 @@ export component Tip {
         t = 1;
     }
     animate t {
-        duration: Motion.spring-dur;
+        duration: Theme.reduce-motion ? 120ms : 450ms;
         easing: Motion.spring;
     }
     width: min(root.max-bubble-width, txt.preferred-width + 20px);
     height: txt.preferred-height + 12px;
+    // 浮出：從下方 4px 浮上來並淡入（軟體繪圖不支援 transform-scale；reduce-motion 時只淡入）
     Rectangle {
-        transform-scale: 0.9 + 0.1 * root.t;
+        y: Theme.reduce-motion ? 0px : (1 - root.t) * 4px;
         opacity: clamp(root.t * 1.5, 0, 1);
         border-radius: 8px;
         background: Theme.ink;

@@ -8,7 +8,7 @@ use slint::ComponentHandle;
 use crate::window_util;
 
 /// 有 `busy`、`error` 兩個屬性的小視窗。
-pub(crate) trait DialogUi: ComponentHandle + 'static {
+pub(crate) trait DialogUi: ComponentHandle + crate::Themed + 'static {
     fn set_busy_flag(&self, busy: bool);
     fn set_error_text(&self, text: &str);
 }

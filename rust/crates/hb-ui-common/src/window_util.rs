@@ -1,5 +1,5 @@
 //! 小視窗共用：保留視窗（Slint 的元件被丟掉視窗就關了）、置中、擺到工作列上方、不佔工作列（WS_EX_TOOLWINDOW）、
-//! 標題列深淺色（C# `ThemeManager.ApplyTitleBar`）、拉到前面。
+//! 標題列深淺色（C# `ThemeManager.ApplyTitleBar`）、拉到前面、開關動畫（內容依序出現、關閉前淡出）。
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -76,6 +76,15 @@ pub(crate) fn activate_tag(tag: &str) -> bool {
         }
         None => false,
     }
+}
+
+/// 正在關（淡出中）的視窗不再算「同一個已經開著」：清掉它的 tag，之後同一個再開會開新的。
+fn forget_tag(id: u64) {
+    OPEN.with(|o| {
+        if let Some(e) = o.borrow_mut().get_mut(&id) {
+            e.tag = None;
+        }
+    });
 }
 
 /// 放掉 [`keep`] 留住的東西；延到下一輪事件迴圈才丟，避免在視窗自己的回呼裡把自己丟掉。
@@ -236,10 +245,44 @@ pub enum Placement<'a> {
     Manual,
 }
 
-/// 顯示一個小視窗：套用深淺色（之後也跟著換）、顯示、不佔工作列、標題列深淺色、擺好位置。
-/// 視窗被關掉（使用者按 ×）時放掉 [`keep`] 的 id。
+/// 關閉前淡出要等多久：DialogMotion.closing 的淡出是 120ms（Motion.exit-dur），多等一點讓最後一格畫完。
+const CLOSE_FADE: Duration = Duration::from_millis(130);
+
+/// 開始播出現動畫：等下一輪事件迴圈（視窗已經建好、動畫的時間是新的）再把 DialogMotion.shown 設成 true，
+/// 各區塊（ui/windows/dialog.slint 的 Section）就會依序往上浮出＋淡入。已經 true 的不會重播。
+pub(crate) fn start_intro<T: slint::ComponentHandle + crate::Themed + 'static>(ui: &T) {
+    let weak = ui.as_weak();
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_motion_shown(true);
+        }
+    });
+}
+
+/// 先讓內容淡出（DialogMotion.closing，約 120ms，關閉中擋掉滑鼠和鍵盤）再執行 done（藏起視窗）。
+/// reduce-motion、或視窗根本沒顯示時直接 done；已經在淡出就什麼都不做（避免關兩次）。
+pub(crate) fn fade_out<T: slint::ComponentHandle + crate::Themed + 'static>(ui: &T, done: impl FnOnce(&T) + 'static) {
+    if ui.motion_closing() {
+        return;
+    }
+    if ui.reduce_motion() || !ui.window().is_visible() {
+        done(ui);
+        return;
+    }
+    ui.set_motion_closing(true);
+    ui.window().request_redraw();
+    let weak = ui.as_weak();
+    slint::Timer::single_shot(CLOSE_FADE, move || {
+        if let Some(ui) = weak.upgrade() {
+            done(&ui);
+        }
+    });
+}
+
+/// 顯示一個小視窗：套用深淺色（之後也跟著換）、顯示、不佔工作列、標題列深淺色、擺好位置，然後播出現動畫。
+/// 視窗被關掉（使用者按 ×）時先淡出再藏起來，放掉 [`keep`] 的 id。
 /// estimate：視窗大約的大小（邏輯像素）；顯示前先用它擺好位置（一出現就在螢幕內、不會跳），顯示後再用實際大小擺一次。
-pub(crate) fn present<T: slint::ComponentHandle + 'static>(
+pub(crate) fn present<T: slint::ComponentHandle + crate::Themed + 'static>(
     ui: &T,
     id: u64,
     placement: Placement<'_>,
@@ -256,9 +299,16 @@ pub(crate) fn present<T: slint::ComponentHandle + 'static>(
         }
         None => false,
     });
-    ui.window().on_close_requested(move || {
-        release(id);
-        slint::CloseRequestResponse::HideWindow
+    let weak = ui.as_weak();
+    ui.window().on_close_requested(move || match weak.upgrade() {
+        Some(ui) => {
+            close(&ui, id);
+            slint::CloseRequestResponse::KeepWindowShown
+        }
+        None => {
+            release(id);
+            slint::CloseRequestResponse::HideWindow
+        }
     });
     let place = |window: &slint::Window| match placement {
         Placement::Screen | Placement::Owner(None) => center_on_screen_est(window, estimate),
@@ -277,10 +327,14 @@ pub(crate) fn present<T: slint::ComponentHandle + 'static>(
     set_dark_title_bar(ui.window(), crate::theme::current().0);
     place(ui.window());
     ui.window().request_redraw();
+    start_intro(ui);
 }
 
-/// 從程式關掉小視窗（C# `Close()`）：藏起來、放掉。
-pub(crate) fn close<T: slint::ComponentHandle>(ui: &T, id: u64) {
-    let _ = ui.hide();
-    release(id);
+/// 關掉小視窗（C# `Close()`；程式關或使用者按 ×）：內容先淡出（reduce-motion 時不等），再藏起來、放掉。
+pub(crate) fn close<T: slint::ComponentHandle + crate::Themed + 'static>(ui: &T, id: u64) {
+    forget_tag(id);
+    fade_out(ui, move |ui| {
+        let _ = ui.hide();
+        release(id);
+    });
 }

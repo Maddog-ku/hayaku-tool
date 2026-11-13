@@ -148,11 +148,18 @@ impl Shell {
         let arg = self.pending_arg.borrow_mut().take();
         let ctx = self.ctx();
         let key = pages::PAGES[index].0;
+        // 載入中新建立的清單依序浮現（ListReveal.busy > 0 時外框不關開關；載入完 450ms 後才關，之後的刷新不播）
+        reveal_busy(&self.window, 1);
+        let weak = self.window.as_weak();
         let task = async move {
             pages::activate(index, ctx, arg).await;
+            if let Some(w) = weak.upgrade() {
+                reveal_busy(&w, -1);
+            }
             log::debug!("工作台 {key} 載入完成");
         };
         if let Err(e) = slint::spawn_local(task) {
+            reveal_busy(&self.window, -1);
             log::error!("工作台 {key} 載入失敗：{e}");
         }
     }
@@ -231,6 +238,15 @@ impl Shell {
         let page = pages::PAGES.get(index)?.0;
         self.menu_hooks.borrow().get(page).cloned()
     }
+}
+
+/// 頁面載入中計數（`ListReveal.busy`）加減；加的時候順便打開依序浮現的開關。
+fn reveal_busy(window: &WorkspaceWindow, delta: i32) {
+    let reveal = window.global::<ListReveal>();
+    if delta > 0 {
+        reveal.set_on(true);
+    }
+    reveal.set_busy((reveal.get_busy() + delta).max(0));
 }
 
 /// 導覽徽章的文字（C# RefreshChrome）：我的任務「逾期 N」、待我審核與測試是數字。

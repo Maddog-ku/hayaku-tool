@@ -2,7 +2,7 @@
 // 一開始是「要修」（待修復）或「之後再測」（未開始）。關聯任務先帶入測試任務的上層，也能快速選同一層的其他任務。
 import { Theme, Button, ButtonKind, TextField, Dropdown } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, TextArea, ComboField, RadioDot, SelectField } from "../common.slint";
-import { DialogBody, DialogButtons, DialogTitle } from "dialog.slint";
+import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
 
 export component AddTestResultWindow inherits Window {
     icon: @image-url("../../../hayakubar/assets/app.ico");
@@ -45,157 +45,187 @@ export component AddTestResultWindow inherits Window {
         cancel => {
             root.cancel();
         }
-        DialogTitle {
-            text: root.heading;
-        }
-        VerticalLayout {
-            spacing: 6px;
-            FieldLabel {
-                text: "名稱";
-            }
-            title-box := TextField {
-                height: 42px;
-                text <=> root.title-text;
-                font-size: Theme.fs-md;
-                enabled: !root.busy;
+        Section {
+            index: 0;
+            DialogTitle {
+                text: root.heading;
             }
         }
-        VerticalLayout {
-            spacing: 6px;
-            FieldLabel {
-                text: "內容（重現步驟、預期與實際結果；可用 Markdown）";
-            }
-            TextArea {
-                text <=> root.content;
-                min-height: 90px;
-                preferred-height: 100px;
-                enabled: !root.busy;
-            }
-        }
-        HorizontalLayout {
-            spacing: 12px;
-            alignment: start;
+        Section {
+            index: 1;
             VerticalLayout {
                 spacing: 6px;
                 FieldLabel {
-                    text: "分類";
+                    text: "名稱";
                 }
-                Dropdown {
-                    width: 140px;
+                title-box := TextField {
                     height: 42px;
-                    items: root.categories;
-                    current <=> root.category;
-                    enabled: !root.busy;
-                }
-            }
-            VerticalLayout {
-                spacing: 6px;
-                FieldLabel {
-                    text: "嚴重度";
-                }
-                Dropdown {
-                    width: 120px;
-                    height: 42px;
-                    items: root.severities;
-                    current <=> root.severity;
+                    text <=> root.title-text;
+                    font-size: Theme.fs-md;
                     enabled: !root.busy;
                 }
             }
         }
-        VerticalLayout {
-            spacing: 6px;
-            FieldLabel {
-                text: "要誰修（不選是未指派）";
-            }
-            ComboField {
-                height: 42px;
-                text <=> root.assignee;
-                items: root.members;
-                enabled: !root.busy;
-            }
-        }
-        VerticalLayout {
-            spacing: 6px;
-            FieldLabel {
-                text: "關聯任務（編號，用逗號分開；可以跨專案）";
-            }
-            TextField {
-                height: 42px;
-                text <=> root.related;
-                font-size: Theme.fs-md;
-                enabled: !root.busy;
-            }
-            if root.siblings.length > 0: SelectField {
-                height: 40px;
-                items: root.siblings;
-                current <=> root.sibling;
-                enabled: !root.busy;
-                selected(i) => {
-                    root.sibling-picked(i);
+        Section {
+            index: 2;
+            VerticalLayout {
+                spacing: 6px;
+                FieldLabel {
+                    text: "內容（重現步驟、預期與實際結果；可用 Markdown）";
+                }
+                TextArea {
+                    text <=> root.content;
+                    min-height: 90px;
+                    preferred-height: 100px;
+                    enabled: !root.busy;
                 }
             }
         }
-        VerticalLayout {
-            spacing: 6px;
-            FieldLabel {
-                text: "期限（要修時給工程師看的預計結束）";
-            }
-            TextField {
-                height: 42px;
-                text <=> root.due;
-                placeholder: "期限，例 11/5、明天、+3（可以不填）";
-                font-size: Theme.fs-md;
-                enabled: !root.busy;
-            }
-        }
-        HorizontalLayout {
-            spacing: 16px;
-            alignment: start;
-            RadioDot {
-                text: "要修（待修復）";
-                on: root.to-fix;
-                clicked => {
-                    root.to-fix = true;
+        Section {
+            index: 3;
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                VerticalLayout {
+                    spacing: 6px;
+                    FieldLabel {
+                        text: "分類";
+                    }
+                    Dropdown {
+                        width: 140px;
+                        height: 42px;
+                        items: root.categories;
+                        current <=> root.category;
+                        enabled: !root.busy;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 6px;
+                    FieldLabel {
+                        text: "嚴重度";
+                    }
+                    Dropdown {
+                        width: 120px;
+                        height: 42px;
+                        items: root.severities;
+                        current <=> root.severity;
+                        enabled: !root.busy;
+                    }
                 }
             }
-            RadioDot {
-                text: "先建好，之後再測（未開始）";
-                on: !root.to-fix;
-                clicked => {
-                    root.to-fix = false;
+        }
+        Section {
+            index: 4;
+            VerticalLayout {
+                spacing: 6px;
+                FieldLabel {
+                    text: "要誰修（不選是未指派）";
+                }
+                ComboField {
+                    height: 42px;
+                    text <=> root.assignee;
+                    items: root.members;
+                    enabled: !root.busy;
                 }
             }
         }
-        MutedText {
-            text: "截圖、附件 MCP 不能上傳，建好後到網頁貼（內容可以文字和截圖穿插）。";
+        Section {
+            index: 4;
+            VerticalLayout {
+                spacing: 6px;
+                FieldLabel {
+                    text: "關聯任務（編號，用逗號分開；可以跨專案）";
+                }
+                TextField {
+                    height: 42px;
+                    text <=> root.related;
+                    font-size: Theme.fs-md;
+                    enabled: !root.busy;
+                }
+                if root.siblings.length > 0: SelectField {
+                    height: 40px;
+                    items: root.siblings;
+                    current <=> root.sibling;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.sibling-picked(i);
+                    }
+                }
+            }
+        }
+        Section {
+            index: 5;
+            VerticalLayout {
+                spacing: 6px;
+                FieldLabel {
+                    text: "期限（要修時給工程師看的預計結束）";
+                }
+                TextField {
+                    height: 42px;
+                    text <=> root.due;
+                    placeholder: "期限，例 11/5、明天、+3（可以不填）";
+                    font-size: Theme.fs-md;
+                    enabled: !root.busy;
+                }
+            }
+        }
+        Section {
+            index: 5;
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+                RadioDot {
+                    text: "要修（待修復）";
+                    on: root.to-fix;
+                    clicked => {
+                        root.to-fix = true;
+                    }
+                }
+                RadioDot {
+                    text: "先建好，之後再測（未開始）";
+                    on: !root.to-fix;
+                    clicked => {
+                        root.to-fix = false;
+                    }
+                }
+            }
+        }
+        Section {
+            index: 6;
+            MutedText {
+                text: "截圖、附件 MCP 不能上傳，建好後到網頁貼（內容可以文字和截圖穿插）。";
+            }
         }
         StatusLine {
             text: root.error != "" ? root.error : root.notice;
             tone: root.error != "" ? 0 : 1;
         }
-        DialogButtons {
-            Button {
-                text: "加入";
-                kind: ButtonKind.primary;
-                enabled: !root.busy;
-                clicked => {
-                    root.add(false);
+        Section {
+            index: 6;
+            DialogButtons {
+                Button {
+                    text: "加入";
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.add(false);
+                    }
                 }
-            }
-            Button {
-                text: "加入，再記一筆";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.add(true);
+                Button {
+                    text: "加入，再記一筆";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.add(true);
+                    }
                 }
-            }
-            Button {
-                text: "取消";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.cancel();
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
                 }
             }
         }

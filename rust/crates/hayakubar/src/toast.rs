@@ -2,15 +2,18 @@
 //!
 //! 跟 C# 不同：C# 的提示視窗外圈有 8 的透明陰影邊；Rust 版視窗就是卡片本身，位置計算把陰影邊扣掉，
 //! 看得到的卡片位置、間距跟 C# 一樣。
+//! 動畫（[`crate::slide`]）：新的一則從工作列那一側長出來；關閉時往外（靠右的往右、靠左的往左）滑出並淡出；
+//! 其他則平滑移到新位置。Windows「顯示動畫」關閉時直接出現、消失。
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use hb_core::{ToastAction, ToastRequest};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::popup::{self, PopupKind};
+use crate::slide::{self, Edge, WindowSlide};
 use crate::theme_manager::ThemeManager;
 use crate::ui::{ToastButton, ToastWindow};
 
@@ -18,6 +21,10 @@ use crate::ui::{ToastButton, ToastWindow};
 pub const MAX_VISIBLE: usize = 4;
 /// 卡片寬（C# Width 360 扣掉兩邊 8 的陰影邊）。
 pub const CARD_WIDTH: f32 = 344.0;
+/// 從工作列長出來、往外滑出、其他則補位的時間。
+const ENTER_DURATION: Duration = Duration::from_millis(300);
+const EXIT_DURATION: Duration = Duration::from_millis(220);
+const GLIDE_DURATION: Duration = Duration::from_millis(260);
 
 /// 一則提示在排列時的資料（實體像素）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +94,16 @@ pub struct Toast {
     closing: Cell<bool>,
     dismissed: RefCell<Option<DismissedFn>>,
     me: Weak<Toast>,
+    /// 進出場動畫
+    slide: WindowSlide,
+    /// 已經顯示（開始滑進來）
+    shown: Cell<bool>,
+    /// 靠左展開（關閉時往左滑出）
+    align_left: Cell<bool>,
+    /// 停留倒數開始的時間（滑鼠移上去時算剩下多少）
+    countdown_started: Cell<Option<Instant>>,
+    /// 重新排列全部提示（原生視窗晚建立、拿到實際大小後用）
+    relayout: RefCell<Option<Box<dyn Fn()>>>,
 }
 
 impl Toast {
@@ -109,6 +126,8 @@ impl Toast {
             .map(|a| ToastButton { label: a.label.as_str().into(), primary: a.primary, enabled: true })
             .collect();
         ui.set_actions(ModelRc::new(VecModel::from(buttons)));
+        // 要按掉才關的提示不顯示停留倒數
+        ui.set_countdown_visible(!request.sticky);
         let toast = Rc::new_cyclic(|me| Toast {
             ui,
             tag: request.tag.clone(),
@@ -119,6 +138,11 @@ impl Toast {
             closing: Cell::new(false),
             dismissed: RefCell::new(None),
             me: me.clone(),
+            slide: WindowSlide::new(),
+            shown: Cell::new(false),
+            align_left: Cell::new(false),
+            countdown_started: Cell::new(None),
+            relayout: RefCell::new(None),
         });
         let weak = Rc::downgrade(&toast);
         toast.ui.on_action(move |i| {
@@ -138,6 +162,7 @@ impl Toast {
             if let Some(t) = weak.upgrade() {
                 if over {
                     t.timer.stop();
+                    t.pause_countdown();
                 } else if !t.closing.get() {
                     t.start_timer();
                 }
@@ -173,6 +198,35 @@ impl Toast {
                 t.dismiss();
             }
         });
+        // 進度條從滿的開始倒數（停留時間重新算，跟計時器一樣）
+        self.countdown_started.set(Some(Instant::now()));
+        let ms = self.interval.as_millis().min(i32::MAX as u128) as i32;
+        self.ui.invoke_run_countdown(1.0, ms);
+    }
+
+    /// 滑鼠移上去：進度條停在目前剩下的比例。
+    fn pause_countdown(&self) {
+        let Some(started) = self.countdown_started.take() else { return };
+        let total = self.interval.as_secs_f32();
+        let left = if total > 0.0 { 1.0 - started.elapsed().as_secs_f32() / total } else { 0.0 };
+        self.ui.invoke_pause_countdown(left.clamp(0.0, 1.0));
+    }
+
+    /// 擺到 target（實體像素）：還沒顯示時先擺在藏起來的位置；已經顯示的平滑移過去（補位）。
+    fn place(&self, target: hb_win::Rect, clip: hb_win::Rect, edge: Edge, align_left: bool, scale: f32) {
+        if self.closing.get() {
+            return; // 正在滑出去：留在原地
+        }
+        self.align_left.set(align_left);
+        let reduce = ThemeManager::reduce_motion();
+        if !self.shown.get() {
+            let p = if reduce { 1.0 } else { 0.0 };
+            self.slide.prepare(None, target, clip, edge, popup::corner_radius(scale), p);
+            let (x, y) = self.slide.position();
+            self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+        } else {
+            self.slide.glide_to(target, if reduce { Duration::ZERO } else { GLIDE_DURATION });
+        }
     }
 
     /// 估計的大小（實體像素）：還沒顯示時用 Slint 算的內容高度。
@@ -189,16 +243,33 @@ impl Toast {
             return;
         }
         popup::apply_styles(self.ui.window(), PopupKind::Toast);
-        self.ui.set_shown(true);
+        self.shown.set(true);
+        match popup::hwnd(self.ui.window()) {
+            Some(h) => {
+                // 有原生視窗了：馬上補上裁切（還沒畫到螢幕上），再從工作列長出來
+                self.slide.attach(Some(h));
+                if !ThemeManager::reduce_motion() {
+                    self.slide.run(1.0, ENTER_DURATION, || {});
+                }
+            }
+            None => {
+                // 事件迴圈還沒開始（啟動時就跳的提示）：Slint 之後才建立視窗，直接出現在定位，建好後再接上（補位、滑出才有動畫）
+                self.slide.jump(1.0);
+                let (x, y) = self.slide.position();
+                self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+                attach_later(self.me.clone(), 40);
+            }
+        }
         self.start_timer();
     }
 
-    /// C# `Dismiss`：滑回下緣後關掉（Windows 關閉動畫效果時直接關）。
+    /// C# `Dismiss`：往外滑出、淡出後關掉（Windows 關閉動畫效果時直接關）。
     pub fn dismiss(&self) {
         if self.closing.replace(true) {
             return;
         }
         self.timer.stop();
+        self.countdown_started.set(None);
         let weak = self.me.clone();
         let finish = move || {
             if let Some(t) = weak.upgrade() {
@@ -208,12 +279,28 @@ impl Toast {
                 }
             }
         };
-        if ThemeManager::reduce_motion() {
+        if ThemeManager::reduce_motion() || !self.shown.get() {
+            self.slide.stop();
             finish();
             return;
         }
         self.ui.set_closing(true);
-        slint::Timer::single_shot(Duration::from_millis(240), finish);
+        if self.slide.is_running() && self.slide.progress() < 1.0 {
+            // 還在長出來：照原路縮回工作列
+            self.slide.run(0.0, EXIT_DURATION, finish);
+            return;
+        }
+        // 往外滑出：裁在自己原本的範圍，看起來像滑進側邊
+        let Some(rect) = popup::outer_rect(self.ui.window()) else {
+            self.slide.stop();
+            finish();
+            return;
+        };
+        let edge = if self.align_left.get() { Edge::Left } else { Edge::Right };
+        let scale = popup::scale_at(rect.left, rect.top);
+        self.slide.stop();
+        self.slide.prepare(None, rect, rect, edge, popup::corner_radius(scale), 1.0);
+        self.slide.run(0.0, EXIT_DURATION, finish);
     }
 
     pub fn tag(&self) -> Option<&str> {
@@ -223,6 +310,24 @@ impl Toast {
     pub fn window(&self) -> &slint::Window {
         self.ui.window()
     }
+}
+
+/// 等 Slint 建好原生視窗（事件迴圈開始後）再接上動畫，並用實際大小重新排列（不然高度用估的，會蓋到工作列）。
+/// 每 50ms 看一次，最多 tries 次。
+fn attach_later(weak: Weak<Toast>, tries: u32) {
+    slint::Timer::single_shot(Duration::from_millis(50), move || {
+        let Some(t) = weak.upgrade() else { return };
+        match popup::hwnd(t.ui.window()) {
+            Some(h) => {
+                t.slide.attach(Some(h));
+                if let Some(f) = t.relayout.borrow().as_ref() {
+                    f();
+                }
+            }
+            None if tries > 1 => attach_later(weak, tries - 1),
+            None => {}
+        }
+    });
 }
 
 type AnchorFn = Rc<dyn Fn() -> (hb_win::Rect, bool)>;
@@ -334,6 +439,12 @@ impl ToastManager {
                 ToastManager(inner).layout();
             }
         }));
+        let weak = Rc::downgrade(&self.0);
+        *toast.relayout.borrow_mut() = Some(Box::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                ToastManager(inner).layout();
+            }
+        }));
         self.0.open.borrow_mut().push(toast.clone());
         loop {
             let oldest = {
@@ -366,6 +477,15 @@ impl ToastManager {
         };
         let work = popup::work_area_at(px, py.saturating_sub(1));
         let scale = popup::scale_at(px, py.saturating_sub(1));
+        // 新的一則從工作列那一側長出來（沒有工時位置時從工作區下緣）
+        let (edge, clip) = match anchor {
+            Some((a, _)) => {
+                let edge = slide::taskbar_edge(a, work);
+                (edge, slide::clip_rect(a, work, edge))
+            }
+            None => (Edge::Bottom, work),
+        };
+        let align_left = anchor.is_some_and(|(_, left)| left);
         let slots: Vec<Slot> = open
             .iter()
             .map(|t| {
@@ -373,8 +493,9 @@ impl ToastManager {
                 Slot { width, height, from_bottom: t.from_bottom }
             })
             .collect();
-        for (t, (x, y)) in open.iter().zip(layout(&slots, anchor, work, scale)) {
-            t.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+        for ((t, slot), (x, y)) in open.iter().zip(&slots).zip(layout(&slots, anchor, work, scale)) {
+            let target = hb_win::Rect { left: x, top: y, right: x + slot.width, bottom: y + slot.height };
+            t.place(target, clip, edge, align_left, scale);
         }
     }
 }

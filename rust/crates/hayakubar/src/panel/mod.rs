@@ -27,12 +27,16 @@ use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use crate::popup::{self, PopupKind};
+use crate::slide::{Edge, WindowSlide};
 use crate::theme_manager::ThemeManager;
 use crate::ui::{DayTimelineModel, MeetingRow, PanelTab, PanelWindow, PickRow, ReminderRow, RepoRow, TaskRow, TodoRow};
 
 /// 面板的寬（C# Width 432 扣掉兩邊 6 的陰影邊；Rust 版視窗就是卡片）。
 pub const PANEL_WIDTH: f32 = 432.0;
 const TAB_NAMES: [&str; 4] = ["Timer", "Tasks", "Today", "Notify"];
+/// 從工作列長出來、滑回去的時間（完整走一趟；中途反轉時依剩下的距離縮短）。
+const OPEN_DURATION: Duration = Duration::from_millis(280);
+const CLOSE_DURATION: Duration = Duration::from_millis(200);
 
 pub(crate) fn spawn(fut: impl Future<Output = ()> + 'static) {
     if let Err(e) = slint::spawn_local(fut) {
@@ -102,6 +106,8 @@ pub(crate) struct PanelInner {
     pub(crate) ui: PanelWindow,
     tick: slint::Timer,
     search_delay: slint::Timer,
+    /// 從工作列長出來、滑回去
+    slide: WindowSlide,
     pub(crate) s: RefCell<State>,
     settings_requested: Handlers<dyn Fn()>,
     time_entries_requested: Handlers<dyn Fn()>,
@@ -147,6 +153,7 @@ impl Panel {
             ui,
             tick: slint::Timer::default(),
             search_delay: slint::Timer::default(),
+            slide: WindowSlide::new(),
             s: RefCell::new(State {
                 task_tab: TimerEngine::ALL_TAB.to_owned(),
                 notify_filter: "all".to_owned(),
@@ -397,7 +404,7 @@ impl PanelInner {
         true
     }
 
-    /// 資料變了要重畫：同一輪的多次變動合併成一次；滑出動畫進行中先不重建清單，等動畫結束再畫。
+    /// 資料變了要重畫：同一輪的多次變動合併成一次；長出來的動畫進行中先不重建清單，等動畫結束再畫。
     pub(crate) fn queue_render(&self) {
         {
             let mut s = self.s.borrow_mut();
@@ -426,30 +433,37 @@ impl PanelInner {
             s.align_left = align_left;
             s.hiding = false;
         }
-        self.render();
         let reduce = ThemeManager::reduce_motion();
         let was_shown = self.s.borrow().shown;
         if !was_shown {
-            self.ui.set_revealed(false);
-            self.reposition();
+            // 內容先藏著，視窗長出來時再淡入、清單依序浮現
+            self.ui.invoke_hide_content();
+            self.ui.invoke_reset_stagger();
+        }
+        self.render();
+        if !was_shown {
+            // 從工作列那一側長出來：先擺在藏起來的位置（已經有原生視窗時連裁切一起設好），再顯示
+            self.place(if reduce { 1.0 } else { 0.0 });
             if let Err(e) = self.ui.show() {
                 log::error!("顯示面板失敗: {e}");
                 return;
             }
             popup::apply_styles(self.ui.window(), PopupKind::Panel);
             self.s.borrow_mut().shown = true;
+            // 第一次顯示才有原生視窗：馬上補上裁切（還沒畫到螢幕上）；
+            // 事件迴圈還沒開始時連原生視窗都還沒有，沒辦法播，直接出現在定位
+            let ready = popup::hwnd(self.ui.window()).is_some();
+            self.place(if reduce || !ready { 1.0 } else { self.slide.progress() });
+        } else {
+            self.reposition();
         }
-        self.reposition();
         hb_ui_common::window_util::activate(self.ui.window());
-        // 從工作列往上滑出＋淡入；動畫結束才開始同步：同步一開始就會觸發重畫，跟動畫搶時間就會卡
+        // 動畫結束才開始同步：同步一開始就會觸發重畫，跟動畫搶時間就會卡
         let me = self.weak();
         let completed = move || {
             let Some(p) = me.upgrade() else { return };
             let queued = {
                 let mut s = p.s.borrow_mut();
-                if !s.animating && !reduce {
-                    return; // 中途被收起了
-                }
                 s.animating = false;
                 std::mem::take(&mut s.render_queued)
             };
@@ -461,23 +475,33 @@ impl PanelInner {
                 spawn(async move { e.refresh_all(false).await });
             }
         };
-        if reduce {
-            self.ui.set_revealed(true);
+        if reduce || popup::hwnd(self.ui.window()).is_none() {
+            self.slide.jump(1.0);
+            self.ui.invoke_show_content();
+            self.ui.invoke_play_stagger();
             completed();
         } else {
             self.s.borrow_mut().animating = true;
+            self.ui.invoke_show_content();
+            // 清單晚一點浮現：跟視窗長出來疊在一起
             let me = self.weak();
-            slint::Timer::single_shot(Duration::from_millis(16), move || {
-                if let Some(p) = me.upgrade() {
-                    p.ui.set_revealed(true);
+            slint::Timer::single_shot(Duration::from_millis(90), move || {
+                if let Some(p) = me.upgrade()
+                    && p.is_open()
+                {
+                    p.ui.invoke_play_stagger();
                 }
             });
-            slint::Timer::single_shot(Duration::from_millis(280), completed);
+            self.slide.run(1.0, OPEN_DURATION, completed);
         }
         let me = self.weak();
         self.tick.start(slint::TimerMode::Repeated, Duration::from_secs(1), move || {
             if let Some(p) = me.upgrade() {
                 p.update_numbers();
+                // 計時中的狀態點呼吸：只在面板開著、有計時時每秒切換一次（沒在計時、「顯示動畫」關閉時不動，免得一直重畫）
+                if !p.s.borrow().running.is_empty() && !ThemeManager::reduce_motion() {
+                    p.ui.set_pulse(!p.ui.get_pulse());
+                }
             }
         });
     }
@@ -495,17 +519,18 @@ impl PanelInner {
         self.tick.stop();
         self.ui.set_start_popup_open(false);
         if ThemeManager::reduce_motion() {
+            self.slide.stop();
             let _ = self.ui.hide();
             self.s.borrow_mut().shown = false;
             return;
         }
+        // 滑回工作列，播完才藏起來；途中又被打開時由 show_at 接手（這裡的收尾不會執行）
         self.s.borrow_mut().hiding = true;
-        self.ui.set_revealed(false);
         let me = self.weak();
-        slint::Timer::single_shot(Duration::from_millis(150), move || {
+        self.slide.run(0.0, CLOSE_DURATION, move || {
             let Some(p) = me.upgrade() else { return };
             if !p.s.borrow().hiding {
-                return; // 收起途中又被打開了
+                return;
             }
             let _ = p.ui.hide();
             let mut s = p.s.borrow_mut();
@@ -514,8 +539,8 @@ impl PanelInner {
         });
     }
 
-    /// C# Reposition：從工作列工時正上方出現。
-    fn reposition(&self) {
+    /// 視窗的目標範圍、裁切與方向（實體像素）。
+    fn geometry(&self) -> (hb_win::Rect, hb_win::Rect, Edge, f32) {
         let (anchor, align_left) = {
             let s = self.s.borrow();
             (s.anchor, s.align_left)
@@ -526,9 +551,28 @@ impl PanelInner {
             Some((w, h)) if (h - estimate.1).abs() <= 2 => (w, h),
             _ => estimate,
         };
-        let work = popup::work_area_at(anchor.left, anchor.top - 1);
-        let (x, y) = popup::place_above(anchor, align_left, size, work, (8.0 * scale).round() as i32);
-        self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+        let (target, clip, edge) = popup::above_anchor(anchor, align_left, size, scale);
+        (target, clip, edge, scale)
+    }
+
+    /// 擺到進度 p 的位置（0 藏在工作列那一側、1 在定位）。
+    fn place(&self, p: f32) {
+        let (target, clip, edge, scale) = self.geometry();
+        let hwnd = popup::hwnd(self.ui.window());
+        self.slide.prepare(hwnd, target, clip, edge, popup::corner_radius(scale), p);
+        if hwnd.is_none() {
+            let (x, y) = self.slide.position();
+            self.ui.window().set_position(slint::PhysicalPosition::new(x, y));
+        }
+    }
+
+    /// C# Reposition：從工作列工時正上方出現；動畫途中大小變了就換目標，接著播。
+    fn reposition(&self) {
+        let (target, clip, edge, _) = self.geometry();
+        self.slide.retarget(popup::hwnd(self.ui.window()), target, clip, edge);
+        if popup::hwnd(self.ui.window()).is_none() {
+            self.ui.window().set_position(slint::PhysicalPosition::new(target.left, target.top));
+        }
     }
 
     // ───────────── 顯示 ─────────────
@@ -594,6 +638,7 @@ impl PanelInner {
             action_glyph: vm.action_glyph().into(),
             action_tip: vm.action_tip().into(),
             not_busy: vm.not_busy(),
+            running: vm.running,
         }
     }
 

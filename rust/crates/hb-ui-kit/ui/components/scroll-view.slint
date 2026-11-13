@@ -1,5 +1,7 @@
 // 捲動區：Flickable 加上細的圓角捲軸（滑過或拖曳時變粗、變深）。
-import { Theme } from "../theme.slint";
+// 捲軸平常淡淡的，捲動（含程式捲動）、滑過或拖曳時淡入成實色，停下約 1 秒後淡回去；
+// 剛出現時也先亮一下，讓人知道可以捲。只用計時器檢查（停下後就停），閒置時不會一直重畫。
+import { Theme, Motion } from "../theme.slint";
 
 export component ScrollView {
     in-out property <length> content-y <=> fl.content-y;
@@ -18,6 +20,26 @@ export component ScrollView {
     vertical-stretch: 1;
     property <bool> dragging;
     property <length> drag-start-y;
+    // 最近捲動過（捲軸亮著）；last 是最後一次捲動的時間（animation-tick）
+    property <bool> recent: true;
+    property <duration> last;
+    property <length> vy: fl.content-y;
+    changed vy => {
+        root.last = animation-tick();
+        root.recent = true;
+    }
+    init => {
+        root.last = animation-tick();
+    }
+    Timer {
+        interval: 250ms;
+        running: root.recent && !root.dragging;
+        triggered => {
+            if animation-tick() - root.last > 1000ms {
+                root.recent = false;
+            }
+        }
+    }
     fl := Flickable {
         width: root.overlay-bar ? root.width : root.width - 12px;
         height: root.height;
@@ -43,7 +65,9 @@ export component ScrollView {
             y: 2px + (root.max-y > 0 ? (-fl.content-y) / root.max-y : 0) * (root.height - 4px - self.height);
             border-radius: self.width / 2;
             background: self.wide ? Theme.muted : Theme.scroll-thumb;
+            opacity: self.wide || root.recent ? 1 : 0.35;
             animate width, background { duration: 200ms; }
+            animate opacity { duration: root.recent || self.wide ? Motion.fast : 400ms; }
         }
         bar-ta := TouchArea {
             pointer-event(e) => {

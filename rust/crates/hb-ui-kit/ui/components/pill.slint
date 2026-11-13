@@ -4,7 +4,7 @@ import { Icon } from "icons.slint";
 
 export enum Tone { accent, ink, neutral, outline, run, error, warn, claude }
 
-/// 膠囊（設計稿 .pill）。可放子元素在文字後面；子元素用 fg 取文字色。
+/// 膠囊（設計稿 .pill）。可放子元素在文字後面；子元素用 fg 取文字色。text 改變時新字從下方浮上來、底色漸變。
 export component Pill {
     in property <string> text;
     in property <string> icon;
@@ -16,6 +16,18 @@ export component Pill {
     horizontal-stretch: 0;
     vertical-stretch: 0;
     min-height: 24px;
+    property <float> t: 1;
+    property <bool> snap;
+    changed text => {
+        snap = true;
+        t = 0;
+        snap = false;
+        t = 1;
+    }
+    animate t {
+        duration: snap ? 0ms : Motion.enter-dur;
+        easing: Motion.out;
+    }
     Rectangle {
         background: root.bg;
         border-radius: self.height / 2;
@@ -39,17 +51,21 @@ export component Pill {
             weight: 2.6;
         }
         if root.text != "": Text {
+            // 文字改變時新字從下方 5px 浮上來（佔的寬度照新字，不影響排版）
+            y: (parent.height - self.height) / 2 + (1 - root.t) * (Theme.reduce-motion ? 0px : 5px);
+            opacity: root.t;
             text: root.text;
             color: root.fg;
             font-size: root.font-size;
             font-weight: root.font-weight;
             vertical-alignment: center;
+            animate color { duration: 300ms; }
         }
         @children
     }
 }
 
-/// 數字徽章（小圓）；text 改變時彈出。
+/// 數字徽章（小圓）；text 改變時底色彈一下、數字從下方滾上來。
 export component Badge {
     in property <string> text;
     in property <Tone> tone: Tone.accent;
@@ -69,11 +85,22 @@ export component Badge {
     min-width: 18px;
     preferred-width: max(18px, t.preferred-width + 10px);
     horizontal-stretch: 0;
+    // 軟體繪圖不支援 transform-scale：彈出改成底色從中心變大；數字從下方滾上來（裁在徽章裡）
+    property <float> k: max(0, root.s);
     Rectangle {
-        transform-scale: root.s;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: root.width * root.k;
+        height: root.height * root.k;
         border-radius: self.height / 2;
         background: root.tone == Tone.accent ? Theme.accent : root.tone == Tone.ink ? Theme.ink : root.tone == Tone.run ? Theme.run : root.tone == Tone.error ? Theme.error : root.tone == Tone.warn ? Theme.warn : root.tone == Tone.claude ? Theme.claude : Theme.fill;
+        animate background { duration: 300ms; }
+    }
+    Rectangle {
+        clip: true;
         t := Text {
+            y: Theme.reduce-motion ? 0px : clamp(1 - root.s, 0, 1) * 2 * root.height;
+            height: root.height;
             text: root.text;
             color: root.tone == Tone.accent ? Theme.on-accent : root.tone == Tone.ink ? Theme.on-ink : root.tone == Tone.neutral || root.tone == Tone.outline ? Theme.ink : #FFFFFF;
             font-size: 11px;

@@ -2,9 +2,10 @@
 // 契約：匯出 global LeavesPageData（Rust 端用 window.global::<LeavesPageData>() 讀寫）與 component LeavesPage；
 // 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
 // 請假與出差：列出期間內誰請假、出差，登記自己的請假或出差、取消；右上切到「EIP 假單」看公司 EIP 上自己的假單。
-import { Theme, ScrollView, TextField, Avatar, AvatarTone } from "@hb/index.slint";
+import { Theme, ScrollView, TextField, Avatar, AvatarTone, Tip } from "@hb/index.slint";
 import { FieldLabel, StatusLine, PageTitle, CheckRow, DateRangePicker } from "@hbc/index.slint";
 import { PageButton, SmallButton, TipSegmented, ItemCard, ConfirmOverlay, CenterNote } from "w3-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
 
 /// 一筆請假或出差（C# LeaveRowVm）。
 export struct LeaveRow {
@@ -137,8 +138,12 @@ component HayakuView {
                 }
                 HorizontalLayout {
                     spacing: 10px;
+                    // 窄的時候日期、時段、備註一起縮，「登記」不會被擠出卡片
                     VerticalLayout {
-                        width: 280px;
+                        min-width: 200px;
+                        preferred-width: 280px;
+                        max-width: 280px;
+                        horizontal-stretch: 1;
                         spacing: 4px;
                         alignment: end;
                         FieldLabel {
@@ -152,7 +157,10 @@ component HayakuView {
                         }
                     }
                     if LeavesPageData.span == 3: HorizontalLayout {
-                        width: 170px;
+                        min-width: 110px;
+                        preferred-width: 170px;
+                        max-width: 170px;
+                        horizontal-stretch: 1;
                         spacing: 6px;
                         VerticalLayout {
                             spacing: 4px;
@@ -184,13 +192,15 @@ component HayakuView {
                         }
                     }
                     VerticalLayout {
-                        horizontal-stretch: 1;
+                        horizontal-stretch: 2;
+                        min-width: 80px;
                         spacing: 4px;
                         alignment: end;
                         FieldLabel {
                             text: "備註（只有自己與管理者看得到）";
                         }
                         TextField {
+                            min-width: 60px;
                             height: 40px;
                             font-size: Theme.fs-md;
                             placeholder: "選填";
@@ -265,48 +275,62 @@ component HayakuView {
         }
         Rectangle {
             vertical-stretch: 1;
-            ScrollView {
-                VerticalLayout {
-                    spacing: 8px;
-                    padding-right: 6px;
-                    alignment: start;
-                    for row[i] in LeavesPageData.rows: ItemCard {
-                        HorizontalLayout {
-                            spacing: 12px;
-                            Avatar {
-                                y: (parent.height - self.height) / 2;
-                                size: 30px;
-                                text: row.initial;
-                                tone: AvatarTone.outline;
-                            }
-                            VerticalLayout {
-                                alignment: center;
-                                horizontal-stretch: 1;
-                                Text {
-                                    text: row.name;
-                                    color: Theme.ink;
-                                    font-weight: 600;
-                                    font-size: Theme.fs-base;
-                                }
-                                Text {
-                                    text: row.period;
-                                    color: Theme.muted;
-                                    font-size: Theme.fs-sm;
-                                    wrap: word-wrap;
-                                }
-                            }
-                            if row.lost != "": Text {
-                                text: row.lost;
-                                color: Theme.muted;
-                                font-size: Theme.fs-md;
-                                vertical-alignment: center;
-                            }
-                            if row.can-cancel: SmallButton {
-                                y: (parent.height - self.height) / 2;
-                                text: row.busy ? "處理中…" : row.cancel-text;
-                                enabled: !row.busy;
-                                clicked => {
-                                    LeavesPageData.cancel(i);
+            // 切換時內容從切換的方向滑入淡入，清單依序浮現
+            SlideSwitch {
+                key: LeavesPageData.range;
+                vertical-stretch: 1;
+                ScrollView {
+                    // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                    content-width: self.visible-width;
+                    width: parent.width;
+                    height: parent.height;
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-right: 6px;
+                        alignment: start;
+                        for row[i] in LeavesPageData.rows: Appear {
+                            index: i;
+                            stagger: 35ms;
+                            ItemCard {
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    Avatar {
+                                        y: (parent.height - self.height) / 2;
+                                        size: 30px;
+                                        text: row.initial;
+                                        tone: AvatarTone.outline;
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            text: row.name;
+                                            color: Theme.ink;
+                                            font-weight: 600;
+                                            font-size: Theme.fs-base;
+                                            wrap: word-wrap;
+                                        }
+                                        Text {
+                                            text: row.period;
+                                            color: Theme.muted;
+                                            font-size: Theme.fs-sm;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+                                    if row.lost != "": Text {
+                                        text: row.lost;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-md;
+                                        vertical-alignment: center;
+                                    }
+                                    if row.can-cancel: SmallButton {
+                                        y: (parent.height - self.height) / 2;
+                                        text: row.busy ? "處理中…" : row.cancel-text;
+                                        enabled: !row.busy;
+                                        clicked => {
+                                            LeavesPageData.cancel(i);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -314,6 +338,10 @@ component HayakuView {
                 }
             }
             if LeavesPageData.empty-text != "": CenterNote {
+                // 寬度跟著外框，長的訊息換行置中
+                x: 16px;
+                width: parent.width - 32px;
+                height: parent.height;
                 text: LeavesPageData.empty-text;
             }
         }
@@ -352,14 +380,27 @@ component EipView {
                     LeavesPageData.eip-this-month();
                 }
             }
+            // 窄的時候省略（滑過看完整），不把按鈕擠到一起
             Rectangle {
+                min-width: 0px;
                 horizontal-stretch: 1;
-            }
-            Text {
-                text: LeavesPageData.eip-summary;
-                color: Theme.muted;
-                font-size: Theme.fs-sm;
-                vertical-alignment: center;
+                eip-sum := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: LeavesPageData.eip-summary;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if eip-sum.width < eip-sum.preferred-width - 1px: TouchArea {
+                    Tooltip {
+                        Tip {
+                            text: LeavesPageData.eip-summary;
+                        }
+                    }
+                }
             }
             PageButton {
                 text: "⟳ 重新讀取";
@@ -383,58 +424,66 @@ component EipView {
         Rectangle {
             vertical-stretch: 1;
             ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
                 VerticalLayout {
                     spacing: 8px;
                     padding-right: 6px;
                     alignment: start;
-                    for row in LeavesPageData.eip-rows: ItemCard {
-                        HorizontalLayout {
-                            spacing: 12px;
-                            VerticalLayout {
-                                alignment: center;
-                                horizontal-stretch: 1;
-                                Text {
-                                    text: row.title;
-                                    color: Theme.ink;
-                                    font-weight: 600;
-                                    font-size: Theme.fs-base;
+                    for row[ai] in LeavesPageData.eip-rows: Appear {
+                        index: ai;
+                        stagger: 35ms;
+                        ItemCard {
+                            HorizontalLayout {
+                                spacing: 12px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        text: row.title;
+                                        color: Theme.ink;
+                                        font-weight: 600;
+                                        font-size: Theme.fs-base;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: row.period;
+                                        color: Theme.ink;
+                                        font-size: Theme.fs-md;
+                                        wrap: word-wrap;
+                                    }
+                                    Text {
+                                        text: row.detail;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-sm;
+                                        overflow: elide;
+                                    }
                                 }
-                                Text {
-                                    text: row.period;
-                                    color: Theme.ink;
-                                    font-size: Theme.fs-md;
+                                if row.synced: Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    height: 22px;
+                                    width: synced.preferred-width + 18px;
+                                    border-radius: 11px;
+                                    background: Theme.card;
+                                    synced := Text {
+                                        text: "已登記到 Hayaku";
+                                        color: Theme.run;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                    }
                                 }
-                                Text {
-                                    text: row.detail;
-                                    color: Theme.muted;
-                                    font-size: Theme.fs-sm;
-                                    overflow: elide;
-                                }
-                            }
-                            if row.synced: Rectangle {
-                                y: (parent.height - self.height) / 2;
-                                height: 22px;
-                                width: synced.preferred-width + 18px;
-                                border-radius: 11px;
-                                background: Theme.card;
-                                synced := Text {
-                                    text: "已登記到 Hayaku";
-                                    color: Theme.run;
-                                    font-size: 11px;
-                                    font-weight: 600;
-                                }
-                            }
-                            Rectangle {
-                                y: (parent.height - self.height) / 2;
-                                height: 22px;
-                                width: state.preferred-width + 18px;
-                                border-radius: 11px;
-                                background: Theme.card;
-                                state := Text {
-                                    text: row.state;
-                                    color: row.state-tone == 1 ? Theme.run : row.state-tone == 2 ? Theme.error : Theme.warn;
-                                    font-size: 11px;
-                                    font-weight: 600;
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    height: 22px;
+                                    width: state.preferred-width + 18px;
+                                    border-radius: 11px;
+                                    background: Theme.card;
+                                    state := Text {
+                                        text: row.state;
+                                        color: row.state-tone == 1 ? Theme.run : row.state-tone == 2 ? Theme.error : Theme.warn;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                    }
                                 }
                             }
                         }
@@ -442,6 +491,10 @@ component EipView {
                 }
             }
             if LeavesPageData.eip-empty != "": CenterNote {
+                // 寬度跟著外框，長的訊息換行置中
+                x: 16px;
+                width: parent.width - 32px;
+                height: parent.height;
                 text: LeavesPageData.eip-empty;
             }
         }
@@ -471,11 +524,18 @@ export component LeavesPage inherits Rectangle {
                 }
             }
         }
-        if LeavesPageData.view == 0: HayakuView {
+        // Hayaku／EIP 假單切換：內容從切換的方向滑入淡入
+        SlideSwitch {
+            key: LeavesPageData.view;
             vertical-stretch: 1;
-        }
-        if LeavesPageData.view == 1: EipView {
-            vertical-stretch: 1;
+            if LeavesPageData.view == 0: HayakuView {
+                width: parent.width;
+                height: parent.height;
+            }
+            if LeavesPageData.view == 1: EipView {
+                width: parent.width;
+                height: parent.height;
+            }
         }
     }
     ConfirmOverlay {

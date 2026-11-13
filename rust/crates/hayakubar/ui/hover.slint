@@ -1,6 +1,8 @@
 // 滑鼠停在工作列的工時上時，顯示今天各任務的明細（對應 C# UI/HoverCard.xaml）；不接收滑鼠、不搶焦點。
-import { Theme } from "@hb/index.slint";
+// 視窗由 Rust 從工作列滑出來、滑回去（src/slide.rs）；這裡只負責內容淡入淡出。
+import { Theme, Motion } from "@hb/index.slint";
 import { DayTimeline, DayTimelineModel, ColorKeys } from "@hbc/index.slint";
+import { WrapText } from "widgets.slint";
 
 export struct HoverRow {
     icon: string,
@@ -26,6 +28,31 @@ export component HoverCard inherits Window {
     out property <length> pref-w: clamp(lay.preferred-width, 220px, 360px);
     out property <length> pref-h: lay.preferred-height;
 
+    // 內容淡入（出現）、淡出（離開）
+    property <float> reveal-t: 1;
+    property <bool> reveal-snap;
+    property <duration> reveal-dur: 200ms;
+    animate reveal-t {
+        duration: Theme.reduce-motion || root.reveal-snap ? 0ms : root.reveal-dur;
+        easing: Motion.out;
+    }
+    /// 內容先藏起來（出現前）
+    public function hide-content() {
+        root.reveal-snap = true;
+        root.reveal-t = 0;
+        root.reveal-snap = false;
+    }
+    /// 內容淡入
+    public function show-content() {
+        root.reveal-dur = 200ms;
+        root.reveal-t = 1;
+    }
+    /// 內容淡出（離開時）
+    public function fade-content() {
+        root.reveal-dur = 150ms;
+        root.reveal-t = 0;
+    }
+
     // C# MinWidth 220、MaxWidth 360，高度跟著內容
     width: clamp(lay.preferred-width, 220px, 360px);
     min-height: lay.preferred-height;
@@ -36,6 +63,7 @@ export component HoverCard inherits Window {
         border-color: Theme.line;
     }
     lay := VerticalLayout {
+        opacity: root.reveal-t;
         padding-left: 14px;
         padding-right: 14px;
         padding-top: 11px;
@@ -47,7 +75,7 @@ export component HoverCard inherits Window {
             font-weight: 700;
             font-size: 12.5px;
         }
-        if root.sub != "": Text {
+        if root.sub != "": WrapText {
             text: root.sub;
             color: Theme.muted;
         }

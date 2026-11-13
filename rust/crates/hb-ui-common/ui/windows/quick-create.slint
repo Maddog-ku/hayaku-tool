@@ -1,8 +1,9 @@
 // 偵測到沒有任務的新工作時，從提示按「建立任務」開的小視窗（C# UI/QuickCreateWindow.xaml）：
 // 專案自動選好，使用者選專案樹上的位置、狀態、預計起訖、預計工時（必填，開視窗時先請 Claude 估）。
-import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icon, Icons, Tip } from "@hb/index.slint";
+import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icon, Icons, Tip, Stagger } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, CheckRow, SelectField } from "../common.slint";
 import { DateRangePicker } from "../date-range-picker.slint";
+import { DialogFade, DialogMotion, Section, ListIntro } from "dialog.slint";
 
 export struct TreeRow {
     key: string,
@@ -78,6 +79,9 @@ component TreeItem {
                 color: Theme.muted;
                 font-size: 11px;
                 vertical-alignment: center;
+                // 視窗窄時狀態也縮（加 …），不要把名稱擠到看不見、或自己超出右邊被裁掉
+                overflow: elide;
+                max-width: root.width * 0.35;
             }
         }
     }
@@ -157,304 +161,341 @@ export component QuickCreateWindow inherits Window {
     default-font-size: 13px;
     always-on-top: true;
     forward-focus: title-box;
+    // 專案樹依序浮現：開窗、換專案、篩選字、「不顯示完成」改變或讀好時重播（點選、展開只重建列，不重播）
+    intro := ListIntro {
+        key: root.project + "|" + root.filter + "|" + (root.hide-done ? "1" : "0") + "|" + (root.rows.length > 0 ? "1" : "0");
+    }
     FocusScope {
         capture-key-pressed(e) => {
+            if DialogMotion.closing {
+                return EventResult.accept;
+            }
             if e.text == Key.Escape {
                 root.cancel();
                 return EventResult.accept;
             }
             EventResult.reject
         }
-        VerticalLayout {
-            padding-left: 18px;
-            padding-right: 18px;
-            padding-top: 14px;
-            padding-bottom: 16px;
-            spacing: 12px;
+        DialogFade {
             VerticalLayout {
-                spacing: 3px;
-                Text {
-                    text: root.heading;
-                    color: Theme.ink;
-                    font-size: Theme.fs-lg;
-                    font-weight: 700;
-                    overflow: elide;
-                }
-                Rectangle {
-                    height: sub.preferred-height;
-                    sub := Text {
-                        width: parent.width;
-                        text: root.sub-text;
-                        color: Theme.muted;
-                        font-size: Theme.fs-sm;
-                        overflow: elide;
-                    }
-                    if root.sub-tip != "": Rectangle {
-                        Tooltip {
-                            Tip {
-                                text: root.sub-tip;
-                                max-bubble-width: 420px;
-                            }
-                        }
-                    }
-                }
-            }
-            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 14px;
+                padding-bottom: 16px;
                 spacing: 12px;
-                Text {
-                    text: "專案";
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                SelectField {
-                    width: 240px;
-                    items: root.projects;
-                    current <=> root.project;
-                    max-rows: 10;
-                    selected(i) => {
-                        root.project-selected(i);
-                    }
-                }
-                TextField {
-                    height: 44px;
-                    icon: Icons.search;
-                    placeholder: "篩選任務編號或名稱";
-                    text <=> root.filter;
-                    font-size: Theme.fs-md;
-                    edited(t) => {
-                        root.filter-edited(t);
-                    }
-                }
-                CheckRow {
-                    y: (parent.height - self.height) / 2;
-                    text: "不顯示完成及不處理";
-                    checked <=> root.hide-done;
-                    toggled(on) => {
-                        root.hide-done-toggled(on);
-                    }
-                }
-            }
-            HorizontalLayout {
-                spacing: 16px;
-                vertical-stretch: 1;
-                // 專案樹：點一下選為上層
-                Rectangle {
-                    horizontal-stretch: 1;
-                    border-radius: 22px;
-                    background: Theme.card;
-                    clip: true;
+                Section {
+                    index: 0;
                     VerticalLayout {
-                        padding: 8px;
-                        spacing: 4px;
+                        spacing: 3px;
                         Rectangle {
-                            height: 32px;
-                            border-radius: 10px;
-                            background: root.root-picked ? Theme.selected : root-ta.has-hover ? Theme.hover : transparent;
-                            animate background { duration: 180ms; }
-                            HorizontalLayout {
-                                padding-left: 10px;
-                                spacing: 6px;
-                                Text {
-                                    text: "＋ 放在最上層";
-                                    color: Theme.accent-ink;
-                                    font-weight: 700;
-                                    vertical-alignment: center;
-                                }
+                            height: heading-text.preferred-height;
+                            heading-text := Text {
+                                width: parent.width;
+                                text: root.heading;
+                                color: Theme.ink;
+                                font-size: Theme.fs-lg;
+                                font-weight: 700;
+                                overflow: elide;
                             }
-                            root-ta := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.pick-root();
-                                }
+                            // 標題被截掉時，滑過顯示完整標題
+                            if heading-text.preferred-width > heading-text.width: TouchArea {
                                 Tooltip {
                                     Tip {
-                                        text: "建立在最上層（不屬於任何任務）";
+                                        text: root.heading;
+                                        max-bubble-width: 420px;
                                     }
                                 }
                             }
                         }
                         Rectangle {
-                            vertical-stretch: 1;
-                            tree := ScrollView {
-                                content-height: root.rows.length * 30px;
-                                for r[i] in root.rows: TreeItem {
-                                    x: 0;
-                                    y: i * 30px;
-                                    width: tree.visible-width - 6px;
-                                    item: r;
-                                    picked => {
-                                        root.pick-row(i);
-                                    }
-                                    toggled => {
-                                        root.toggle-row(i);
+                            height: sub.preferred-height;
+                            sub := Text {
+                                width: parent.width;
+                                text: root.sub-text;
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                                overflow: elide;
+                            }
+                            if root.sub-tip != "": Rectangle {
+                                Tooltip {
+                                    Tip {
+                                        text: root.sub-tip;
+                                        max-bubble-width: 420px;
                                     }
                                 }
-                            }
-                            if root.tree-message != "": Text {
-                                x: 16px;
-                                width: parent.width - 32px;
-                                text: root.tree-message;
-                                color: Theme.muted;
-                                wrap: word-wrap;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
                             }
                         }
                     }
                 }
-                // 新任務的資料
-                Rectangle {
-                    width: 270px;
-                    border-radius: 22px;
-                    background: Theme.card;
-                    form := ScrollView {
-                        content-height: fields.preferred-height;
-                        content-width: self.visible-width;
-                        fields := VerticalLayout {
-                            width: form.visible-width;
-                            padding: 16px;
-                            spacing: 6px;
-                            FieldLabel {
-                                text: "建立在";
+                Section {
+                    index: 1;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Text {
+                            text: "專案";
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                        SelectField {
+                            width: 240px;
+                            items: root.projects;
+                            current <=> root.project;
+                            max-rows: 10;
+                            selected(i) => {
+                                root.project-selected(i);
                             }
-                            Rectangle {
-                                height: parent-label.preferred-height + 14px;
-                                border-radius: 12px;
-                                background: Theme.selected;
-                                parent-label := Text {
-                                    x: 12px;
-                                    width: parent.width - 24px;
-                                    text: root.parent-text;
-                                    color: Theme.ink;
-                                    font-weight: 600;
-                                    wrap: word-wrap;
-                                    vertical-alignment: center;
-                                }
+                        }
+                        TextField {
+                            height: 44px;
+                            icon: Icons.search;
+                            placeholder: "篩選任務編號或名稱";
+                            text <=> root.filter;
+                            font-size: Theme.fs-md;
+                            edited(t) => {
+                                root.filter-edited(t);
                             }
-                            Rectangle {
-                                height: 4px;
+                        }
+                        CheckRow {
+                            y: (parent.height - self.height) / 2;
+                            text: "不顯示完成及不處理";
+                            checked <=> root.hide-done;
+                            toggled(on) => {
+                                root.hide-done-toggled(on);
                             }
-                            FieldLabel {
-                                text: "名稱";
-                            }
-                            title-box := TextField {
-                                height: 42px;
-                                text <=> root.new-title;
-                                placeholder: "要做什麼（Enter 建立）";
-                                font-size: Theme.fs-md;
-                                enabled: !root.busy;
-                                accepted => {
-                                    root.create();
-                                }
-                            }
-                            Rectangle {
-                                height: 4px;
-                            }
-                            FieldLabel {
-                                text: "狀態";
-                            }
-                            SelectField {
-                                height: 42px;
-                                items: root.statuses;
-                                current <=> root.status;
-                                enabled: !root.busy;
-                            }
-                            Rectangle {
-                                height: 4px;
-                            }
-                            FieldLabel {
-                                text: "預計開始 ～ 結束";
-                            }
-                            DateRangePicker {
-                                height: 42px;
-                                start <=> root.plan-start;
-                                end <=> root.plan-end;
-                                today: root.today;
-                                enabled: !root.busy;
-                            }
-                            Rectangle {
-                                height: 4px;
-                            }
-                            FieldLabel {
-                                text: "預計工時（小時，必填）";
-                            }
-                            HorizontalLayout {
-                                spacing: 6px;
-                                estimate-box := TextField {
-                                    height: 42px;
-                                    min-width: 80px;
-                                    text <=> root.estimate;
-                                    placeholder: "例 4、1.5";
-                                    font-size: Theme.fs-md;
-                                    enabled: !root.busy;
-                                    edited(t) => {
-                                        root.estimate-edited(t);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    vertical-stretch: 1;
+                    // 專案樹：點一下選為上層
+                    Section {
+                        index: 2;
+                        horizontal-stretch: 1;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            border-radius: 22px;
+                            background: Theme.card;
+                            clip: true;
+                            VerticalLayout {
+                                padding: 8px;
+                                spacing: 4px;
+                                Rectangle {
+                                    height: 32px;
+                                    border-radius: 10px;
+                                    background: root.root-picked ? Theme.selected : root-ta.has-hover ? Theme.hover : transparent;
+                                    animate background { duration: 180ms; }
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        spacing: 6px;
+                                        Text {
+                                            text: "＋ 放在最上層";
+                                            color: Theme.accent-ink;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                        }
                                     }
-                                    accepted => {
-                                        root.create();
+                                    root-ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.pick-root();
+                                        }
+                                        Tooltip {
+                                            Tip {
+                                                text: "建立在最上層（不屬於任何任務）";
+                                            }
+                                        }
                                     }
                                 }
                                 Rectangle {
-                                    horizontal-stretch: 0;
-                                    width: ask.preferred-width;
-                                    ask := Button {
+                                    vertical-stretch: 1;
+                                    tree := ScrollView {
+                                        content-height: root.rows.length * 30px;
+                                        for r[i] in root.rows: TreeItem {
+                                            property <float> a: Stagger.at(intro.progress, i - floor(-tree.content-y / 30px));
+                                            x: 0;
+                                            y: i * 30px + (1 - self.a) * Motion.rise;
+                                            opacity: self.a;
+                                            width: tree.visible-width - 6px;
+                                            item: r;
+                                            picked => {
+                                                root.pick-row(i);
+                                            }
+                                            toggled => {
+                                                root.toggle-row(i);
+                                            }
+                                        }
+                                    }
+                                    if root.tree-message != "": Text {
+                                        x: 16px;
+                                        width: parent.width - 32px;
+                                        text: root.tree-message;
+                                        color: Theme.muted;
+                                        wrap: word-wrap;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // 新任務的資料
+                    Section {
+                        index: 3;
+                        Rectangle {
+                            width: 270px;
+                            border-radius: 22px;
+                            background: Theme.card;
+                            form := ScrollView {
+                                content-height: fields.preferred-height;
+                                content-width: self.visible-width;
+                                fields := VerticalLayout {
+                                    width: form.visible-width;
+                                    padding: 16px;
+                                    spacing: 6px;
+                                    FieldLabel {
+                                        text: "建立在";
+                                    }
+                                    Rectangle {
+                                        height: parent-label.preferred-height + 14px;
+                                        border-radius: 12px;
+                                        background: Theme.selected;
+                                        parent-label := Text {
+                                            x: 12px;
+                                            width: parent.width - 24px;
+                                            text: root.parent-text;
+                                            color: Theme.ink;
+                                            font-weight: 600;
+                                            wrap: word-wrap;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    Rectangle {
+                                        height: 4px;
+                                    }
+                                    FieldLabel {
+                                        text: "名稱";
+                                    }
+                                    title-box := TextField {
                                         height: 42px;
-                                        text: "✦ 問 Claude";
-                                        kind: ButtonKind.secondary;
-                                        font-size: 12.5px;
-                                        horizontal-padding: 12px;
-                                        enabled: !root.estimating && !root.busy;
-                                        clicked => {
-                                            root.ask-claude();
+                                        text <=> root.new-title;
+                                        placeholder: "要做什麼（Enter 建立）";
+                                        font-size: Theme.fs-md;
+                                        enabled: !root.busy;
+                                        accepted => {
+                                            root.create();
                                         }
                                     }
-                                    Tooltip {
-                                        Tip {
-                                            text: "請 Claude 依任務名稱與這個 session 的指令估預計工時";
+                                    Rectangle {
+                                        height: 4px;
+                                    }
+                                    FieldLabel {
+                                        text: "狀態";
+                                    }
+                                    SelectField {
+                                        height: 42px;
+                                        items: root.statuses;
+                                        current <=> root.status;
+                                        enabled: !root.busy;
+                                    }
+                                    Rectangle {
+                                        height: 4px;
+                                    }
+                                    FieldLabel {
+                                        text: "預計開始 ～ 結束";
+                                    }
+                                    DateRangePicker {
+                                        height: 42px;
+                                        start <=> root.plan-start;
+                                        end <=> root.plan-end;
+                                        today: root.today;
+                                        enabled: !root.busy;
+                                    }
+                                    Rectangle {
+                                        height: 4px;
+                                    }
+                                    FieldLabel {
+                                        text: "預計工時（小時，必填）";
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        estimate-box := TextField {
+                                            height: 42px;
+                                            min-width: 80px;
+                                            text <=> root.estimate;
+                                            placeholder: "例 4、1.5";
+                                            font-size: Theme.fs-md;
+                                            enabled: !root.busy;
+                                            edited(t) => {
+                                                root.estimate-edited(t);
+                                            }
+                                            accepted => {
+                                                root.create();
+                                            }
+                                        }
+                                        Rectangle {
+                                            horizontal-stretch: 0;
+                                            width: ask.preferred-width;
+                                            ask := Button {
+                                                height: 42px;
+                                                text: "✦ 問 Claude";
+                                                kind: ButtonKind.secondary;
+                                                font-size: 12.5px;
+                                                horizontal-padding: 12px;
+                                                enabled: !root.estimating && !root.busy;
+                                                clicked => {
+                                                    root.ask-claude();
+                                                }
+                                            }
+                                            Tooltip {
+                                                Tip {
+                                                    text: "請 Claude 依任務名稱與這個 session 的指令估預計工時";
+                                                }
+                                            }
                                         }
                                     }
-                                }
-                            }
-                            if root.estimate-hint != "": MutedText {
-                                text: root.estimate-hint;
-                            }
-                            Rectangle {
-                                height: 6px;
-                            }
-                            CheckRow {
-                                text: "指定給這個 Claude session 並自動計時";
-                                checked <=> root.assign;
-                                enabled: !root.busy;
-                            }
-                            Rectangle {
-                                height: 6px;
-                            }
-                            HorizontalLayout {
-                                spacing: 8px;
-                                alignment: start;
-                                Button {
-                                    text: root.busy ? "處理中…" : "建立";
-                                    kind: ButtonKind.primary;
-                                    enabled: !root.busy;
-                                    horizontal-padding: 20px;
-                                    clicked => {
-                                        root.create();
+                                    if root.estimate-hint != "": MutedText {
+                                        text: root.estimate-hint;
+                                    }
+                                    Rectangle {
+                                        height: 6px;
+                                    }
+                                    CheckRow {
+                                        text: "指定給這個 Claude session 並自動計時";
+                                        checked <=> root.assign;
+                                        enabled: !root.busy;
+                                    }
+                                    Rectangle {
+                                        height: 6px;
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Button {
+                                            text: root.busy ? "處理中…" : "建立";
+                                            kind: ButtonKind.primary;
+                                            enabled: !root.busy;
+                                            horizontal-padding: 20px;
+                                            clicked => {
+                                                root.create();
+                                            }
+                                        }
+                                        Button {
+                                            text: "取消";
+                                            kind: ButtonKind.secondary;
+                                            horizontal-padding: 20px;
+                                            clicked => {
+                                                root.cancel();
+                                            }
+                                        }
+                                    }
+                                    StatusLine {
+                                        text: root.error;
+                                    }
+                                    MutedText {
+                                        text: "專案、上層會記住，下次在這個資料夾建立任務時直接帶入。";
                                     }
                                 }
-                                Button {
-                                    text: "取消";
-                                    kind: ButtonKind.secondary;
-                                    horizontal-padding: 20px;
-                                    clicked => {
-                                        root.cancel();
-                                    }
-                                }
-                            }
-                            StatusLine {
-                                text: root.error;
-                            }
-                            MutedText {
-                                text: "專案、上層會記住，下次在這個資料夾建立任務時直接帶入。";
                             }
                         }
                     }

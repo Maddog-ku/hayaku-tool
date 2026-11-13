@@ -4,7 +4,7 @@
 // 分頁清單、搜尋、樹狀、看板、日曆、甘特（拖拉改預計日期）；點任務跳出詳細（直接改狀態、日期、工時）、新增任務。
 import { Theme, Motion } from "@hb/index.slint";
 import { PageTitle } from "@hbc/index.slint";
-import { SmallButton, GlyphButton, TipSegmented, HintBox, Modal, ConfirmDialog } from "../shared/index.slint";
+import { SmallButton, GlyphButton, TipSegmented, HintBox, Modal, ConfirmDialog, SlideSwitch } from "../shared/index.slint";
 import { TasksPageData } from "tasks/data.slint";
 import { ListView, TreeView, KanbanView } from "tasks/list.slint";
 import { CalendarView } from "tasks/calendar.slint";
@@ -16,6 +16,8 @@ import { FilterBar, ColumnsDialog } from "tasks/toolbar.slint";
 export { TasksPageData }
 
 export component TasksPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時搜尋框移到標題列，分頁列只放分頁（放不下時可以左右捲）
+    property <bool> narrow: root.width < 1000px;
     page-fs := FocusScope {
         // Esc 關掉彈窗（C# PreviewKeyDown：焦點在哪裡都一樣）
         capture-key-pressed(e) => {
@@ -50,6 +52,24 @@ export component TasksPage inherits Rectangle {
                     vertical-alignment: center;
                     horizontal-stretch: 1;
                 }
+                if root.narrow: HintBox {
+                    y: (parent.height - self.height) / 2;
+                    max-width: 320px;
+                    min-width: 160px;
+                    horizontal-stretch: 1;
+                    text <=> TasksPageData.search-text;
+                    placeholder: "🔍 搜尋任務編號或名稱，按 Enter（也找備註、留言）";
+                    accepted(t) => {
+                        TasksPageData.search-accepted(t);
+                    }
+                    key-intercept(e) => {
+                        if e.text == Key.Escape {
+                            TasksPageData.search-escape();
+                            return EventResult.accept;
+                        }
+                        EventResult.reject
+                    }
+                }
                 GlyphButton {
                     y: (parent.height - self.height) / 2;
                     glyph: "⟳";
@@ -71,22 +91,33 @@ export component TasksPage inherits Rectangle {
                 }
             }
 
-            // 分頁、搜尋（看板不分分頁）
-            HorizontalLayout {
+            // 分頁、搜尋（看板不分分頁；窄的時候搜尋在標題列，看板就不用這一列）
+            if TasksPageData.tabs-visible || !root.narrow: HorizontalLayout {
                 padding-top: 14px;
                 padding-bottom: 10px;
                 spacing: 12px;
-                if TasksPageData.tabs-visible: TipSegmented {
-                    items: TasksPageData.tab-labels;
-                    current: TasksPageData.tab-index;
-                    selected(i) => {
-                        TasksPageData.tab-selected(i);
+                if TasksPageData.tabs-visible: Flickable {
+                    height: 34px;
+                    min-width: 120px;
+                    preferred-width: tabs.preferred-width;
+                    max-width: tabs.preferred-width;
+                    horizontal-stretch: 1;
+                    content-width: tabs.preferred-width;
+                    content-height: 34px;
+                    tabs := TipSegmented {
+                        width: self.preferred-width;
+                        items: TasksPageData.tab-labels;
+                        current: TasksPageData.tab-index;
+                        item-padding: root.narrow ? 9px : 13px;
+                        selected(i) => {
+                            TasksPageData.tab-selected(i);
+                        }
                     }
                 }
                 Rectangle {
-                    horizontal-stretch: 1;
+                    horizontal-stretch: root.narrow ? 0 : 1;
                 }
-                search := HintBox {
+                if !root.narrow: HintBox {
                     max-width: 320px;
                     min-width: 220px;
                     horizontal-stretch: 1;
@@ -121,8 +152,10 @@ export component TasksPage inherits Rectangle {
                     FilterBar {
                         wrap: card.width < 1000px;
                     }
-                    Rectangle {
+                    // 切檢視、切分頁時內容從切換的方向滑入淡入，清單依序浮現
+                    SlideSwitch {
                         vertical-stretch: 1;
+                        key: TasksPageData.mode * 20 + TasksPageData.tab-index;
                         if TasksPageData.mode == 0: ListView {
                             width: parent.width;
                             height: parent.height;
@@ -145,6 +178,16 @@ export component TasksPage inherits Rectangle {
                             height: parent.height;
                         }
                         if TasksPageData.list-message != "": Text {
+                            // 出現時淡入
+                            property <float> t: 0;
+                            init => {
+                                t = 1;
+                            }
+                            animate t {
+                                duration: Theme.reduce-motion ? 0ms : 260ms;
+                                easing: Motion.out;
+                            }
+                            opacity: self.t;
                             x: 20px;
                             width: parent.width - 40px;
                             text: TasksPageData.list-message;

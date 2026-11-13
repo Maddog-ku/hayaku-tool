@@ -8,6 +8,7 @@
 import { Theme, ScrollView, Checkbox, Tip, TipArea } from "@hb/index.slint";
 import { CheckRow, SelectField, StatusLine } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Link, W2Project, W2ProjectSelect, W2Title } from "w2-common.slint";
+import { Appear } from "../shared/anim.slint";
 
 /// 清單的一列（C# Row）。
 export struct ProjectsRow {
@@ -223,6 +224,8 @@ component TaskRow inherits Rectangle {
                 spacing: 6px;
                 opacity: root.data.done ? 0.55 : 1;
                 W2Link {
+                    // 編號不縮（名稱先省略）
+                    min-width: self.preferred-width;
                     text: root.data.key;
                     color: Theme.accent;
                     tip: "點一下複製編號";
@@ -298,6 +301,8 @@ component TaskRow inherits Rectangle {
 }
 
 export component ProjectsPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時批次列分兩列
+    property <bool> narrow: root.width < 1000px;
     VerticalLayout {
         padding-left: W2.pad-x;
         padding-right: W2.pad-x;
@@ -333,23 +338,32 @@ export component ProjectsPage inherits Rectangle {
 
         HorizontalLayout {
             spacing: 8px;
+            // 頁面窄時三個欄位一起縮（文字省略），不把整頁撐寬
             W2ProjectSelect {
-                width: 230px;
+                min-width: 150px;
+                preferred-width: 230px;
+                max-width: 230px;
+                horizontal-stretch: 1;
                 items: ProjectsPageData.projects;
                 current <=> ProjectsPageData.project-index;
                 selected(i) => { ProjectsPageData.project-selected(i); }
             }
             SelectField {
-                width: 160px;
+                min-width: 110px;
+                preferred-width: 160px;
+                max-width: 160px;
+                horizontal-stretch: 1;
                 height: 38px;
                 items: ProjectsPageData.views;
                 current <=> ProjectsPageData.view-index;
                 selected(i) => { ProjectsPageData.view-selected(i); }
             }
             W2Input {
-                width: 200px;
+                min-width: 100px;
+                preferred-width: 200px;
+                max-width: 200px;
                 height: 38px;
-                horizontal-stretch: 0;
+                horizontal-stretch: 1;
                 placeholder: "🔍 篩選編號或名稱";
                 text <=> ProjectsPageData.filter;
                 edited => { ProjectsPageData.filters-changed(); }
@@ -406,76 +420,116 @@ export component ProjectsPage inherits Rectangle {
             border-radius: W2.card-radius;
             border-width: 1px;
             border-color: Theme.line;
-            HorizontalLayout {
-                padding-left: 14px;
-                padding-right: 12px;
-                padding-top: 7px;
-                padding-bottom: 7px;
-                spacing: 6px;
-                Text {
-                    text: ProjectsPageData.batch-text;
-                    color: Theme.ink;
-                    font-weight: 600;
-                    vertical-alignment: center;
+            VerticalLayout {
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    padding-top: 7px;
+                    padding-bottom: 7px;
+                    spacing: 6px;
+                    Text {
+                        text: ProjectsPageData.batch-text;
+                        color: Theme.ink;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { width: 6px; }
+                    SelectField {
+                        width: 140px;
+                        height: 34px;
+                        items: ProjectsPageData.batch-statuses;
+                        current <=> ProjectsPageData.batch-status-index;
+                    }
+                    W2Button {
+                        text: ProjectsPageData.busy-button == "status" ? "處理中…" : "改狀態";
+                        primary: true;
+                        enabled: ProjectsPageData.busy-button == "";
+                        clicked => { ProjectsPageData.apply-status(); }
+                    }
+                    SelectField {
+                        width: 80px;
+                        height: 34px;
+                        items: ProjectsPageData.priorities;
+                        current <=> ProjectsPageData.batch-priority-index;
+                    }
+                    W2Button {
+                        text: ProjectsPageData.busy-button == "priority" ? "處理中…" : "改優先級";
+                        enabled: ProjectsPageData.busy-button == "";
+                        clicked => { ProjectsPageData.apply-priority(); }
+                    }
+                    if !root.narrow: HorizontalLayout {
+                        spacing: 6px;
+                        SelectField {
+                            width: 100px;
+                            height: 34px;
+                            items: ProjectsPageData.batch-types;
+                            current <=> ProjectsPageData.batch-type-index;
+                        }
+                        W2Button {
+                            text: ProjectsPageData.busy-button == "type" ? "處理中…" : "改類型";
+                            tip: "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
+                            enabled: ProjectsPageData.busy-button == "";
+                            clicked => { ProjectsPageData.apply-type(); }
+                        }
+                        W2Button {
+                            text: "套用範本…";
+                            tip: "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
+                            clicked => { ProjectsPageData.apply-template(); }
+                        }
+                        W2Button {
+                            text: "取消選取";
+                            clicked => { ProjectsPageData.clear-selection(); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
                 }
-                Rectangle { width: 6px; }
-                SelectField {
-                    width: 140px;
-                    height: 34px;
-                    items: ProjectsPageData.batch-statuses;
-                    current <=> ProjectsPageData.batch-status-index;
+                // 頁面窄時類型、範本、取消選取換到第二列
+                if root.narrow: HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    padding-bottom: 7px;
+                    spacing: 6px;
+                    SelectField {
+                        width: 100px;
+                        height: 34px;
+                        items: ProjectsPageData.batch-types;
+                        current <=> ProjectsPageData.batch-type-index;
+                    }
+                    W2Button {
+                        text: ProjectsPageData.busy-button == "type" ? "處理中…" : "改類型";
+                        tip: "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
+                        enabled: ProjectsPageData.busy-button == "";
+                        clicked => { ProjectsPageData.apply-type(); }
+                    }
+                    W2Button {
+                        text: "套用範本…";
+                        tip: "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
+                        clicked => { ProjectsPageData.apply-template(); }
+                    }
+                    W2Button {
+                        text: "取消選取";
+                        clicked => { ProjectsPageData.clear-selection(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
                 }
-                W2Button {
-                    text: ProjectsPageData.busy-button == "status" ? "處理中…" : "改狀態";
-                    primary: true;
-                    enabled: ProjectsPageData.busy-button == "";
-                    clicked => { ProjectsPageData.apply-status(); }
-                }
-                SelectField {
-                    width: 80px;
-                    height: 34px;
-                    items: ProjectsPageData.priorities;
-                    current <=> ProjectsPageData.batch-priority-index;
-                }
-                W2Button {
-                    text: ProjectsPageData.busy-button == "priority" ? "處理中…" : "改優先級";
-                    enabled: ProjectsPageData.busy-button == "";
-                    clicked => { ProjectsPageData.apply-priority(); }
-                }
-                SelectField {
-                    width: 100px;
-                    height: 34px;
-                    items: ProjectsPageData.batch-types;
-                    current <=> ProjectsPageData.batch-type-index;
-                }
-                W2Button {
-                    text: ProjectsPageData.busy-button == "type" ? "處理中…" : "改類型";
-                    tip: "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
-                    enabled: ProjectsPageData.busy-button == "";
-                    clicked => { ProjectsPageData.apply-type(); }
-                }
-                W2Button {
-                    text: "套用範本…";
-                    tip: "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
-                    clicked => { ProjectsPageData.apply-template(); }
-                }
-                W2Button {
-                    text: "取消選取";
-                    clicked => { ProjectsPageData.clear-selection(); }
-                }
-                Rectangle { horizontal-stretch: 1; }
             }
         }
 
         sv := ScrollView {
+            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+            content-width: self.visible-width;
             vertical-stretch: 1;
             content-height: list.preferred-height;
             list := VerticalLayout {
                 width: sv.visible-width - 14px;
                 spacing: 2px;
-                for row[i] in ProjectsPageData.rows: TaskRow {
-                    data: row;
+                for row[i] in ProjectsPageData.rows: Appear {
                     index: i;
+                    rise: 8px;
+                    TaskRow {
+                        data: row;
+                        index: i;
+                    }
                 }
             }
         }

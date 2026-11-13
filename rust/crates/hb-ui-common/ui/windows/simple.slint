@@ -2,7 +2,7 @@
 // 駁回申請（RejectReviewWindow）。
 import { Theme, Button, ButtonKind, TextField } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, TextArea } from "../common.slint";
-import { DialogBody, DialogButtons, DialogTitle } from "dialog.slint";
+import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
 
 export component DeleteTaskWindow inherits Window {
     icon: @image-url("../../../hayakubar/assets/app.ico");
@@ -32,31 +32,40 @@ export component DeleteTaskWindow inherits Window {
             }
             EventResult.reject
         }
-        DialogTitle {
-            text: root.heading;
+        Section {
+            index: 0;
+            DialogTitle {
+                text: root.heading;
+            }
         }
-        MutedText {
-            text: root.detail;
-            font-size: Theme.fs-md;
+        Section {
+            index: 1;
+            MutedText {
+                text: root.detail;
+                font-size: Theme.fs-md;
+            }
         }
         StatusLine {
             text: root.error;
         }
-        DialogButtons {
-            Button {
-                text: "刪除";
-                kind: ButtonKind.primary;
-                enabled: !root.busy;
-                clicked => {
-                    root.delete();
+        Section {
+            index: 2;
+            DialogButtons {
+                Button {
+                    text: "刪除";
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.delete();
+                    }
                 }
-            }
-            Button {
-                text: "取消";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.cancel();
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
                 }
             }
         }
@@ -88,55 +97,70 @@ export component AdvanceTestsWindow inherits Window {
         cancel => {
             root.cancel();
         }
-        DialogTitle {
-            text: root.heading;
-        }
-        if root.keys != "": MutedText {
-            text: root.keys;
-            font-size: Theme.fs-md;
-        }
-        MutedText {
-            text: "推到下一步（回到待復驗的會通知回報的人復驗）。";
-            font-size: Theme.fs-md;
-        }
-        VerticalLayout {
-            spacing: 6px;
-            padding-top: 4px;
-            FieldLabel {
-                text: "更新說明（會變成每筆的留言）";
+        Section {
+            index: 0;
+            DialogTitle {
+                text: root.heading;
             }
-            comment-box := TextField {
-                height: 44px;
-                text <=> root.comment;
-                placeholder: "例 測試機 1.3.0-rc2（可以不填）";
+        }
+        if root.keys != "": Section {
+            index: 1;
+            MutedText {
+                text: root.keys;
                 font-size: Theme.fs-md;
-                enabled: !root.busy;
-                edited(t) => {
-                    root.comment-edited(t);
+            }
+        }
+        Section {
+            index: 1;
+            MutedText {
+                text: "推到下一步（回到待復驗的會通知回報的人復驗）。";
+                font-size: Theme.fs-md;
+            }
+        }
+        Section {
+            index: 2;
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 4px;
+                FieldLabel {
+                    text: "更新說明（會變成每筆的留言）";
                 }
-                accepted => {
-                    root.advance(root.comment);
+                comment-box := TextField {
+                    height: 44px;
+                    text <=> root.comment;
+                    placeholder: "例 測試機 1.3.0-rc2（可以不填）";
+                    font-size: Theme.fs-md;
+                    enabled: !root.busy;
+                    edited(t) => {
+                        root.comment-edited(t);
+                    }
+                    accepted => {
+                        root.advance(root.comment);
+                    }
                 }
             }
         }
         StatusLine {
             text: root.error;
         }
-        DialogButtons {
-            Button {
-                text: root.button-text;
-                kind: ButtonKind.primary;
-                enabled: !root.busy;
-                clicked => {
-                    root.advance(root.comment);
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: root.button-text;
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.advance(root.comment);
+                    }
                 }
-            }
-            Button {
-                text: "取消";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.cancel();
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
                 }
             }
         }
@@ -167,59 +191,68 @@ export component RejectReviewWindow inherits Window {
         cancel => {
             root.cancel();
         }
-        VerticalLayout {
-            spacing: 4px;
-            DialogTitle {
-                text: root.heading;
-            }
-            MutedText {
-                text: root.details;
-                font-size: Theme.fs-md;
-            }
-            if root.warning != "": Rectangle {
-                height: warn.preferred-height + 16px;
-                border-radius: Theme.radius-small;
-                background: Theme.error-soft;
-                warn := Text {
-                    x: 12px;
-                    width: parent.width - 24px;
-                    text: root.warning;
-                    color: Theme.error;
+        Section {
+            index: 0;
+            VerticalLayout {
+                spacing: 4px;
+                DialogTitle {
+                    text: root.heading;
+                }
+                MutedText {
+                    text: root.details;
                     font-size: Theme.fs-md;
-                    font-weight: 600;
-                    wrap: word-wrap;
-                    vertical-alignment: center;
+                }
+                if root.warning != "": Rectangle {
+                    height: warn.preferred-height + 16px;
+                    border-radius: Theme.radius-small;
+                    background: Theme.error-soft;
+                    warn := Text {
+                        x: 12px;
+                        width: parent.width - 24px;
+                        text: root.warning;
+                        color: Theme.error;
+                        font-size: Theme.fs-md;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }
-        VerticalLayout {
-            spacing: 6px;
-            padding-top: 4px;
-            FieldLabel {
-                text: "給申請人的說明（選填）";
-            }
-            note-box := TextArea {
-                text <=> root.note;
-                min-height: 64px;
-                preferred-height: 80px;
-                enabled: !root.busy;
-            }
-        }
-        DialogButtons {
-            Button {
-                text: root.button-text;
-                kind: ButtonKind.primary;
-                enabled: !root.busy;
-                clicked => {
-                    root.reject(root.note);
+        Section {
+            index: 1;
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 4px;
+                FieldLabel {
+                    text: "給申請人的說明（選填）";
+                }
+                note-box := TextArea {
+                    text <=> root.note;
+                    min-height: 64px;
+                    preferred-height: 80px;
+                    enabled: !root.busy;
                 }
             }
-            Button {
-                text: "取消";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.cancel();
+        }
+        Section {
+            index: 2;
+            DialogButtons {
+                Button {
+                    text: root.button-text;
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.reject(root.note);
+                    }
+                }
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
                 }
             }
         }

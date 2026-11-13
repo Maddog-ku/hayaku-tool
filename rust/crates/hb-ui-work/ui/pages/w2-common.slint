@@ -3,6 +3,7 @@
 // 外觀沿用 hb-ui-kit 的 Theme 與微互動（元件牆風格）：頁面本身是白卡片，頁內的卡片用淡灰底。
 import { Theme, Motion, Button, ButtonKind, Tip, Icon, Icons } from "@hb/index.slint";
 import { ProjectIcon } from "@hbc/index.slint";
+import { FadeText, CardShadow } from "../shared/anim.slint";
 
 /// 專案下拉的一項（C# ComboBoxItem { Content = ProjectIcons.Badge, Tag = key }）；key 空字串是「全部專案」。
 export struct W2Project {
@@ -187,6 +188,8 @@ export component W2Stat inherits Rectangle {
     in property <string> desc;
     in property <color> value-color: Theme.ink;
     in property <length> value-size: 26px;
+    /// 頁面窄（視窗小）時數字小一點，四位數工時（例 5395.83h）也放得下
+    in property <bool> compact;
     background: Theme.fill;
     border-radius: W2.card-radius;
     horizontal-stretch: 1;
@@ -206,14 +209,14 @@ export component W2Stat inherits Rectangle {
             font-weight: 500;
             overflow: elide;
         }
-        Text {
+        // 數字變化時新數字從下方淡入
+        FadeText {
             text: root.value;
             color: root.value-color;
             font-family: Theme.font-num;
-            font-size: root.value-size;
+            font-size: root.compact ? root.value-size * 0.78 : root.value-size;
             font-weight: 600;
             overflow: elide;
-            animate color { duration: 300ms; }
         }
         Text {
             text: root.desc;
@@ -231,12 +234,16 @@ export component W2Confirm inherits Rectangle {
     in property <string> message;
     callback ok();
     callback cancel();
-    visible: root.open;
-    background: Theme.dark ? #000000A0 : #0E0F1355;
+    // 打開：底色淡入、卡片往上浮出（340ms）；關閉反向淡出（160ms），播完才不顯示
+    visible: root.open || root.t > 0.01;
     property <float> t: root.open ? 1 : 0;
     animate t {
-        duration: Motion.spring-dur;
-        easing: Motion.spring;
+        duration: root.open ? (Theme.reduce-motion ? 160ms : 340ms) : 160ms;
+        easing: root.open ? Motion.soft : Motion.out;
+    }
+    Rectangle {
+        background: Theme.dark ? #000000A0 : #0E0F1355;
+        opacity: clamp(root.t, 0, 1);
     }
     TouchArea { }
     fs := FocusScope {
@@ -257,10 +264,20 @@ export component W2Confirm inherits Rectangle {
             fs.focus();
         }
     }
-    Rectangle {
+    // 假陰影（軟體繪製畫不出 drop-shadow）
+    CardShadow {
+        x: w2c-card.x;
+        y: w2c-card.y;
+        width: w2c-card.width;
+        height: w2c-card.height;
+        radius: 24px;
+        strength: clamp(root.t, 0, 1);
+    }
+    w2c-card := Rectangle {
         width: min(480px, root.width - 48px);
-        height: vl.preferred-height;
-        y: (root.height - self.height) / 2 + (1 - root.t) * 16px;
+        height: min(vl.preferred-height, root.height - 32px);
+        y: (root.height - self.height) / 2 + (Theme.reduce-motion ? 0px : (1 - root.t) * 24px);
+        clip: true;
         opacity: clamp(root.t * 1.4, 0, 1);
         background: Theme.card;
         border-radius: 24px;
@@ -349,15 +366,11 @@ export component W2ProjectSelect {
             }
             Icon {
                 y: (parent.height - self.height) / 2;
-                path: Icons.chevron-down;
+                // 軟體繪製不支援旋轉：打開時換成向上的箭頭
+                path: root.open ? Icons.chevron-up : Icons.chevron-down;
                 color: Theme.ink;
                 width: 15px;
                 height: 15px;
-                transform-rotation: root.open ? 180deg : 0deg;
-                animate transform-rotation {
-                    duration: Theme.reduce-motion ? 420ms : 500ms;
-                    easing: Motion.spring;
-                }
             }
         }
     }
@@ -374,9 +387,28 @@ export component W2ProjectSelect {
         width: max(root.width, 220px) + 28px;
         height: min(root.max-rows, root.items.length) * root.item-height + 10px + 28px;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        Rectangle {
+        // 假陰影（軟體繪製畫不出 drop-shadow）
+        CardShadow {
+            x: pop-card.x;
+            y: pop-card.y;
+            width: pop-card.width;
+            height: pop-card.height;
+            radius: 14px;
+            strength: pop-card.opacity;
+        }
+        pop-card := Rectangle {
+            // 打開時往下滑出並淡入（同 MiniSelect）
+            property <float> t: 0;
+            init => {
+                t = 1;
+            }
+            animate t {
+                duration: Theme.reduce-motion ? 0ms : 260ms;
+                easing: Motion.out;
+            }
             x: 14px;
-            y: 14px;
+            y: 14px - 6px * (1 - self.t);
+            opacity: clamp(self.t * 1.5, 0, 1);
             width: parent.width - 28px;
             height: parent.height - 28px;
             border-radius: 14px;
@@ -466,7 +498,10 @@ export component W2Link {
     preferred-width: lbl.preferred-width;
     min-width: min(lbl.preferred-width, 24px);
     min-height: lbl.preferred-height;
+    // 寬度跟著元件（放不下時省略，不會畫到隔壁的欄位上）
     lbl := Text {
+        width: root.width;
+        height: root.height;
         text: root.text;
         color: root.color;
         font-size: root.font-size;

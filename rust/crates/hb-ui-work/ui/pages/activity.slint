@@ -5,6 +5,7 @@
 import { Theme, ScrollView, TipArea, Tip } from "@hb/index.slint";
 import { StatusLine, PageTitle, SelectField, CheckRow, ProjectIcon, ColorKeys } from "@hbc/index.slint";
 import { PageButton, TipSegmented, ItemCard } from "w3-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
 
 /// 摘要數字（新增、開始、完成、逾期）；color：ColorKeys 代碼（0 是 0 的時候用淡色）。
 export struct ActCard {
@@ -59,6 +60,8 @@ export global ActivityPageData {
 }
 
 export component ActivityPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時篩選列分兩列
+    property <bool> narrow: root.width < 1000px;
     VerticalLayout {
         padding-left: 24px;
         padding-right: 24px;
@@ -88,7 +91,7 @@ export component ActivityPage inherits Rectangle {
                 size: 22px;
             }
             SelectField {
-                width: 220px;
+                width: root.narrow ? 200px : 220px;
                 height: 40px;
                 items: ActivityPageData.projects;
                 current <=> ActivityPageData.project-index;
@@ -104,9 +107,33 @@ export component ActivityPage inherits Rectangle {
                     ActivityPageData.period-selected(i);
                 }
             }
-            Rectangle {
+            if !root.narrow: Rectangle {
                 width: 4px;
             }
+            if !root.narrow: HorizontalLayout {
+                spacing: 8px;
+                for label[i] in ["進展", "指派", "討論", "其他"]: CheckRow {
+                    y: (parent.height - self.height) / 2;
+                    text: label;
+                    checked: i < ActivityPageData.types.length && ActivityPageData.types[i];
+                    toggled(c) => {
+                        ActivityPageData.type-toggled(i, c);
+                    }
+                }
+                CheckRow {
+                    y: (parent.height - self.height) / 2;
+                    text: "只看我";
+                    checked <=> ActivityPageData.only-me;
+                    toggled(c) => {
+                        ActivityPageData.only-me-toggled(c);
+                    }
+                }
+            }
+        }
+        // 頁面窄時類型勾選換到下一列
+        if root.narrow: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
             for label[i] in ["進展", "指派", "討論", "其他"]: CheckRow {
                 y: (parent.height - self.height) / 2;
                 text: label;
@@ -130,21 +157,26 @@ export component ActivityPage inherits Rectangle {
         }
         HorizontalLayout {
             spacing: 8px;
-            for c in ActivityPageData.cards: ItemCard {
+            for c[ai] in ActivityPageData.cards: Appear {
+                index: ai;
                 horizontal-stretch: 1;
-                pad-x: 14px;
-                pad-y: 10px;
-                Text {
-                    text: c.label;
-                    color: Theme.muted;
-                    font-size: Theme.fs-sm;
-                }
-                Text {
-                    text: c.value;
-                    color: ColorKeys.color(c.color);
-                    font-family: Theme.font-num;
-                    font-size: 22px;
-                    font-weight: 700;
+                stagger: 45ms;
+                ItemCard {
+                    horizontal-stretch: 1;
+                    pad-x: 14px;
+                    pad-y: 10px;
+                    Text {
+                        text: c.label;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                    }
+                    Text {
+                        text: c.value;
+                        color: ColorKeys.color(c.color);
+                        font-family: Theme.font-num;
+                        font-size: 22px;
+                        font-weight: 700;
+                    }
                 }
             }
         }
@@ -154,75 +186,90 @@ export component ActivityPage inherits Rectangle {
             font-size: Theme.fs-md;
             wrap: word-wrap;
         }
-        ScrollView {
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: ActivityPageData.period;
             vertical-stretch: 1;
-            VerticalLayout {
-                padding-right: 8px;
-                spacing: 4px;
-                alignment: start;
-                if ActivityPageData.empty-text != "": Text {
-                    text: ActivityPageData.empty-text;
-                    color: Theme.muted;
-                    font-size: Theme.fs-md;
-                }
-                for day in ActivityPageData.days: VerticalLayout {
+            ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding-right: 8px;
                     spacing: 4px;
-                    padding-top: 10px;
-                    Text {
-                        text: day.label;
-                        color: Theme.ink;
+                    alignment: start;
+                    if ActivityPageData.empty-text != "": Text {
+                        text: ActivityPageData.empty-text;
+                        color: Theme.muted;
                         font-size: Theme.fs-md;
-                        font-weight: 700;
                     }
-                    ItemCard {
-                        pad-x: 12px;
-                        pad-y: 6px;
-                        for r in day.rows: HorizontalLayout {
-                            height: 28px;
+                    for day[ai] in ActivityPageData.days: Appear {
+                        index: ai;
+                        stagger: 45ms;
+                        VerticalLayout {
+                            spacing: 4px;
+                            padding-top: 10px;
                             Text {
-                                width: 48px;
-                                text: r.time;
-                                font-family: Theme.font-num;
-                                color: Theme.muted;
+                                text: day.label;
+                                color: Theme.ink;
                                 font-size: Theme.fs-md;
-                                vertical-alignment: center;
+                                font-weight: 700;
                             }
-                            Rectangle {
-                                width: 28px;
-                                TipArea {
-                                    text: r.project;
-                                    ProjectIcon {
-                                        y: (parent.height - self.height) / 2;
-                                        glyph: r.glyph;
-                                        tint: r.tint;
-                                        size: 18px;
-                                    }
-                                }
-                            }
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                HorizontalLayout {
-                                    alignment: start;
-                                    for s in r.spans: Text {
-                                        text: s.text;
-                                        color: s.key != "" ? Theme.accent-ink : Theme.ink;
-                                        font-weight: s.key != "" ? 600 : 400;
+                            ItemCard {
+                                pad-x: 12px;
+                                pad-y: 6px;
+                                for r in day.rows: HorizontalLayout {
+                                    height: 28px;
+                                    Text {
+                                        width: 48px;
+                                        text: r.time;
+                                        font-family: Theme.font-num;
+                                        color: Theme.muted;
                                         font-size: Theme.fs-md;
                                         vertical-alignment: center;
-                                        overflow: elide;
-                                        TouchArea {
-                                            enabled: s.key != "";
-                                            mouse-cursor: s.key != "" ? pointer : default;
-                                            clicked => {
-                                                ActivityPageData.open-task(s.key);
+                                    }
+                                    Rectangle {
+                                        width: 28px;
+                                        TipArea {
+                                            text: r.project;
+                                            ProjectIcon {
+                                                y: (parent.height - self.height) / 2;
+                                                glyph: r.glyph;
+                                                tint: r.tint;
+                                                size: 18px;
                                             }
                                         }
                                     }
-                                }
-                                Rectangle {
-                                    Tooltip {
-                                        Tip {
-                                            text: r.text;
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            // 任務編號不縮（看得到是哪個任務），其他文字放不下時才省略
+                                            for s in r.spans: Text {
+                                                min-width: s.key != "" ? self.preferred-width : min(self.preferred-width, 28px);
+                                                text: s.text;
+                                                color: s.key != "" ? Theme.accent-ink : Theme.ink;
+                                                font-weight: s.key != "" ? 600 : 400;
+                                                font-size: Theme.fs-md;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                                TouchArea {
+                                                    enabled: s.key != "";
+                                                    mouse-cursor: s.key != "" ? pointer : default;
+                                                    clicked => {
+                                                        ActivityPageData.open-task(s.key);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Rectangle {
+                                            Tooltip {
+                                                Tip {
+                                                    text: r.text;
+                                                }
+                                            }
                                         }
                                     }
                                 }

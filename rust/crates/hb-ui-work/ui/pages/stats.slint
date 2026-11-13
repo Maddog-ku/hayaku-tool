@@ -4,6 +4,7 @@
 import { Theme, Motion, ScrollView, Segmented, Tip } from "@hb/index.slint";
 import { DateRangePicker, StatusLine } from "@hbc/index.slint";
 import { W2, W2Button, W2Stat, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
 
 export struct StatsBar {
     name: string,
@@ -119,6 +120,8 @@ component Bar {
 }
 
 export component StatsPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時自訂日期換列、明細欄位縮
+    property <bool> narrow: root.width < 1000px;
     VerticalLayout {
         padding-left: W2.pad-x;
         padding-right: W2.pad-x;
@@ -157,7 +160,18 @@ export component StatsPage inherits Rectangle {
                 item-padding: 12px;
                 selected(i) => { StatsPageData.preset-selected(i); }
             }
-            if StatsPageData.preset-index == 6: DateRangePicker {
+            if StatsPageData.preset-index == 6 && !root.narrow: DateRangePicker {
+                width: 260px;
+                start <=> StatsPageData.custom-start;
+                end <=> StatsPageData.custom-end;
+                today: StatsPageData.today;
+                applied => { StatsPageData.custom-applied(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        // 頁面窄時自訂期間的日期放到下一列
+        if StatsPageData.preset-index == 6 && root.narrow: HorizontalLayout {
+            DateRangePicker {
                 width: 260px;
                 start <=> StatsPageData.custom-start;
                 end <=> StatsPageData.custom-end;
@@ -176,93 +190,115 @@ export component StatsPage inherits Rectangle {
             tone: StatsPageData.status-tone;
         }
 
-        sv := ScrollView {
+        // 切換時內容從切換的方向滑入淡入，清單依序浮現
+        SlideSwitch {
+            key: StatsPageData.perspective-index * 20 + StatsPageData.preset-index;
             vertical-stretch: 1;
-            content-height: body.preferred-height;
-            body := VerticalLayout {
-                width: sv.visible-width - 14px;
-                spacing: 8px;
-                HorizontalLayout {
+            sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    width: sv.visible-width - 14px;
                     spacing: 8px;
-                    W2Stat {
-                        label: "實際工時";
-                        value: StatsPageData.actual;
-                        desc: StatsPageData.actual-desc;
-                    }
-                    W2Stat {
-                        label: StatsPageData.second-label;
-                        value: StatsPageData.second;
-                        desc: StatsPageData.second-desc;
-                    }
-                    W2Stat {
-                        label: "完成任務";
-                        value: StatsPageData.done;
-                        desc: StatsPageData.done-desc;
-                    }
-                    W2Stat {
-                        label: "逾期";
-                        value: StatsPageData.overdue;
-                        value-color: StatsPageData.overdue-alert ? Theme.error : Theme.ink;
-                        desc: StatsPageData.overdue-desc;
-                    }
-                }
-                Rectangle {
-                    background: Theme.fill;
-                    border-radius: W2.card-radius;
-                    VerticalLayout {
-                        padding: 16px;
-                        spacing: 6px;
-                        Text {
-                            text: StatsPageData.bars-title;
-                            color: Theme.ink;
-                            font-weight: 600;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: "實際工時";
+                            value: StatsPageData.actual;
+                            desc: StatsPageData.actual-desc;
                         }
-                        Rectangle { height: 4px; }
-                        for b in StatsPageData.bars: Bar {
-                            bar: b;
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: StatsPageData.second-label;
+                            value: StatsPageData.second;
+                            desc: StatsPageData.second-desc;
                         }
-                        if StatsPageData.bars-empty: Text {
-                            text: "這段期間沒有工時";
-                            color: Theme.muted;
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: "完成任務";
+                            value: StatsPageData.done;
+                            desc: StatsPageData.done-desc;
                         }
-                        Text {
-                            text: StatsPageData.bar-note;
-                            color: Theme.muted;
-                            font-size: 11.5px;
-                            wrap: word-wrap;
+                        W2Stat {
+                            compact: root.width < 1000px;
+                            label: "逾期";
+                            value: StatsPageData.overdue;
+                            value-color: StatsPageData.overdue-alert ? Theme.error : Theme.ink;
+                            desc: StatsPageData.overdue-desc;
                         }
                     }
-                }
-                Rectangle {
-                    background: Theme.fill;
-                    border-radius: W2.card-radius;
-                    VerticalLayout {
-                        padding: 16px;
-                        spacing: 6px;
-                        Text {
-                            text: "明細";
-                            color: Theme.ink;
-                            font-weight: 600;
-                        }
-                        Rectangle { height: 4px; }
-                        for row[r] in StatsPageData.table: HorizontalLayout {
-                            spacing: 16px;
-                            for cell[c] in row.cells: Text {
-                                text: cell;
-                                min-width: c == 0 ? 60px : 96px;
-                                max-width: c == 0 ? 10000px : 96px;
-                                preferred-width: c == 0 ? 200px : 96px;
-                                horizontal-stretch: c == 0 ? 1 : 0;
-                                horizontal-alignment: c == 0 ? left : right;
-                                color: r == 0 ? Theme.muted : Theme.ink;
-                                font-size: r == 0 ? 12px : 13px;
-                                font-family: c > 0 && r > 0 ? Theme.font-num : "";
-                                overflow: elide;
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: W2.card-radius;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 6px;
+                            Text {
+                                text: StatsPageData.bars-title;
+                                color: Theme.ink;
+                                font-weight: 600;
+                            }
+                            Rectangle { height: 4px; }
+                            for b[ai] in StatsPageData.bars: Appear {
+                                index: ai;
+                                rise: 6px;
+                                Bar {
+                                    bar: b;
+                                }
+                            }
+                            if StatsPageData.bars-empty: Text {
+                                text: "這段期間沒有工時";
+                                color: Theme.muted;
+                            }
+                            Text {
+                                text: StatsPageData.bar-note;
+                                color: Theme.muted;
+                                font-size: 11.5px;
+                                wrap: word-wrap;
                             }
                         }
-                        if StatsPageData.table-empty: Text {
-                            text: "沒有資料";
-                            color: Theme.muted;
+                    }
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: W2.card-radius;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 6px;
+                            Text {
+                                text: "明細";
+                                color: Theme.ink;
+                                font-weight: 600;
+                            }
+                            Rectangle { height: 4px; }
+                            for row[r] in StatsPageData.table: Appear {
+                                index: r;
+                                rise: 6px;
+                                HorizontalLayout {
+                                    spacing: root.narrow ? 10px : 16px;
+                                    // 頁面窄時數字欄可以縮到 66（stretch 要大於 0 才會縮，最寬還是 96）
+                                    for cell[c] in row.cells: Text {
+                                        text: cell;
+                                        min-width: c == 0 ? 60px : 66px;
+                                        max-width: c == 0 ? 10000px : 96px;
+                                        preferred-width: c == 0 ? 200px : 96px;
+                                        horizontal-stretch: c == 0 ? 1 : 0.1;
+                                        horizontal-alignment: c == 0 ? left : right;
+                                        color: r == 0 ? Theme.muted : Theme.ink;
+                                        font-size: r == 0 ? 12px : 13px;
+                                        font-family: c > 0 && r > 0 ? Theme.font-num : "";
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                            if StatsPageData.table-empty: Text {
+                                text: "沒有資料";
+                                color: Theme.muted;
+                            }
                         }
                     }
                 }

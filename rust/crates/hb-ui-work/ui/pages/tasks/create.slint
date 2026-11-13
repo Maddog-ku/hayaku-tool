@@ -41,7 +41,8 @@ export component CreateView {
                 vertical-alignment: center;
             }
             MiniSelect {
-                width: 260px;
+                // 彈窗窄的時候縮一點，不把整列撐出卡片
+                width: root.width < 700px ? 190px : 260px;
                 items: TasksPageData.c-project-labels;
                 icons: TasksPageData.c-project-icons;
                 current <=> TasksPageData.c-project-index;
@@ -70,8 +71,10 @@ export component CreateView {
             vertical-stretch: 1;
             min-height: 260px;
             preferred-height: 430px;
-            // 專案樹
+            // 專案樹（窄的時候至少留 170，右邊欄位跟著縮）
             Rectangle {
+                min-width: 170px;
+                clip: true;
                 border-radius: 18px;
                 background: Theme.fill;
                 VerticalLayout {
@@ -200,7 +203,7 @@ export component CreateView {
             }
             // 新任務的資料
             fields-sv := ScrollView {
-                width: 320px;
+                width: max(250px, min(320px, root.width - 26px - 52px - 16px - 190px));
                 content-height: fields.preferred-height + 8px;
                 content-width: self.visible-width;
                 fields := VerticalLayout {

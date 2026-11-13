@@ -1,6 +1,7 @@
 // 一天的時間軸（C# UI/DayTimeline.cs）：底色是班表時段，綠色是有計時的時段，班表內沒計到的空檔標紅，今天畫出「現在」。
 // 滑鼠移上去顯示那個時間點在跑哪些任務。資料由 hb_ui_common::DayTimelineData 算，用 day_timeline_model! 轉成這個 struct。
-import { Theme, Tip } from "@hb/index.slint";
+// 出現時班表、空檔、計時的區段由左往右掃出來（只在元件建立時播一次；reduce-motion 時直接出現）。
+import { Theme, Motion, Tip } from "@hb/index.slint";
 
 /// 時間都是「距當天 0 點幾分鐘」。
 export struct DayTimelineModel {
@@ -36,6 +37,15 @@ export component DayTimeline {
     // 整點刻度：寬度夠就每小時，不夠就每 2、3 小時
     property <int> step: root.width / max(1, root.model.hours) >= 26px ? 1 : root.width / max(1, root.model.hours) >= 14px ? 2 : 3;
 
+    // 由左往右掃出來的進度（0–1）
+    property <float> reveal: 0;
+    init => {
+        root.reveal = 1;
+    }
+    animate reveal {
+        duration: Theme.reduce-motion ? 0ms : 650ms;
+        easing: Motion.out;
+    }
     // 底
     Rectangle {
         y: 0;
@@ -43,44 +53,53 @@ export component DayTimeline {
         border-radius: 4px;
         background: Theme.fill;
     }
-    // 班表時段
-    for s[i] in root.model.seg-start: Rectangle {
-        property <float> a: max(s, root.model.from-min);
-        property <float> b: min(root.model.seg-end[i], root.model.to-min);
-        visible: root.model.seg-end[i] > root.model.from-min && s < root.model.to-min;
-        x: root.x-of(self.a);
-        y: 1px;
-        width: max(1px, root.x-of(self.b) - root.x-of(self.a));
-        height: root.bar-height - 2px;
-        border-radius: 3px;
-        background: Theme.line;
-    }
-    // 班表內沒計到的空檔
-    for s[i] in root.model.gap-start: Rectangle {
-        property <float> a: max(s, root.model.from-min);
-        property <float> b: min(root.model.gap-end[i], root.model.to-min);
-        visible: root.model.gap-end[i] > root.model.from-min && s < root.model.to-min;
-        x: root.x-of(self.a);
-        y: 1px;
-        width: max(1px, root.x-of(self.b) - root.x-of(self.a));
-        height: root.bar-height - 2px;
-        border-radius: 3px;
-        background: Theme.error.with-alpha(0.35);
-    }
-    // 有計時的時段（並行只算一次）
-    for s[i] in root.model.run-start: Rectangle {
-        property <float> a: max(s, root.model.from-min);
-        property <float> b: min(root.model.run-end[i], root.model.to-min);
-        visible: root.model.run-end[i] > root.model.from-min && s < root.model.to-min;
-        x: root.x-of(self.a);
+    // 區段都放在這個框裡，框的寬度跟著 reveal 長（裁切）
+    Rectangle {
+        x: 0;
         y: 0;
-        width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+        width: root.width * root.reveal;
         height: root.bar-height;
-        border-radius: 3px;
-        background: Theme.run;
+        clip: true;
+        // 班表時段
+        for s[i] in root.model.seg-start: Rectangle {
+            property <float> a: max(s, root.model.from-min);
+            property <float> b: min(root.model.seg-end[i], root.model.to-min);
+            visible: root.model.seg-end[i] > root.model.from-min && s < root.model.to-min;
+            x: root.x-of(self.a);
+            y: 1px;
+            width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+            height: root.bar-height - 2px;
+            border-radius: 3px;
+            background: Theme.line;
+        }
+        // 班表內沒計到的空檔
+        for s[i] in root.model.gap-start: Rectangle {
+            property <float> a: max(s, root.model.from-min);
+            property <float> b: min(root.model.gap-end[i], root.model.to-min);
+            visible: root.model.gap-end[i] > root.model.from-min && s < root.model.to-min;
+            x: root.x-of(self.a);
+            y: 1px;
+            width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+            height: root.bar-height - 2px;
+            border-radius: 3px;
+            background: Theme.error.with-alpha(0.35);
+        }
+        // 有計時的時段（並行只算一次）
+        for s[i] in root.model.run-start: Rectangle {
+            property <float> a: max(s, root.model.from-min);
+            property <float> b: min(root.model.run-end[i], root.model.to-min);
+            visible: root.model.run-end[i] > root.model.from-min && s < root.model.to-min;
+            x: root.x-of(self.a);
+            y: 0;
+            width: max(1px, root.x-of(self.b) - root.x-of(self.a));
+            height: root.bar-height;
+            border-radius: 3px;
+            background: Theme.run;
+        }
     }
     // 現在
     if root.model.now-min >= 0: Rectangle {
+        opacity: root.reveal;
         x: round(root.x-of(root.model.now-min) / 1px) * 1px - 1px;
         y: -2px;
         width: 2px;

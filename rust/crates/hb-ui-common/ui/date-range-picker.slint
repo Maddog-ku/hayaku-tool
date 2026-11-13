@@ -1,7 +1,9 @@
 // 預計開始～結束（C# UI/DateRangePicker.xaml）：點一下跳出並排的兩個月日曆（跟 Hayaku 網頁一樣，週一開始），
 // 點第一下是開始、第二下是結束，按「套用日期」才生效。只選一天就套用＝開始和結束同一天；「清除」把兩個日期都清掉。
 // single＝只選一天：點一下日期就直接套用。日期一律用 yyyymmdd 整數，0 表示未指定。
-import { Theme, Motion, Icon, Icons, IconButton, Button, ButtonKind, Tip } from "@hb/index.slint";
+// 動畫（軟體繪圖：不用 transform、drop-shadow）：日曆往下滑開＋淡入、按鈕關閉時往上收起；換月份時月曆往左／右滑入；
+// 選到的日期圓圈彈一下；欄位按下時底色往內縮。
+import { Theme, Motion, Icon, Icons, IconButton, Button, ButtonKind, Tip, SoftShadow } from "@hb/index.slint";
 
 global DateMath {
     pure public function days-in(y: int, m: int) -> int {
@@ -74,11 +76,11 @@ component DayCell {
         height: root.height - 6px;
         background: Theme.accent-soft;
     }
+    // 彈一下：圓的直徑跟著 pop 變（軟體繪圖不支援 transform-scale）
     Rectangle {
-        width: min(root.width, root.height) - 4px;
+        width: (min(root.width, root.height) - 4px) * max(0, root.pop);
         height: self.width;
         border-radius: self.width / 2;
-        transform-scale: root.pop;
         background: root.endpoint ? Theme.ink : ta.has-hover ? Theme.hover : transparent;
         // 今天：外框（另一個月補位的今天不畫）
         border-width: root.today && root.in-month && !root.endpoint ? 1.5px : 0px;
@@ -229,11 +231,33 @@ export component DateRangePicker {
     property <int> range-to: !single && pick-start > 0 && pick-end == 0 && hover > 0 && hover > pick-start ? hover : pick-end > 0 ? pick-end : pick-start;
     property <bool> one-sided: !single && (start == 0) != (end == 0);
     property <bool> open: popup.is-open;
+    // 換月份的滑動：slide 從 1 回到 0，slide-dir 是方向（1 往後、-1 往前）
+    property <float> slide: 0;
+    property <int> slide-dir: 1;
+    property <bool> slide-snap;
+    animate slide {
+        duration: root.slide-snap ? 0ms : Theme.reduce-motion ? 120ms : 300ms;
+        easing: Motion.out;
+    }
+    // 按了按鈕要關：先往上收起再關（reduce-motion 時直接關）
+    property <bool> collapsing;
 
     function move(months: int) {
         let total = root.left-y * 12 + root.left-m - 1 + months;
         root.left-y = floor(total / 12);
         root.left-m = mod(total, 12) + 1;
+        root.slide-dir = months > 0 ? 1 : -1;
+        root.slide-snap = true;
+        root.slide = 1;
+        root.slide-snap = false;
+        root.slide = 0;
+    }
+    function shut() {
+        if Theme.reduce-motion {
+            popup.close();
+        } else {
+            root.collapsing = true;
+        }
     }
     public function open-calendar() {
         if !root.enabled {
@@ -245,17 +269,22 @@ export component DateRangePicker {
         let first = root.start > 0 ? root.start : root.today;
         root.left-y = floor(first / 10000);
         root.left-m = mod(floor(first / 100), 100);
+        root.slide-snap = true;
+        root.slide = 0;
+        root.slide-snap = false;
+        root.collapsing = false;
         popup.show();
     }
     /// 收起日曆（不套用）
     public function close-calendar() {
+        root.collapsing = false;
         popup.close();
     }
     function pick(day: int) {
         if root.single {
             root.start = day;
             root.end = day;
-            popup.close();
+            root.shut();
             root.applied();
             return;
         }
@@ -282,17 +311,24 @@ export component DateRangePicker {
             EventResult.reject
         }
     }
+    // 按下時底色往內縮一點（模擬縮放）
+    property <length> inset: field-ta.pressed ? 1.5px : 0px;
+    animate inset {
+        duration: field-ta.pressed ? Motion.press-dur : Motion.spring-dur;
+        easing: field-ta.pressed ? Motion.press : Motion.spring;
+    }
     Rectangle {
-        transform-scale: field-ta.pressed ? 0.97 : 1;
-        animate transform-scale {
-            duration: field-ta.pressed ? Motion.press-dur : Motion.spring-dur;
-            easing: field-ta.pressed ? Motion.press : Motion.spring;
-        }
+        x: root.inset;
+        y: root.inset;
+        width: root.width - 2 * root.inset;
+        height: root.height - 2 * root.inset;
         border-radius: Theme.radius-input;
-        background: root.open || fs.has-focus ? Theme.card : Theme.fill;
+        background: root.open || fs.has-focus ? Theme.card : field-ta.has-hover && root.enabled ? Theme.hover : Theme.fill;
         border-width: 1.5px;
         border-color: root.open || fs.has-focus ? Theme.ink : transparent;
-        animate background, border-color { duration: 300ms; }
+        animate background, border-color { duration: Motion.fast + 60ms; }
+    }
+    Rectangle {
         HorizontalLayout {
             padding-left: 14px;
             padding-right: 12px;
@@ -324,9 +360,10 @@ export component DateRangePicker {
             Icon {
                 y: (parent.height - self.height) / 2;
                 path: Icons.calendar;
-                color: Theme.muted;
+                color: root.open || field-ta.has-hover ? Theme.ink : Theme.muted;
                 width: 16px;
                 height: 16px;
+                animate color { duration: Motion.fast; }
             }
         }
     }
@@ -353,183 +390,232 @@ export component DateRangePicker {
         close-policy: PopupClosePolicy.close-on-click-outside;
         frame := Rectangle {
             property <float> t: 0;
+            property <bool> shutting: root.collapsing;
             init => {
                 t = 1;
             }
-            animate t {
-                duration: Motion.spring-dur;
-                easing: Motion.spring;
+            changed shutting => {
+                if self.shutting {
+                    self.t = 0;
+                }
             }
+            animate t {
+                duration: frame.shutting ? Motion.exit-dur + 40ms : Theme.reduce-motion ? 120ms : 300ms;
+                easing: Motion.out;
+            }
+            // 往下滑開：高度從 45% 長到全高（裁切），內容跟著從上方 8px 落下；reduce-motion 時只淡入
+            property <length> shown-h: Theme.reduce-motion ? self.height : self.height * (0.45 + 0.55 * self.t);
+            property <length> drop: Theme.reduce-motion ? 0px : (1 - self.t) * 8px;
             x: 14px;
-            y: 14px - 8px * (1 - self.t);
+            y: 14px;
             width: body.preferred-width;
             height: body.preferred-height;
-            opacity: clamp(self.t * 1.5, 0, 1);
-            transform-scale: 0.96 + 0.04 * self.t;
-            transform-origin: { x: 0px, y: 0px };
-            border-radius: 20px;
-            background: Theme.card;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
-            drop-shadow-blur: 24px;
-            drop-shadow-offset-y: 10px;
-            body := VerticalLayout {
-                padding-left: 16px;
-                padding-right: 16px;
-                padding-top: 12px;
-                padding-bottom: 14px;
-                spacing: 8px;
-                HorizontalLayout {
-                    spacing: 24px;
-                    // 左邊的月份：« ‹ 2026年  10月
-                    Rectangle {
-                        width: 7 * 38px;
-                        height: 30px;
-                        HorizontalLayout {
-                            alignment: LayoutAlignment.start;
-                            NavButton {
-                                icon: "M12 6l-6 6l6 6 M19 6l-6 6l6 6";
-                                tip: "上一年";
-                                clicked => {
-                                    root.move(-12);
-                                }
-                            }
-                            NavButton {
-                                icon: Icons.chevron-left;
-                                tip: "上個月";
-                                clicked => {
-                                    root.move(-1);
-                                }
-                            }
-                        }
-                        Text {
-                            text: root.left-y + "年  " + root.left-m + "月";
-                            color: Theme.ink;
-                            font-size: Theme.fs-base;
-                            font-weight: 700;
-                        }
-                    }
-                    // 右邊的月份：2026年  11月 › »
-                    Rectangle {
-                        width: 7 * 38px;
-                        height: 30px;
-                        Text {
-                            text: root.right-y + "年  " + root.right-m + "月";
-                            color: Theme.ink;
-                            font-size: Theme.fs-base;
-                            font-weight: 700;
-                        }
-                        HorizontalLayout {
-                            alignment: LayoutAlignment.end;
-                            NavButton {
-                                icon: Icons.chevron-right;
-                                tip: "下個月";
-                                clicked => {
-                                    root.move(1);
-                                }
-                            }
-                            NavButton {
-                                icon: "M5 6l6 6l-6 6 M12 6l6 6l-6 6";
-                                tip: "下一年";
-                                clicked => {
-                                    root.move(12);
-                                }
-                            }
-                        }
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 24px;
-                    MonthGrid {
-                        year: root.left-y;
-                        month: root.left-m;
-                        today: root.today;
-                        from: root.range-from;
-                        to: root.range-to;
-                        picked(d) => {
-                            root.pick(d);
-                        }
-                        hovered(d) => {
-                            if root.pick-start == 0 || root.pick-end != 0 || root.hover == d {
-                                return;
-                            }
-                            root.hover = d;
-                        }
-                    }
-                    MonthGrid {
-                        year: root.right-y;
-                        month: root.right-m;
-                        today: root.today;
-                        from: root.range-from;
-                        to: root.range-to;
-                        picked(d) => {
-                            root.pick(d);
-                        }
-                        hovered(d) => {
-                            if root.pick-start == 0 || root.pick-end != 0 || root.hover == d {
-                                return;
-                            }
-                            root.hover = d;
-                        }
-                    }
-                }
-                Rectangle {
-                    height: 1px;
-                    background: Theme.line;
-                }
-                Rectangle {
-                    height: 38px;
+            SoftShadow {
+                y: 0;
+                height: frame.shown-h;
+                radius: 20px;
+                strength: panel.opacity;
+                spread: 12px;
+                offset-y: 6px;
+            }
+            panel := Rectangle {
+                y: 0;
+                height: frame.shown-h;
+                opacity: clamp(frame.t * 1.6, 0, 1);
+                border-radius: 20px;
+                background: Theme.card;
+                border-width: 1px;
+                border-color: Theme.line;
+                clip: true;
+                body := VerticalLayout {
+                    y: -frame.drop;
+                    height: frame.height;
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 12px;
+                    padding-bottom: 14px;
+                    spacing: 8px;
                     HorizontalLayout {
-                        alignment: LayoutAlignment.start;
-                        spacing: 6px;
-                        Button {
-                            text: "取消";
-                            kind: ButtonKind.secondary;
-                            clicked => {
-                                popup.close();
+                        spacing: 24px;
+                        // 左邊的月份：« ‹ 2026年  10月
+                        Rectangle {
+                            width: 7 * 38px;
+                            height: 30px;
+                            HorizontalLayout {
+                                alignment: LayoutAlignment.start;
+                                NavButton {
+                                    icon: "M12 6l-6 6l6 6 M19 6l-6 6l6 6";
+                                    tip: "上一年";
+                                    clicked => {
+                                        root.move(-12);
+                                    }
+                                }
+                                NavButton {
+                                    icon: Icons.chevron-left;
+                                    tip: "上個月";
+                                    clicked => {
+                                        root.move(-1);
+                                    }
+                                }
+                            }
+                            Text {
+                                x: (parent.width - self.width) / 2 + root.slide * root.slide-dir * 14px;
+                                opacity: 1 - root.slide;
+                                text: root.left-y + "年  " + root.left-m + "月";
+                                color: Theme.ink;
+                                font-size: Theme.fs-base;
+                                font-weight: 700;
+                            }
+                        }
+                        // 右邊的月份：2026年  11月 › »
+                        Rectangle {
+                            width: 7 * 38px;
+                            height: 30px;
+                            Text {
+                                x: (parent.width - self.width) / 2 + root.slide * root.slide-dir * 14px;
+                                opacity: 1 - root.slide;
+                                text: root.right-y + "年  " + root.right-m + "月";
+                                color: Theme.ink;
+                                font-size: Theme.fs-base;
+                                font-weight: 700;
+                            }
+                            HorizontalLayout {
+                                alignment: LayoutAlignment.end;
+                                NavButton {
+                                    icon: Icons.chevron-right;
+                                    tip: "下個月";
+                                    clicked => {
+                                        root.move(1);
+                                    }
+                                }
+                                NavButton {
+                                    icon: "M5 6l6 6l-6 6 M12 6l6 6l-6 6";
+                                    tip: "下一年";
+                                    clicked => {
+                                        root.move(12);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 24px;
+                        // 換月份時新的月曆從行進方向滑進來（裁在自己的框裡）
+                        Rectangle {
+                            width: left-grid.width;
+                            height: left-grid.height;
+                            clip: true;
+                            left-grid := MonthGrid {
+                                x: root.slide * root.slide-dir * 40px;
+                                y: 0;
+                                opacity: 1 - root.slide * 0.9;
+                                year: root.left-y;
+                                month: root.left-m;
+                                today: root.today;
+                                from: root.range-from;
+                                to: root.range-to;
+                                picked(d) => {
+                                    root.pick(d);
+                                }
+                                hovered(d) => {
+                                    if root.pick-start == 0 || root.pick-end != 0 || root.hover == d {
+                                        return;
+                                    }
+                                    root.hover = d;
+                                }
                             }
                         }
                         Rectangle {
-                            horizontal-stretch: 0;
-                            preferred-width: clear.preferred-width;
-                            clear := Button {
-                                text: "清除";
-                                kind: ButtonKind.ghost;
+                            width: right-grid.width;
+                            height: right-grid.height;
+                            clip: true;
+                            right-grid := MonthGrid {
+                                x: root.slide * root.slide-dir * 40px;
+                                y: 0;
+                                opacity: 1 - root.slide * 0.9;
+                                year: root.right-y;
+                                month: root.right-m;
+                                today: root.today;
+                                from: root.range-from;
+                                to: root.range-to;
+                                picked(d) => {
+                                    root.pick(d);
+                                }
+                                hovered(d) => {
+                                    if root.pick-start == 0 || root.pick-end != 0 || root.hover == d {
+                                        return;
+                                    }
+                                    root.hover = d;
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.line;
+                    }
+                    Rectangle {
+                        height: 38px;
+                        HorizontalLayout {
+                            alignment: LayoutAlignment.start;
+                            spacing: 6px;
+                            Button {
+                                text: "取消";
+                                kind: ButtonKind.secondary;
                                 clicked => {
-                                    root.start = 0;
-                                    root.end = 0;
-                                    popup.close();
+                                    root.shut();
+                                }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 0;
+                                preferred-width: clear.preferred-width;
+                                clear := Button {
+                                    text: "清除";
+                                    kind: ButtonKind.ghost;
+                                    clicked => {
+                                        root.start = 0;
+                                        root.end = 0;
+                                        root.shut();
+                                        root.applied();
+                                    }
+                                }
+                                Tooltip {
+                                    Tip {
+                                        text: "清除預計日期";
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            text: root.single ? "點一下日期就選好" : root.pick-start == 0 ? "點一下選開始日期" : root.pick-end == 0 ? DateMath.md(root.pick-start) + " ～ 再點結束日期（只選這天就直接套用）" : DateMath.md(root.pick-start) + " ～ " + DateMath.md(root.pick-end) + "，共 " + (DateMath.day-number(root.pick-end) - DateMath.day-number(root.pick-start) + 1) + " 天";
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        HorizontalLayout {
+                            alignment: LayoutAlignment.end;
+                            Button {
+                                text: "套用日期";
+                                kind: ButtonKind.primary;
+                                clicked => {
+                                    root.start = root.pick-start;
+                                    root.end = root.pick-end > 0 ? root.pick-end : root.pick-start; // 只點一天：開始和結束同一天
+                                    root.shut();
                                     root.applied();
                                 }
                             }
-                            Tooltip {
-                                Tip {
-                                    text: "清除預計日期";
-                                }
-                            }
                         }
                     }
-                    Text {
-                        text: root.single ? "點一下日期就選好" : root.pick-start == 0 ? "點一下選開始日期" : root.pick-end == 0 ? DateMath.md(root.pick-start) + " ～ 再點結束日期（只選這天就直接套用）" : DateMath.md(root.pick-start) + " ～ " + DateMath.md(root.pick-end) + "，共 " + (DateMath.day-number(root.pick-end) - DateMath.day-number(root.pick-start) + 1) + " 天";
-                        color: Theme.muted;
-                        font-size: Theme.fs-sm;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    HorizontalLayout {
-                        alignment: LayoutAlignment.end;
-                        Button {
-                            text: "套用日期";
-                            kind: ButtonKind.primary;
-                            clicked => {
-                                root.start = root.pick-start;
-                                root.end = root.pick-end > 0 ? root.pick-end : root.pick-start; // 只點一天：開始和結束同一天
-                                popup.close();
-                                root.applied();
-                            }
-                        }
-                    }
+                }
+            }
+            // 收起後再關
+            Timer {
+                interval: Motion.exit-dur + 50ms;
+                running: frame.shutting;
+                triggered => {
+                    root.collapsing = false;
+                    popup.close();
                 }
             }
         }

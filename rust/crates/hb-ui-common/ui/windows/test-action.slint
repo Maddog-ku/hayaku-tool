@@ -2,7 +2,7 @@
 // reopen＝復驗沒過、退回（說明會變成一則留言，輪數 +1）。
 import { Theme, Button, ButtonKind, TextField } from "@hb/index.slint";
 import { FieldLabel, StatusLine, TextArea, CheckRow } from "../common.slint";
-import { DialogBody, DialogButtons, DialogTitle } from "dialog.slint";
+import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
 
 export component TestActionWindow inherits Window {
     icon: @image-url("../../../hayakubar/assets/app.ico");
@@ -30,87 +30,99 @@ export component TestActionWindow inherits Window {
         cancel => {
             root.cancel();
         }
-        DialogTitle {
-            text: root.heading;
+        Section {
+            index: 0;
+            DialogTitle {
+                text: root.heading;
+            }
         }
-        if root.fix: VerticalLayout {
-            spacing: 6px;
-            padding-top: 4px;
-            init => {
-                hours-box.focus();
-            }
-            FieldLabel {
-                text: "預估要修幾小時";
-            }
-            hours-box := TextField {
-                height: 44px;
-                text <=> root.hours;
-                placeholder: "例 2、0.5（可以不填）";
-                font-size: Theme.fs-md;
-                enabled: !root.busy;
-                accepted => {
-                    root.start-fix(root.hours);
+        if root.fix: Section {
+            index: 1;
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 4px;
+                init => {
+                    hours-box.focus();
+                }
+                FieldLabel {
+                    text: "預估要修幾小時";
+                }
+                hours-box := TextField {
+                    height: 44px;
+                    text <=> root.hours;
+                    placeholder: "例 2、0.5（可以不填）";
+                    font-size: Theme.fs-md;
+                    enabled: !root.busy;
+                    accepted => {
+                        root.start-fix(root.hours);
+                    }
+                }
+                Rectangle {
+                    height: 6px;
+                }
+                CheckRow {
+                    text: "同時開始計時";
+                    checked <=> root.start-timer;
+                    enabled: !root.busy;
                 }
             }
-            Rectangle {
-                height: 6px;
-            }
-            CheckRow {
-                text: "同時開始計時";
-                checked <=> root.start-timer;
-                enabled: !root.busy;
-            }
         }
-        if !root.fix: VerticalLayout {
-            spacing: 6px;
-            padding-top: 4px;
-            init => {
-                comment-box.focus();
-            }
-            FieldLabel {
-                text: "哪裡還有問題（會變成一則留言給工程師）";
-            }
-            comment-box := TextArea {
-                text <=> root.comment;
-                min-height: 80px;
-                preferred-height: 96px;
-                enabled: !root.busy;
+        if !root.fix: Section {
+            index: 1;
+            VerticalLayout {
+                spacing: 6px;
+                padding-top: 4px;
+                init => {
+                    comment-box.focus();
+                }
+                FieldLabel {
+                    text: "哪裡還有問題（會變成一則留言給工程師）";
+                }
+                comment-box := TextArea {
+                    text <=> root.comment;
+                    min-height: 80px;
+                    preferred-height: 96px;
+                    enabled: !root.busy;
+                }
             }
         }
         StatusLine {
             text: root.error;
         }
-        DialogButtons {
-            if root.fix: Button {
-                text: "開始修";
-                kind: ButtonKind.primary;
-                enabled: !root.busy;
-                clicked => {
-                    root.start-fix(root.hours);
+        Section {
+            index: 2;
+            DialogButtons {
+                if root.fix: Button {
+                    text: "開始修";
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.start-fix(root.hours);
+                    }
                 }
-            }
-            if root.fix: Button {
-                text: "跳過預估，開始修";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.skip-estimate();
+                if root.fix: Button {
+                    text: "跳過預估，開始修";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.skip-estimate();
+                    }
                 }
-            }
-            if !root.fix: Button {
-                text: "退回";
-                kind: ButtonKind.primary;
-                enabled: !root.busy;
-                clicked => {
-                    root.reject(root.comment);
+                if !root.fix: Button {
+                    text: "退回";
+                    kind: ButtonKind.primary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.reject(root.comment);
+                    }
                 }
-            }
-            Button {
-                text: "取消";
-                kind: ButtonKind.secondary;
-                enabled: !root.busy;
-                clicked => {
-                    root.cancel();
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
                 }
             }
         }

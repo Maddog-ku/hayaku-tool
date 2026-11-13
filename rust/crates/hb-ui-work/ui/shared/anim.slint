@@ -1,0 +1,196 @@
+// 工作台的過場小元件：清單依序浮現、檢視切換左右滑入、數字變化淡入、展開收合的高度動畫。
+// 軟體繪製不支援縮放與旋轉，這裡只用位移、寬高、透明度與 clip。
+// 全部遵守 Theme.reduce-motion（Windows「顯示動畫」關閉）：不位移、不錯開，直接顯示。
+import { Theme, Motion } from "@hb/index.slint";
+
+/// 「現在新建立的列要依序浮現」的開關。外框在換頁、頁面載入中（busy > 0）時打開，
+/// 頁內切分頁時 SlideSwitch 也會打開；外框的 Timer 在 busy 歸零後 450ms 關掉。
+/// 關著的時候重建的列（計時刷新、改一筆資料）不播動畫。
+export global ListReveal {
+    in-out property <bool> on;
+    /// Rust 端載入中計數（> 0 時不關）
+    in-out property <int> busy;
+}
+
+/// 清單的一列／一張卡片依序浮現：從下面 rise 往上，同時淡入；index 決定錯開的時間（最多錯開 14 個）。
+/// 用法：`for r[i] in rows: Appear { index: i; Row { ... } }`。大小由裡面的元件決定。
+export component Appear {
+    in property <int> index;
+    in property <length> rise: 10px;
+    in property <duration> duration: 320ms;
+    in property <duration> stagger: 26ms;
+    property <float> t: ListReveal.on && !Theme.reduce-motion ? 0 : 1;
+    init => {
+        t = 1;
+    }
+    animate t {
+        delay: Theme.reduce-motion ? 0ms : min(root.index, 14) * root.stagger;
+        duration: Theme.reduce-motion ? 0ms : root.duration;
+        easing: Motion.out;
+    }
+    min-width: lay.min-width;
+    preferred-width: lay.preferred-width;
+    min-height: lay.min-height;
+    preferred-height: lay.preferred-height;
+    // 不往下撐（清單的列、卡片不需要多出來的高度）
+    max-height: max(lay.min-height, lay.preferred-height);
+    vertical-stretch: 0;
+    Rectangle {
+        y: (1 - root.t) * root.rise;
+        width: root.width;
+        height: root.height;
+        opacity: root.t;
+        lay := VerticalLayout {
+            @children
+        }
+    }
+}
+
+/// 檢視切換：key 變了（分頁、檢視、模式）內容從切換的方向滑入並淡入，同時讓新清單依序浮現。
+/// key 變大從右邊進來、變小從左邊進來。
+export component SlideSwitch inherits Rectangle {
+    in property <int> key;
+    in property <length> distance: 28px;
+    // 滑動中的內容不要畫到外面（卡片邊框、隔壁的欄）
+    clip: true;
+    property <int> last;
+    property <float> t: 1;
+    property <float> dir: 1;
+    property <bool> snap;
+    init => {
+        last = key;
+    }
+    changed key => {
+        if !Theme.reduce-motion {
+            dir = key >= last ? 1 : -1;
+            snap = true;
+            t = 0;
+            snap = false;
+            t = 1;
+            ListReveal.on = true;
+        }
+        last = key;
+    }
+    animate t {
+        duration: snap ? 0ms : 300ms;
+        easing: Motion.out;
+    }
+    Rectangle {
+        x: (1 - root.t) * root.distance * root.dir;
+        opacity: root.t;
+        @children
+    }
+}
+
+/// 文字（多半是數字）變化時新字從下方 5px 淡入；reduce-motion 時直接換。
+export component FadeText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    in property <length> font-size: Theme.fs-md;
+    in property <int> font-weight: 400;
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: center;
+    in property <TextOverflow> overflow: elide;
+    in property <TextWrap> wrap: no-wrap;
+    property <string> shown;
+    property <float> t: 1;
+    property <bool> snap;
+    init => {
+        shown = text;
+    }
+    changed text => {
+        shown = text;
+        if !Theme.reduce-motion {
+            snap = true;
+            t = 0;
+            snap = false;
+            t = 1;
+        }
+    }
+    animate t {
+        duration: snap ? 0ms : 260ms;
+        easing: Motion.out;
+    }
+    min-height: txt.preferred-height;
+    preferred-height: txt.preferred-height;
+    max-height: txt.preferred-height;
+    vertical-stretch: 0;
+    preferred-width: txt.preferred-width;
+    // 最小寬度固定 0（要不要省略由呼叫端給寬度；跟著文字算會讓「寬度決定字級」的用法變成循環）
+    min-width: 0px;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        y: (1 - root.t) * 5px;
+        opacity: root.t;
+        text: root.shown;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.overflow;
+        wrap: root.wrap;
+    }
+}
+
+/// 展開收合的內容：open 時高度從 0 長到內容高度並淡入，收起反向（clip 住）。
+/// 收起後不畫內容；裡面的元件由呼叫端放，大小由內容決定。
+export component Collapse inherits Rectangle {
+    in property <bool> open;
+    property <float> t: open ? 1 : 0;
+    animate t {
+        duration: Theme.reduce-motion ? 0ms : 260ms;
+        easing: Motion.out;
+    }
+    clip: true;
+    min-width: lay.min-width;
+    preferred-width: lay.preferred-width;
+    min-height: lay.preferred-height * root.t;
+    preferred-height: lay.preferred-height * root.t;
+    max-height: lay.preferred-height * root.t;
+    Rectangle {
+        y: 0px;
+        width: root.width;
+        height: lay.preferred-height;
+        visible: root.t > 0.001;
+        opacity: min(1, root.t * 1.6);
+        lay := VerticalLayout {
+            @children
+        }
+    }
+}
+
+/// 假陰影：軟體繪製畫不出 drop-shadow，用三層半透明圓角矩形疊在卡片後面（越外圈越淡、往下偏一點）。
+/// 放在卡片前面（畫在底下），位置、大小跟卡片一樣；strength 0～1 控制深淺（例：浮起時跟著淡入）。
+export component CardShadow {
+    in property <length> radius: 24px;
+    in property <float> strength: 1;
+    property <color> base: Theme.dark ? #000000 : #0E0F13;
+    Rectangle {
+        x: -8px;
+        y: -2px;
+        width: root.width + 16px;
+        height: root.height + 16px;
+        border-radius: root.radius + 8px;
+        background: root.base.with-alpha((Theme.dark ? 0.16 : 0.035) * root.strength);
+    }
+    Rectangle {
+        x: -4px;
+        y: 1px;
+        width: root.width + 8px;
+        height: root.height + 9px;
+        border-radius: root.radius + 4px;
+        background: root.base.with-alpha((Theme.dark ? 0.2 : 0.05) * root.strength);
+    }
+    Rectangle {
+        x: -1px;
+        y: 2px;
+        width: root.width + 2px;
+        height: root.height + 3px;
+        border-radius: root.radius + 1px;
+        background: root.base.with-alpha((Theme.dark ? 0.24 : 0.07) * root.strength);
+    }
+}

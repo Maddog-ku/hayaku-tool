@@ -1,4 +1,4 @@
-// 分頁切換：膠囊底，ink 指示器以彈簧滑到選取項（寬度一起變），按下縮放。
+// 分頁切換：膠囊底，ink 指示器以彈簧滑到選取項（寬度一起變）；沒選的滑過有淡底，按下字往下 1px。
 import { Theme, Motion } from "../theme.slint";
 
 export component Segmented {
@@ -72,15 +72,27 @@ export component Segmented {
             accessible-role: tab;
             accessible-label: item;
             accessible-item-selected: self.on;
+            // 沒選的項目滑過時出現淡底、字變深
             Rectangle {
-                transform-scale: ta.pressed ? 0.92 : 1;
-                animate transform-scale {
+                y: 4px;
+                height: parent.height - 8px;
+                border-radius: self.height / 2;
+                background: !on && ta.has-hover ? Theme.hover : transparent;
+                animate background { duration: Motion.fast; }
+            }
+            // 按下：字往下 1px、變淡（軟體繪圖不支援 transform-scale）
+            Rectangle {
+                property <length> push: ta.pressed ? 1px : 0px;
+                animate push {
                     duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
                     easing: ta.pressed ? Motion.press : Motion.spring;
                 }
+                y: self.push;
+                opacity: ta.pressed ? 0.7 : 1;
+                animate opacity { duration: Motion.press-dur; }
                 lbl := Text {
                     text: item;
-                    color: on ? Theme.on-ink : Theme.muted;
+                    color: on ? Theme.on-ink : ta.has-hover ? Theme.ink : Theme.muted;
                     font-size: root.font-size;
                     font-weight: 600;
                     animate color { duration: 300ms; }

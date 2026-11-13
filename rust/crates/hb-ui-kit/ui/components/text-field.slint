@@ -1,5 +1,6 @@
 // 輸入框外觀：淺灰底，取得焦點時變卡片底並出現 1.5px 外框（設計稿 .search.focus / .dd-t.open）。
-import { Theme } from "../theme.slint";
+// 取得焦點時提示字往右滑開淡出、左側圖示變深、鍵盤提示淡出。
+import { Theme, Motion } from "../theme.slint";
 import { Icon } from "icons.slint";
 
 export component TextField {
@@ -35,7 +36,7 @@ export component TextField {
         border-radius: root.radius;
         border-width: 1.5px;
         border-color: input.has-focus ? Theme.ink : transparent;
-        animate background, border-color { duration: 300ms; }
+        animate background, border-color { duration: Motion.fast + 60ms; }
     }
     TouchArea {
         mouse-cursor: MouseCursor.text;
@@ -50,17 +51,26 @@ export component TextField {
         if root.icon != "": Icon {
             y: (parent.height - self.height) / 2;
             path: root.icon;
-            color: Theme.muted;
+            color: input.has-focus ? Theme.ink : Theme.muted;
             width: 18px;
             height: 18px;
+            animate color { duration: Motion.fast; }
         }
         Rectangle {
             horizontal-stretch: 1;
+            // 打的字比框長時不要畫到框外面（TextInput 會跟著游標捲動）；
+            // 最小寬度 0：不然長字串會把這格撐得比輸入框還寬，字就跑出框外
+            clip: true;
+            min-width: 0px;
+            // 提示字：取得焦點時往右滑開淡出；一打字就直接消失（不跟輸入的字疊在一起）
             Text {
-                x: 0;
-                width: parent.width;
+                property <float> on: input.text == "" && !input.has-focus ? 1 : 0;
+                animate on { duration: input.text != "" ? 0ms : Motion.fast; easing: Motion.out; }
+                x: Theme.reduce-motion ? 0px : (1 - self.on) * 8px;
+                width: parent.width - self.x;
                 text: root.placeholder;
-                visible: input.text == "" && !input.has-focus;
+                visible: self.on > 0;
+                opacity: self.on;
                 color: Theme.muted;
                 font-size: root.font-size;
                 font-weight: 500;
@@ -96,6 +106,12 @@ export component TextField {
             }
         }
         if root.hint != "" && !input.has-focus: Rectangle {
+            property <float> t: 0;
+            init => {
+                self.t = 1;
+            }
+            animate t { duration: Motion.fast; }
+            opacity: self.t;
             y: (parent.height - self.height) / 2;
             height: 20px;
             width: kbd.preferred-width + 14px;

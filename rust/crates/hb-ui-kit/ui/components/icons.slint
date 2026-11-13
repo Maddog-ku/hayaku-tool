@@ -27,6 +27,39 @@ export global Icons {
     out property <string> settings: "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0z M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1";
 }
 
+/// 會翻轉的下拉箭頭：flip 0 朝下（同 Icons.chevron-down）、1 朝上；中間是過渡。
+/// 軟體繪圖不能旋轉，改成移動折線的端點（flip 可以用彈簧動畫，超過 1 一點點也沒關係）。
+export component Chevron {
+    in property <float> flip;
+    in property <brush> color: Theme.ink;
+    /// 以 24 單位計的線寬（同 Icon.weight）
+    in property <float> weight: 2;
+    width: 18px;
+    height: 18px;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.color;
+        stroke-width: root.width * root.weight / 24;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        MoveTo {
+            x: 6;
+            y: 9 + 6 * root.flip;
+        }
+        LineTo {
+            x: 12;
+            y: 15 - 6 * root.flip;
+        }
+        LineTo {
+            x: 18;
+            y: 9 + 6 * root.flip;
+        }
+    }
+}
+
 /// 描邊圖示；path 為 24×24 座標的 SVG 指令（可用 Icons.xxx）
 export component Icon {
     in property <string> path;

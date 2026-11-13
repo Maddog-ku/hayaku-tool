@@ -5,6 +5,7 @@
 import { Theme, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, PageTitle, PlainText, SelectField, RadioDot, TextArea } from "@hbc/index.slint";
 import { W3Check, PageButton, SmallButton, TipSegmented, ItemCard, CheckWrap, ConfirmOverlay, MdArea, SubtleBox, W3Group, CenterNote } from "w3-common.slint";
+import { Appear, SlideSwitch, Collapse } from "../shared/anim.slint";
 
 /// 清單上的一場會議（C# MeetingListVm）。time-tone：0 一般、1 進行中（強調色）、2 過去（淡色）。
 export struct MeetingRow {
@@ -176,8 +177,64 @@ component Field {
     }
 }
 
+/// 會議卡片右邊的按鈕（加入、離開、釘選、開啟、取消會議）；卡片窄時放到名稱下面一列。
+component MeetingActions {
+    in property <MeetingRow> data;
+    in property <int> index;
+    in property <LayoutAlignment> align: end;
+    HorizontalLayout {
+        alignment: root.align;
+        spacing: 2px;
+        if root.data.join: SmallButton {
+            y: (parent.height - self.height) / 2;
+            text: "加入並計時";
+            primary: true;
+            enabled: !root.data.busy;
+            clicked => {
+                MeetingsPageData.join(root.index);
+            }
+        }
+        if root.data.leave: SmallButton {
+            y: (parent.height - self.height) / 2;
+            text: "離開";
+            tip: "停止這場會議的計時";
+            enabled: !root.data.busy;
+            clicked => {
+                MeetingsPageData.leave(root.index);
+            }
+        }
+        SmallButton {
+            y: (parent.height - self.height) / 2;
+            text: "📌";
+            tip: root.data.pin-tip;
+            opacity: root.data.pinned ? 1 : 0.3;
+            clicked => {
+                MeetingsPageData.pin-row(root.index);
+            }
+        }
+        SmallButton {
+            y: (parent.height - self.height) / 2;
+            text: "開啟";
+            clicked => {
+                MeetingsPageData.open-row(root.index);
+            }
+        }
+        if root.data.cancel: SmallButton {
+            y: (parent.height - self.height) / 2;
+            text: root.data.busy ? "處理中…" : "取消會議";
+            tip: "主辦、專案管理員才能取消；會通知參加者";
+            enabled: !root.data.busy;
+            clicked => {
+                MeetingsPageData.cancel-meeting(root.index);
+            }
+        }
+    }
+}
+
 component MeetingCard inherits ItemCard {
     in property <MeetingRow> data;
+    /// 卡片窄（右邊開著詳細、頁面不寬）：日期時間移到名稱上面一行
+    in property <bool> compact;
     selected: data.selected;
     clickable: true;
     in property <int> index;
@@ -185,7 +242,8 @@ component MeetingCard inherits ItemCard {
         text: "點一下看詳細";
         HorizontalLayout {
             spacing: 10px;
-            VerticalLayout {
+            // 卡片窄（右邊開著詳細、視窗小）時日期時間移到名稱上面一行，按鈕不會被擠出卡片
+            if !root.compact: VerticalLayout {
                 width: 110px;
                 alignment: center;
                 Text {
@@ -204,6 +262,24 @@ component MeetingCard inherits ItemCard {
             VerticalLayout {
                 alignment: center;
                 horizontal-stretch: 1;
+                if root.compact: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text {
+                        text: root.data.day;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.data.time;
+                        font-family: Theme.font-num;
+                        font-weight: 600;
+                        font-size: Theme.fs-md;
+                        color: root.data.time-tone == 1 ? Theme.accent : root.data.time-tone == 2 ? Theme.muted : Theme.ink;
+                        vertical-alignment: center;
+                    }
+                }
                 Text {
                     text: root.data.title;
                     color: Theme.ink;
@@ -217,53 +293,15 @@ component MeetingCard inherits ItemCard {
                     font-size: Theme.fs-sm;
                     overflow: elide;
                 }
+                if root.compact: MeetingActions {
+                    data: root.data;
+                    index: root.index;
+                    align: start;
+                }
             }
-            HorizontalLayout {
-                alignment: end;
-                spacing: 2px;
-                if root.data.join: SmallButton {
-                    y: (parent.height - self.height) / 2;
-                    text: "加入並計時";
-                    primary: true;
-                    enabled: !root.data.busy;
-                    clicked => {
-                        MeetingsPageData.join(root.index);
-                    }
-                }
-                if root.data.leave: SmallButton {
-                    y: (parent.height - self.height) / 2;
-                    text: "離開";
-                    tip: "停止這場會議的計時";
-                    enabled: !root.data.busy;
-                    clicked => {
-                        MeetingsPageData.leave(root.index);
-                    }
-                }
-                SmallButton {
-                    y: (parent.height - self.height) / 2;
-                    text: "📌";
-                    tip: root.data.pin-tip;
-                    opacity: root.data.pinned ? 1 : 0.3;
-                    clicked => {
-                        MeetingsPageData.pin-row(root.index);
-                    }
-                }
-                SmallButton {
-                    y: (parent.height - self.height) / 2;
-                    text: "開啟";
-                    clicked => {
-                        MeetingsPageData.open-row(root.index);
-                    }
-                }
-                if root.data.cancel: SmallButton {
-                    y: (parent.height - self.height) / 2;
-                    text: root.data.busy ? "處理中…" : "取消會議";
-                    tip: "主辦、專案管理員才能取消；會通知參加者";
-                    enabled: !root.data.busy;
-                    clicked => {
-                        MeetingsPageData.cancel-meeting(root.index);
-                    }
-                }
+            if !root.compact: MeetingActions {
+                data: root.data;
+                index: root.index;
             }
         }
     }
@@ -279,7 +317,18 @@ component NewForm inherits Rectangle {
     changed focus-token => {
         title-field.focus();
     }
+    // 打開時從上面 10px 落下並淡入
+    property <float> t: 0;
+    init => {
+        t = 1;
+    }
+    animate t {
+        duration: Theme.reduce-motion ? 0ms : 300ms;
+        easing: Motion.out;
+    }
+    opacity: root.t;
     VerticalLayout {
+        y: (1 - root.t) * -10px;
         padding: 18px;
         spacing: 10px;
         Text {
@@ -522,86 +571,90 @@ component Expander {
                 }
             }
         }
-        if root.section.open: VerticalLayout {
-            padding-left: 20px;
-            spacing: 4px;
-            for b[j] in root.section.blocks: VerticalLayout {
-                if b.kind == 0: MutedText {
-                    text: b.text;
-                }
-                if b.kind == 1: Text {
-                    text: b.text;
-                    color: Theme.ink;
-                    font-weight: 600;
-                    font-size: Theme.fs-md;
-                    wrap: word-wrap;
-                }
-                if b.kind == 2: SubtleBox {
-                    ScrollView {
-                        height: min(b.max-h, body.preferred-height);
-                        body := PlainText {
+        // 展開收起時高度長出來／收回去（260ms）
+        Collapse {
+            open: root.section.open;
+            VerticalLayout {
+                padding-left: 20px;
+                spacing: 4px;
+                for b[j] in root.section.blocks: VerticalLayout {
+                    if b.kind == 0: MutedText {
+                        text: b.text;
+                    }
+                    if b.kind == 1: Text {
+                        text: b.text;
+                        color: Theme.ink;
+                        font-weight: 600;
+                        font-size: Theme.fs-md;
+                        wrap: word-wrap;
+                    }
+                    if b.kind == 2: SubtleBox {
+                        ScrollView {
+                            height: min(b.max-h, body.preferred-height);
+                            body := PlainText {
+                                text: b.text;
+                                width: parent.width - 8px;
+                            }
+                        }
+                    }
+                    if b.kind == 3: Rectangle {
+                        VerticalLayout {
+                            Text {
+                                text: b.text;
+                                color: Theme.accent-ink;
+                                font-size: Theme.fs-md;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: b.meta;
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                                overflow: elide;
+                            }
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                MeetingsPageData.block-clicked(root.index, j);
+                            }
+                        }
+                        if b.tip != "": Rectangle {
+                            Tooltip {
+                                Tip {
+                                    text: b.tip;
+                                }
+                            }
+                        }
+                    }
+                    if b.kind == 4: Text {
+                        text: b.text;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    if b.kind == 5: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for p in b.buttons: SmallButton {
+                            text: p.text;
+                            clicked => {
+                                MeetingsPageData.preview(p.id, p.name);
+                            }
+                        }
+                    }
+                    if b.kind == 6: ScrollView {
+                        height: min(b.max-h, plain.preferred-height);
+                        plain := PlainText {
                             text: b.text;
                             width: parent.width - 8px;
                         }
                     }
-                }
-                if b.kind == 3: Rectangle {
-                    VerticalLayout {
-                        Text {
-                            text: b.text;
-                            color: Theme.accent-ink;
-                            font-size: Theme.fs-md;
-                            overflow: elide;
-                        }
-                        Text {
-                            text: b.meta;
-                            color: Theme.muted;
-                            font-size: Theme.fs-sm;
-                            overflow: elide;
-                        }
-                    }
-                    TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            MeetingsPageData.block-clicked(root.index, j);
-                        }
-                    }
-                    if b.tip != "": Rectangle {
-                        Tooltip {
-                            Tip {
-                                text: b.tip;
-                            }
-                        }
-                    }
-                }
-                if b.kind == 4: Text {
-                    text: b.text;
-                    color: Theme.muted;
-                    font-size: Theme.fs-sm;
-                    wrap: word-wrap;
-                }
-                if b.kind == 5: HorizontalLayout {
-                    spacing: 6px;
-                    alignment: start;
-                    for p in b.buttons: SmallButton {
-                        text: p.text;
-                        clicked => {
-                            MeetingsPageData.preview(p.id, p.name);
-                        }
-                    }
-                }
-                if b.kind == 6: ScrollView {
-                    height: min(b.max-h, plain.preferred-height);
-                    plain := PlainText {
+                    if b.kind == 7: Text {
                         text: b.text;
-                        width: parent.width - 8px;
+                        color: Theme.error;
+                        font-size: Theme.fs-md;
+                        wrap: word-wrap;
                     }
-                }
-                if b.kind == 7: Text {
-                    text: b.text;
-                    color: Theme.error;
-                    font-size: Theme.fs-md;
-                    wrap: word-wrap;
                 }
             }
         }
@@ -609,15 +662,33 @@ component Expander {
 }
 
 component Detail inherits Rectangle {
+    /// 詳細窄（頁面不寬）：第三個按鈕換到下一列
+    in property <bool> compact;
     background: Theme.card;
     border-radius: 22px;
     border-width: 1px;
     border-color: Theme.line;
+    // 打開時從右邊 28px 滑入並淡入（320ms）
+    property <float> t: 0;
+    init => {
+        t = 1;
+    }
+    animate t {
+        duration: Theme.reduce-motion ? 0ms : 320ms;
+        easing: Motion.out;
+    }
+    opacity: root.t;
+    clip: true;
     property <int> top: MeetingsPageData.scroll-top;
     changed top => {
         sv.content-y = 0;
     }
     sv := ScrollView {
+        // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+        content-width: self.visible-width;
+        x: (1 - root.t) * 28px;
+        width: parent.width;
+        height: parent.height;
         VerticalLayout {
             padding: 18px;
             padding-top: 14px;
@@ -652,19 +723,25 @@ component Detail inherits Rectangle {
                 VerticalLayout {
                     padding-top: 6px;
                     spacing: 4px;
-                    for line in MeetingsPageData.info: HorizontalLayout {
-                        Text {
+                    // 內容的寬度明確給（換行的高度才算得準，長的地點、主辦不會疊到下面的按鈕）
+                    for line in MeetingsPageData.info: Rectangle {
+                        height: max(info-label.preferred-height, info-value.preferred-height);
+                        info-label := Text {
+                            x: 0;
+                            y: 0;
                             width: 44px;
                             text: line.label;
                             color: Theme.muted;
                             font-size: Theme.fs-md;
                         }
-                        Text {
+                        info-value := Text {
+                            x: 44px;
+                            y: 0;
+                            width: parent.width - 44px;
                             text: line.value;
                             color: Theme.ink;
                             font-size: Theme.fs-md;
                             wrap: word-wrap;
-                            horizontal-stretch: 1;
                         }
                     }
                 }
@@ -686,6 +763,16 @@ component Detail inherits Rectangle {
                             MeetingsPageData.pin-detail();
                         }
                     }
+                    if !root.compact: PageButton {
+                        text: "在網頁開啟 ↗";
+                        clicked => {
+                            MeetingsPageData.detail-web();
+                        }
+                    }
+                }
+                // 詳細窄的時候第三個按鈕換到下一列，不會疊在一起
+                if root.compact: HorizontalLayout {
+                    alignment: start;
                     PageButton {
                         text: "在網頁開啟 ↗";
                         clicked => {
@@ -703,10 +790,12 @@ component Detail inherits Rectangle {
                 }
                 for a in MeetingsPageData.people: HorizontalLayout {
                     spacing: 0px;
+                    // 名字很長時省略，不把詳細撐寬
                     Text {
                         text: a.name;
                         color: Theme.ink;
                         font-size: Theme.fs-md;
+                        overflow: elide;
                     }
                     if a.state != "": Text {
                         text: "　" + a.state;
@@ -766,7 +855,20 @@ export component MeetingsPage inherits Rectangle {
                     }
                 }
             }
-            if MeetingsPageData.form-open: NewForm { }
+            // 新增會議表單：視窗矮時表單可以捲，下面的「建立」不會被擠出頁面
+            if MeetingsPageData.form-open: form-sv := ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
+                min-height: 230px;
+                preferred-height: new-form.preferred-height;
+                max-height: max(230px, new-form.preferred-height);
+                vertical-stretch: 3;
+                content-height: new-form.preferred-height;
+                new-form := NewForm {
+                    width: form-sv.visible-width - 12px;
+                    height: self.preferred-height;
+                }
+            }
             HorizontalLayout {
                 alignment: start;
                 TipSegmented {
@@ -786,27 +888,46 @@ export component MeetingsPage inherits Rectangle {
                 vertical-stretch: 1;
                 Rectangle {
                     horizontal-stretch: 1;
-                    ScrollView {
-                        VerticalLayout {
-                            spacing: 8px;
-                            padding-right: 6px;
-                            alignment: start;
-                            for row[i] in MeetingsPageData.rows: MeetingCard {
-                                data: row;
-                                index: i;
-                                clicked => {
-                                    keys.focus();
-                                    MeetingsPageData.card-clicked(i);
+                    // 切換時內容從切換的方向滑入淡入，清單依序浮現
+                    SlideSwitch {
+                        key: MeetingsPageData.tab;
+                        vertical-stretch: 1;
+                        ScrollView {
+                            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                            content-width: self.visible-width;
+                            width: parent.width;
+                            height: parent.height;
+                            VerticalLayout {
+                                spacing: 8px;
+                                padding-right: 6px;
+                                alignment: start;
+                                for row[i] in MeetingsPageData.rows: Appear {
+                                    index: i;
+                                    stagger: 35ms;
+                                    MeetingCard {
+                                        data: row;
+                                        index: i;
+                                        compact: MeetingsPageData.detail-open && root.width < 1100px;
+                                        clicked => {
+                                            keys.focus();
+                                            MeetingsPageData.card-clicked(i);
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     if MeetingsPageData.empty-text != "": CenterNote {
+                        // 寬度跟著外框，長的訊息換行置中
+                        x: 16px;
+                        width: parent.width - 32px;
+                        height: parent.height;
                         text: MeetingsPageData.empty-text;
                     }
                 }
                 if MeetingsPageData.detail-open: Detail {
                     horizontal-stretch: 1.2;
+                    compact: root.width < 1100px;
                 }
             }
         }

@@ -8,8 +8,10 @@
 use std::cell::Cell;
 
 use slint::winit_030::winit;
-use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
+use windows::Win32::Foundation::{HWND, POINT, RECT, TRUE};
+use windows::Win32::Graphics::Dwm::{
+    DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -71,7 +73,7 @@ pub fn hwnd(window: &slint::Window) -> Option<HWND> {
 }
 
 /// 顯示後補上延伸樣式：不佔工作列（TOOLWINDOW）；提示、摘要加 NOACTIVATE（摘要再加 TRANSPARENT）；
-/// Windows 11 的圓角；放到最上層。
+/// Windows 11 的圓角；關掉 Windows 自己的顯示／隱藏動畫（進出場由 [`crate::slide`] 負責）；放到最上層。
 pub fn apply_styles(window: &slint::Window, kind: PopupKind) {
     let Some(h) = hwnd(window) else { return };
     unsafe {
@@ -92,6 +94,13 @@ pub fn apply_styles(window: &slint::Window, kind: PopupKind) {
             DWMWA_WINDOW_CORNER_PREFERENCE,
             &corner as *const _ as *const core::ffi::c_void,
             size_of_val(&corner) as u32,
+        );
+        let disabled = TRUE;
+        let _ = DwmSetWindowAttribute(
+            h,
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            &disabled as *const _ as *const core::ffi::c_void,
+            size_of_val(&disabled) as u32,
         );
         let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
@@ -182,6 +191,26 @@ pub fn place_above(
     let x = left.clamp(work.left, work.left.max(work.right - w));
     let y = work.top.max(anchor.top.min(work.bottom) - h - gap);
     (x, y)
+}
+
+/// 擺在 anchor 正上方（[`place_above`]）的範圍，加上從工作列長出來的方向與裁切（[`crate::slide`] 用）。
+/// size 是視窗大小（實體像素）、scale 是螢幕縮放比例。
+pub fn above_anchor(
+    anchor: hb_win::Rect,
+    align_left: bool,
+    size: (i32, i32),
+    scale: f32,
+) -> (hb_win::Rect, hb_win::Rect, crate::slide::Edge) {
+    let work = work_area_at(anchor.left, anchor.top - 1);
+    let (x, y) = place_above(anchor, align_left, size, work, (8.0 * scale).round() as i32);
+    let target = hb_win::Rect { left: x, top: y, right: x + size.0, bottom: y + size.1 };
+    let edge = crate::slide::taskbar_edge(anchor, work);
+    (target, crate::slide::clip_rect(anchor, work, edge), edge)
+}
+
+/// Windows 11 視窗圓角的半徑（8，實體像素）。
+pub fn corner_radius(scale: f32) -> i32 {
+    (8.0 * scale).round() as i32
 }
 
 #[cfg(test)]

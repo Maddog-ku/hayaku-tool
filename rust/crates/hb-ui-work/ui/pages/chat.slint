@@ -5,6 +5,7 @@
 import { Theme, ScrollView, TextField } from "@hb/index.slint";
 import { FieldLabel, StatusLine, PageTitle, LinkButton } from "@hbc/index.slint";
 import { W3Row, PageButton, SmallButton, RowList, MdArea, Reader, CenterNote } from "w3-common.slint";
+import { Appear } from "../shared/anim.slint";
 
 /// 一則訊息（C# ChatRowVm）；poll-id 不是空的才有「看投票結果」。
 export struct ChatMsg {
@@ -164,6 +165,8 @@ export component ChatPage inherits Rectangle {
                             ChatPageData.at-end = true;
                         }
                         sv := ScrollView {
+                            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                            content-width: self.visible-width;
                             scrolled => {
                                 ChatPageData.at-end = -self.content-y >= self.content-height - self.visible-height - 4px;
                             }
@@ -174,48 +177,57 @@ export component ChatPage inherits Rectangle {
                                 padding-bottom: 4px;
                                 spacing: 12px;
                                 alignment: start;
-                                for m in ChatPageData.messages: VerticalLayout {
-                                    spacing: 3px;
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        alignment: start;
-                                        Text {
-                                            text: m.author;
-                                            color: Theme.ink;
-                                            font-weight: 600;
-                                            font-size: Theme.fs-md;
+                                for m[ai] in ChatPageData.messages: Appear {
+                                    index: ai;
+                                    stagger: 30ms;
+                                    VerticalLayout {
+                                        spacing: 3px;
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            alignment: start;
+                                            Text {
+                                                text: m.author;
+                                                color: Theme.ink;
+                                                font-weight: 600;
+                                                font-size: Theme.fs-md;
+                                                // 名字很長時省略，不把訊息撐出右邊
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: m.time;
+                                                color: Theme.muted;
+                                                font-size: 11px;
+                                                vertical-alignment: center;
+                                            }
                                         }
-                                        Text {
-                                            text: m.time;
-                                            color: Theme.muted;
-                                            font-size: 11px;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                    HorizontalLayout {
-                                        alignment: start;
-                                        Rectangle {
-                                            background: Theme.fill;
-                                            border-radius: 16px;
-                                            max-width: body.preferred-width + 28px;
-                                            horizontal-stretch: 1;
-                                            HorizontalLayout {
-                                                padding-left: 14px;
-                                                padding-right: 14px;
-                                                padding-top: 8px;
-                                                padding-bottom: 8px;
-                                                body := Reader {
-                                                    text: m.body;
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            Rectangle {
+                                                background: Theme.fill;
+                                                border-radius: 16px;
+                                                max-width: body.preferred-width + 28px;
+                                                horizontal-stretch: 1;
+                                                HorizontalLayout {
+                                                    padding-left: 14px;
+                                                    padding-right: 14px;
+                                                    padding-top: 8px;
+                                                    padding-bottom: 8px;
+                                                    body := Reader {
+                                                        text: m.body;
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    if m.poll-id != "": HorizontalLayout {
-                                        alignment: start;
-                                        LinkButton {
-                                            text: "看投票結果";
-                                            clicked => {
-                                                ChatPageData.poll(m.poll-id);
+                                        // 不用 if：for 裡的 if 子元素高度不會算進捲動範圍，最後一則的連結會捲不到
+                                        HorizontalLayout {
+                                            alignment: start;
+                                            visible: m.poll-id != "";
+                                            height: m.poll-id != "" ? self.preferred-height : 0px;
+                                            LinkButton {
+                                                text: "看投票結果";
+                                                clicked => {
+                                                    ChatPageData.poll(m.poll-id);
+                                                }
                                             }
                                         }
                                     }
@@ -223,6 +235,10 @@ export component ChatPage inherits Rectangle {
                             }
                         }
                         if ChatPageData.message-empty != "": CenterNote {
+                            // 寬度跟著外框，長的訊息換行置中
+                            x: 16px;
+                            width: parent.width - 32px;
+                            height: parent.height;
                             text: ChatPageData.message-empty;
                         }
                     }

@@ -4,6 +4,7 @@
 import { Theme, ScrollView } from "@hb/index.slint";
 import { GroupLabel, StatusLine, TextArea, PlainText, LinkButton } from "@hbc/index.slint";
 import { W2, W2Button, W2Card, W2Confirm, W2Title } from "w2-common.slint";
+import { Appear } from "../shared/anim.slint";
 
 export struct WorkLogRow {
     task: string,
@@ -50,6 +51,8 @@ export global WorkLogPageData {
 }
 
 export component WorkLogPage inherits Rectangle {
+    // 頁面窄（視窗接近最小寬度）時日誌卡片的按鈕換到第二列
+    property <bool> narrow: root.width < 1000px;
     VerticalLayout {
         padding-left: W2.pad-x;
         padding-right: W2.pad-x;
@@ -97,50 +100,90 @@ export component WorkLogPage inherits Rectangle {
             border-width: 1px;
             border-color: Theme.line;
             border-radius: W2.card-radius;
-            HorizontalLayout {
-                padding: 16px;
-                spacing: 6px;
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    alignment: center;
-                    Text {
-                        text: WorkLogPageData.total-text;
-                        color: Theme.ink;
-                        font-family: Theme.font-num;
-                        font-size: 22px;
-                        font-weight: 600;
+            VerticalLayout {
+                HorizontalLayout {
+                    padding: 16px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text {
+                            text: WorkLogPageData.total-text;
+                            color: Theme.ink;
+                            font-family: Theme.font-num;
+                            font-size: 22px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "照計時紀錄整理；同時計時的時間各任務都會算";
+                            color: Theme.muted;
+                            font-size: 11.5px;
+                            wrap: word-wrap;
+                        }
                     }
-                    Text {
-                        text: "照計時紀錄整理；同時計時的時間各任務都會算";
-                        color: Theme.muted;
-                        font-size: 11.5px;
+                    // 頁面窄時按鈕換到下一列，不會疊在說明上
+                    if !root.narrow: HorizontalLayout {
+                        spacing: 6px;
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: WorkLogPageData.draft-button;
+                            primary: true;
+                            enabled: WorkLogPageData.draft-enabled;
+                            tip: "把這天的 Claude Code 對話與 commit 整理成日誌草稿，也能寫進計時段的備註";
+                            clicked => { WorkLogPageData.draft(); }
+                        }
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "複製成文字";
+                            enabled: WorkLogPageData.copy-enabled;
+                            tip: "複製成「任務 時數」清單，貼到日報";
+                            clicked => { WorkLogPageData.copy(); }
+                        }
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "工時紀錄";
+                            tip: "查看、修改、補登這天的計時";
+                            clicked => { WorkLogPageData.open-entries(); }
+                        }
+                        W2Button {
+                            y: (parent.height - self.height) / 2;
+                            text: "在網頁寫日誌 ↗";
+                            clicked => { WorkLogPageData.open-web(); }
+                        }
                     }
                 }
-                W2Button {
-                    y: (parent.height - self.height) / 2;
-                    text: WorkLogPageData.draft-button;
-                    primary: true;
-                    enabled: WorkLogPageData.draft-enabled;
-                    tip: "把這天的 Claude Code 對話與 commit 整理成日誌草稿，也能寫進計時段的備註";
-                    clicked => { WorkLogPageData.draft(); }
-                }
-                W2Button {
-                    y: (parent.height - self.height) / 2;
-                    text: "複製成文字";
-                    enabled: WorkLogPageData.copy-enabled;
-                    tip: "複製成「任務 時數」清單，貼到日報";
-                    clicked => { WorkLogPageData.copy(); }
-                }
-                W2Button {
-                    y: (parent.height - self.height) / 2;
-                    text: "工時紀錄";
-                    tip: "查看、修改、補登這天的計時";
-                    clicked => { WorkLogPageData.open-entries(); }
-                }
-                W2Button {
-                    y: (parent.height - self.height) / 2;
-                    text: "在網頁寫日誌 ↗";
-                    clicked => { WorkLogPageData.open-web(); }
+                if root.narrow: HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 14px;
+                    spacing: 6px;
+                    alignment: start;
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: WorkLogPageData.draft-button;
+                        primary: true;
+                        enabled: WorkLogPageData.draft-enabled;
+                        tip: "把這天的 Claude Code 對話與 commit 整理成日誌草稿，也能寫進計時段的備註";
+                        clicked => { WorkLogPageData.draft(); }
+                    }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "複製成文字";
+                        enabled: WorkLogPageData.copy-enabled;
+                        tip: "複製成「任務 時數」清單，貼到日報";
+                        clicked => { WorkLogPageData.copy(); }
+                    }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "工時紀錄";
+                        tip: "查看、修改、補登這天的計時";
+                        clicked => { WorkLogPageData.open-entries(); }
+                    }
+                    W2Button {
+                        y: (parent.height - self.height) / 2;
+                        text: "在網頁寫日誌 ↗";
+                        clicked => { WorkLogPageData.open-web(); }
+                    }
                 }
             }
         }
@@ -151,6 +194,8 @@ export component WorkLogPage inherits Rectangle {
         }
 
         sv := ScrollView {
+            // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+            content-width: self.visible-width;
             vertical-stretch: 1;
             content-height: body.preferred-height;
             body := VerticalLayout {
@@ -210,36 +255,40 @@ export component WorkLogPage inherits Rectangle {
                         }
                     }
                 }
-                for e in WorkLogPageData.entries: Rectangle {
-                    background: Theme.fill;
-                    border-radius: 16px;
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        padding-top: 10px;
-                        padding-bottom: 10px;
-                        VerticalLayout {
-                            horizontal-stretch: 1;
+                for e[ai] in WorkLogPageData.entries: Appear {
+                    index: ai;
+                    stagger: 35ms;
+                    Rectangle {
+                        background: Theme.fill;
+                        border-radius: 16px;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: e.task;
+                                    color: Theme.ink;
+                                    font-weight: 600;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: e.ranges;
+                                    color: Theme.muted;
+                                    font-family: Theme.font-num;
+                                    font-size: 11.5px;
+                                    wrap: word-wrap;
+                                }
+                            }
                             Text {
-                                text: e.task;
+                                text: e.hours;
                                 color: Theme.ink;
-                                font-weight: 600;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: e.ranges;
-                                color: Theme.muted;
                                 font-family: Theme.font-num;
-                                font-size: 11.5px;
-                                wrap: word-wrap;
+                                font-size: 15px;
+                                vertical-alignment: center;
                             }
-                        }
-                        Text {
-                            text: e.hours;
-                            color: Theme.ink;
-                            font-family: Theme.font-num;
-                            font-size: 15px;
-                            vertical-alignment: center;
                         }
                     }
                 }

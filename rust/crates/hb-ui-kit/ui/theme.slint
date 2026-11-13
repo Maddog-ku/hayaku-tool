@@ -123,4 +123,16 @@ export global Motion {
     /// 快速壓下（按壓時用）
     out property <easing> press: cubic-bezier(0, 0, 0.58, 1);
     out property <duration> press-dur: 110ms;
+    /// 一般過渡（滑過、顏色、外框）
+    out property <duration> fast: 160ms;
+    /// 出現（往上浮＋淡入）；reduce-motion 時只淡入 120ms
+    out property <duration> enter-dur: Theme.reduce-motion ? 120ms : 340ms;
+    /// 出現用的減速曲線（比 out 平均一點，前段不會一下子就到位）
+    out property <easing> enter: cubic-bezier(0.2, 0.75, 0.3, 1);
+    /// 依序出現時每一項的間隔；reduce-motion 時 0（一起出現）
+    out property <duration> stagger: Theme.reduce-motion ? 0ms : 50ms;
+    /// 收起、關閉前的淡出；reduce-motion 時 0（直接收）
+    out property <duration> exit-dur: Theme.reduce-motion ? 0ms : 120ms;
+    /// 出現時往上浮的距離；reduce-motion 時 0（不位移）
+    out property <length> rise: Theme.reduce-motion ? 0px : 10px;
 }

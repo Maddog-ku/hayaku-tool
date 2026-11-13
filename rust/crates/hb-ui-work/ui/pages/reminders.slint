@@ -4,6 +4,7 @@
 import { Theme, ScrollView, Segmented, TipArea } from "@hb/index.slint";
 import { FieldLabel, SelectField, StatusLine, LinkButton } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Confirm, W2Title } from "w2-common.slint";
+import { Appear, SlideSwitch } from "../shared/anim.slint";
 
 /// 提醒列表的一列（C# ReminderListVm）。busy：執行中的按鈕（snooze、pause、delete）。
 export struct RemindersRow {
@@ -155,8 +156,12 @@ export component RemindersPage inherits Rectangle {
                         color: Theme.muted;
                         vertical-alignment: center;
                     }
+                    // 窄的時候縮，「新增」不會被擠出卡片
                     SelectField {
-                        width: 190px;
+                        min-width: 110px;
+                        preferred-width: 190px;
+                        max-width: 190px;
+                        horizontal-stretch: 1;
                         height: 36px;
                         items: RemindersPageData.repeat-items;
                         current <=> RemindersPageData.repeat-index;
@@ -266,71 +271,89 @@ export component RemindersPage inherits Rectangle {
 
         Rectangle {
             vertical-stretch: 1;
-            sv := ScrollView {
-                content-height: list.preferred-height;
-                list := VerticalLayout {
-                    width: sv.visible-width - 14px;
-                    spacing: 8px;
-                    for r[i] in RemindersPageData.rows: Rectangle {
-                        border-width: 1px;
-                        border-color: Theme.line;
-                        border-radius: 16px;
-                        HorizontalLayout {
-                            padding-left: 16px;
-                            padding-right: 12px;
-                            padding-top: 10px;
-                            padding-bottom: 10px;
-                            spacing: 6px;
-                            Text {
-                                width: 110px;
-                                text: r.when;
-                                color: r.when-muted ? Theme.muted : Theme.ink;
-                                font-family: Theme.font-num;
-                                vertical-alignment: center;
-                            }
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                alignment: center;
-                                Text {
-                                    text: r.text;
-                                    color: Theme.ink;
-                                    wrap: word-wrap;
+            // 切換時內容從切換的方向滑入淡入，清單依序浮現
+            SlideSwitch {
+                key: RemindersPageData.tab-index;
+                vertical-stretch: 1;
+                sv := ScrollView {
+                    // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                    content-width: self.visible-width;
+                    width: parent.width;
+                    height: parent.height;
+                    content-height: list.preferred-height;
+                    list := VerticalLayout {
+                        width: sv.visible-width - 14px;
+                        spacing: 8px;
+                        for r[i] in RemindersPageData.rows: Appear {
+                            index: i;
+                            stagger: 35ms;
+                            Rectangle {
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                border-radius: 16px;
+                                HorizontalLayout {
+                                    padding-left: 16px;
+                                    padding-right: 12px;
+                                    padding-top: 10px;
+                                    padding-bottom: 10px;
+                                    spacing: 6px;
+                                    Text {
+                                        width: 110px;
+                                        text: r.when;
+                                        color: r.when-muted ? Theme.muted : Theme.ink;
+                                        font-family: Theme.font-num;
+                                        vertical-alignment: center;
+                                    }
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        alignment: center;
+                                        Text {
+                                            text: r.text;
+                                            color: Theme.ink;
+                                            wrap: word-wrap;
+                                        }
+                                        if r.detail != "": Text {
+                                            text: r.detail;
+                                            color: Theme.muted;
+                                            font-size: 11.5px;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+                                    if r.snooze: W2Small {
+                                        y: (parent.height - self.height) / 2;
+                                        text: r.busy == "snooze" ? "處理中…" : "延後 10 分";
+                                        enabled: r.busy == "";
+                                        clicked => { RemindersPageData.snooze(i); }
+                                    }
+                                    if r.pause: W2Small {
+                                        y: (parent.height - self.height) / 2;
+                                        text: r.busy == "pause" ? "處理中…" : r.pause-text;
+                                        enabled: r.busy == "";
+                                        clicked => { RemindersPageData.pause(i); }
+                                    }
+                                    if r.has-task: W2Small {
+                                        y: (parent.height - self.height) / 2;
+                                        text: "開啟任務";
+                                        clicked => { RemindersPageData.open-task(i); }
+                                    }
+                                    if r.deletable: W2Small {
+                                        y: (parent.height - self.height) / 2;
+                                        text: r.busy == "delete" ? "處理中…" : "刪除";
+                                        enabled: r.busy == "";
+                                        clicked => { RemindersPageData.delete(i); }
+                                    }
                                 }
-                                if r.detail != "": Text {
-                                    text: r.detail;
-                                    color: Theme.muted;
-                                    font-size: 11.5px;
-                                    wrap: word-wrap;
-                                }
-                            }
-                            if r.snooze: W2Small {
-                                y: (parent.height - self.height) / 2;
-                                text: r.busy == "snooze" ? "處理中…" : "延後 10 分";
-                                enabled: r.busy == "";
-                                clicked => { RemindersPageData.snooze(i); }
-                            }
-                            if r.pause: W2Small {
-                                y: (parent.height - self.height) / 2;
-                                text: r.busy == "pause" ? "處理中…" : r.pause-text;
-                                enabled: r.busy == "";
-                                clicked => { RemindersPageData.pause(i); }
-                            }
-                            if r.has-task: W2Small {
-                                y: (parent.height - self.height) / 2;
-                                text: "開啟任務";
-                                clicked => { RemindersPageData.open-task(i); }
-                            }
-                            if r.deletable: W2Small {
-                                y: (parent.height - self.height) / 2;
-                                text: r.busy == "delete" ? "處理中…" : "刪除";
-                                enabled: r.busy == "";
-                                clicked => { RemindersPageData.delete(i); }
                             }
                         }
                     }
                 }
             }
+            // 空白／錯誤訊息：寬度跟著清單，長的換行置中
             if RemindersPageData.empty-visible: Text {
+                x: 16px;
+                width: parent.width - 32px;
+                height: parent.height;
+                wrap: word-wrap;
                 text: RemindersPageData.empty-text;
                 color: Theme.muted;
                 horizontal-alignment: center;

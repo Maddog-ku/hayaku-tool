@@ -61,6 +61,33 @@ hb_ui_common::set_theme(dark, reduce_motion);   // 啟動時與系統切換深�
 其他 Shared.xaml 樣式直接用 hb-ui-kit：ToggleSwitch → `Toggle`、Segment → `Segmented`、Pill → `Pill`、
 Card → `Card`、HintBox → `TextField { placeholder }`。
 
+`SelectField` 選取的文字、清單裡的選項、`NavItem` 的名稱被截掉（elide）時，滑過會用 Tip 顯示完整文字。
+`DateRangePicker` 按「套用日期」「清除」「取消」或 single 點日期時，日曆先往上收起（約 160ms）再關；`applied()` 照樣在按下時就呼叫。
+`close-calendar()` 是馬上關（不播動畫）。
+
+### 3.0 動畫（軟體繪圖）
+
+程式固定用 Slint 軟體繪圖：**`transform-scale`、`transform-rotation`、`drop-shadow-*` 都畫不出來**，不要用。
+動畫只用 x/y 位移、width/height、opacity、clip、顏色、border、Path；全部遵守 `Theme.reduce-motion`（不回彈、不位移、不錯開，只淡入）。
+閒置時不能有持續重繪；無限循環只有 `Spinner`（只在畫出來時才會一直重畫）。
+
+hb-ui-kit（`@hb/index.slint`）新增、給其他 crate 用的：
+
+| 名稱 | 說明 |
+|---|---|
+| `Motion.fast`／`enter-dur`／`stagger`／`exit-dur`／`rise` | 一般過渡 160ms；出現 340ms（reduce-motion 120ms）；依序出現間隔 50ms（reduce-motion 0）；收起／關閉前淡出 120ms（reduce-motion 0）；出現時上浮距離 10px（reduce-motion 0） |
+| `Reveal` | 包住內容（VerticalLayout 排，`spacing` 可設），`shown` 為 true 時（建立時就是 true 也算）往上浮出＋淡入，`index` × `Motion.stagger` 延遲；`out progress` |
+| `Stagger.at(t, i)` | 清單依序浮現：整份清單共用進度 t（0→1），第 i 列的出現程度 0–1 |
+| `SoftShadow` | 假陰影（疊三層半透明圓角矩形）：放在元素前面同位置，`radius`、`strength`（0–1，可動畫）、`offset-y`、`spread` |
+| `Chevron` | 會翻轉的下拉箭頭：`flip` 0 朝下、1 朝上（`color`、`weight`） |
+| `Card.hoverable` | 預設 false；true 時滑過出現外框、深色時底色略亮 |
+| `ProgressBar.grow-in` | 預設 false；true 時建立時從 0 長到 value |
+
+小視窗（本 crate 的 `ui/windows/`）：`window_util::present` 顯示後設 `DialogMotion.shown`，各區塊（`Section`，繼承 `Reveal`）依序往上浮出；
+清單（選擇任務、移動任務、建立任務的專案樹）在打開或篩選結果改變時依序浮現（`ListIntro`＋`Stagger`，只是點選不會重播）；
+`window_util::close`（程式關或按 ×）先淡出約 120ms、擋掉滑鼠鍵盤，再藏起視窗（reduce-motion 時直接關）。
+`QuickCreate::close` 一樣先淡出；`QuickCreate::find` 不會再找到已經關掉（還在淡出）的視窗。
+
 ### 3.1 DayTimeline：資料轉換
 
 ```rust

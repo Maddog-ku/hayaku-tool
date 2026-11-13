@@ -5,6 +5,7 @@
 import { Theme, ScrollView, TextField } from "@hb/index.slint";
 import { StatusLine, PageTitle, SelectField, CheckRow, ProjectIcon } from "@hbc/index.slint";
 import { W3Row, PageButton, RowList, MdArea, Reader, SubtleBox, W3Group } from "w3-common.slint";
+import { Appear } from "../shared/anim.slint";
 
 /// 一則回應：head 是「作者・多久前」。
 export struct ForumReply {
@@ -204,8 +205,9 @@ export component ForumPage inherits Rectangle {
         HorizontalLayout {
             spacing: 18px;
             vertical-stretch: 1;
+            // 左欄：頁面窄時縮到 240，右邊閱讀區多一點寬度
             VerticalLayout {
-                width: 320px;
+                width: root.width < 760px ? 240px : 320px;
                 spacing: 6px;
                 if ForumPageData.left-message != "": Text {
                     text: ForumPageData.left-message;
@@ -224,6 +226,8 @@ export component ForumPage inherits Rectangle {
                 }
             }
             ScrollView {
+                // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+                content-width: self.visible-width;
                 horizontal-stretch: 1;
                 VerticalLayout {
                     spacing: 4px;
@@ -260,14 +264,18 @@ export component ForumPage inherits Rectangle {
                         W3Group {
                             text: ForumPageData.replies-head;
                         }
-                        for r in ForumPageData.replies: SubtleBox {
-                            Text {
-                                text: r.head;
-                                color: Theme.muted;
-                                font-size: 11px;
-                            }
-                            Reader {
-                                text: r.body;
+                        for r[ai] in ForumPageData.replies: Appear {
+                            index: ai;
+                            stagger: 35ms;
+                            SubtleBox {
+                                Text {
+                                    text: r.head;
+                                    color: Theme.muted;
+                                    font-size: 11px;
+                                }
+                                Reader {
+                                    text: r.body;
+                                }
                             }
                         }
                     }

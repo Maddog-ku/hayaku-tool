@@ -1,7 +1,7 @@
 // 我的任務：清單（可設定欄位）、樹狀、看板（C# TasksPage.xaml 的 TaskList、TreeList、Kanban）。
 import { Theme, Motion, ScrollView, Tip } from "@hb/index.slint";
 import { CopyKey, ProjectBadge, TaskMenuArea } from "@hbc/index.slint";
-import { GlyphButton, SoftPill } from "../../shared/index.slint";
+import { GlyphButton, SoftPill, Appear, FadeText, CardShadow } from "../../shared/index.slint";
 import { TasksPageData, TkRow, TkColumn, TkTreeRow, TkCard } from "data.slint";
 
 /// 到期文字的顏色：0 muted、1 錯誤、2 警告。
@@ -267,15 +267,19 @@ export component ListView {
                     width: sv.visible-width - 12px;
                     padding-top: 4px;
                     spacing: 1px;
-                    for r[i] in TasksPageData.rows: ListRow {
-                        item: r;
-                        columns: TasksPageData.columns;
-                        key-column: root.key-column;
-                        selected: i == TasksPageData.selected-index;
-                        clicked => {
-                            TasksPageData.selected-index = i;
-                            fs.focus();
-                            TasksPageData.row-open(r.key);
+                    for r[i] in TasksPageData.rows: Appear {
+                        index: i;
+                        rise: 8px;
+                        ListRow {
+                            item: r;
+                            columns: TasksPageData.columns;
+                            key-column: root.key-column;
+                            selected: i == TasksPageData.selected-index;
+                            clicked => {
+                                TasksPageData.selected-index = i;
+                                fs.focus();
+                                TasksPageData.row-open(r.key);
+                            }
                         }
                     }
                 }
@@ -327,148 +331,152 @@ export component TreeView {
                 width: sv.visible-width - 20px;
                 padding-top: 6px;
                 spacing: 1px;
-                for r[i] in TasksPageData.tree-rows: Rectangle {
-                    height: r.is-project ? 36px : (r.sub-text != "" || (r.has-row && r.row.due-text != "") ? 46px : 34px);
+                for r[i] in TasksPageData.tree-rows: Appear {
+                    index: i;
+                    rise: 8px;
                     Rectangle {
-                        y: r.is-project ? 6px : 0px;
-                        height: parent.height - (r.is-project ? 6px : 0px);
-                        border-radius: 12px;
-                        background: i == TasksPageData.tree-selected ? Theme.selected : row-ta.has-hover ? Theme.fill : transparent;
-                        animate background { duration: 140ms; }
-                    }
-                    menu := TaskMenuArea {
-                        width: parent.width;
-                        height: parent.height;
-                        key: r.key;
-                        enabled: !r.is-project;
-                    }
-                    row-ta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            TasksPageData.tree-selected = i;
-                            fs.focus();
-                            if r.is-project {
-                                TasksPageData.tree-toggle(i);
-                            } else {
-                                TasksPageData.row-open(r.key);
-                            }
-                        }
-                        pointer-event(e) => {
-                            if !r.is-project && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                                TasksPageData.tree-selected = i;
-                                menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
-                            }
-                        }
-                        if r.tip != "": Tooltip {
-                            Tip {
-                                text: r.tip;
-                            }
-                        }
-                    }
-                    if r.is-project: HorizontalLayout {
-                        y: 6px;
-                        height: parent.height - 6px;
-                        padding-left: 2px;
-                        spacing: 4px;
-                        GlyphButton {
-                            y: (parent.height - self.height) / 2;
-                            glyph: r.expanded ? "▾" : "▸";
-                            font-size: 15px;
-                            size: 24px;
-                            color: Theme.muted;
-                            tip: "展開／收合";
-                            clicked => {
-                                TasksPageData.tree-toggle(i);
-                            }
-                        }
-                        Text {
-                            text: r.name;
-                            color: Theme.ink;
-                            font-size: Theme.fs-md;
-                            font-weight: 700;
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                        Text {
-                            text: r.count-text;
-                            color: Theme.muted;
-                            font-size: 11px;
-                            font-family: Theme.font-num;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
-                    }
-                    if !r.is-project: HorizontalLayout {
-                        padding-left: 2px + (r.depth - 1) * 20px;
-                        padding-right: 6px;
-                        padding-top: 4px;
-                        spacing: 0px;
+                        height: r.is-project ? 36px : (r.sub-text != "" || (r.has-row && r.row.due-text != "") ? 46px : 34px);
                         Rectangle {
-                            width: 24px;
-                            if r.has-children: GlyphButton {
-                                y: 0;
+                            y: r.is-project ? 6px : 0px;
+                            height: parent.height - (r.is-project ? 6px : 0px);
+                            border-radius: 12px;
+                            background: i == TasksPageData.tree-selected ? Theme.selected : row-ta.has-hover ? Theme.fill : transparent;
+                            animate background { duration: 140ms; }
+                        }
+                        menu := TaskMenuArea {
+                            width: parent.width;
+                            height: parent.height;
+                            key: r.key;
+                            enabled: !r.is-project;
+                        }
+                        row-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                TasksPageData.tree-selected = i;
+                                fs.focus();
+                                if r.is-project {
+                                    TasksPageData.tree-toggle(i);
+                                } else {
+                                    TasksPageData.row-open(r.key);
+                                }
+                            }
+                            pointer-event(e) => {
+                                if !r.is-project && e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                                    TasksPageData.tree-selected = i;
+                                    menu.open-at({ x: self.absolute-position.x + self.mouse-x, y: self.absolute-position.y + self.mouse-y });
+                                }
+                            }
+                            if r.tip != "": Tooltip {
+                                Tip {
+                                    text: r.tip;
+                                }
+                            }
+                        }
+                        if r.is-project: HorizontalLayout {
+                            y: 6px;
+                            height: parent.height - 6px;
+                            padding-left: 2px;
+                            spacing: 4px;
+                            GlyphButton {
+                                y: (parent.height - self.height) / 2;
                                 glyph: r.expanded ? "▾" : "▸";
                                 font-size: 15px;
                                 size: 24px;
                                 color: Theme.muted;
-                                tip: "展開／收合子任務";
+                                tip: "展開／收合";
                                 clicked => {
                                     TasksPageData.tree-toggle(i);
                                 }
                             }
-                        }
-                        Rectangle {
-                            width: 28px;
-                            if r.has-row: TimerGlyph {
-                                y: 0;
-                                key: r.key;
-                                timing: r.row.timing;
+                            Text {
+                                text: r.name;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: r.count-text;
+                                color: Theme.muted;
+                                font-size: 11px;
+                                font-family: Theme.font-num;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
                             }
                         }
-                        VerticalLayout {
-                            horizontal-stretch: 1;
-                            alignment: start;
-                            spacing: 2px;
-                            opacity: r.opacity;
-                            HorizontalLayout {
-                                spacing: 6px;
-                                CopyKey {
+                        if !r.is-project: HorizontalLayout {
+                            padding-left: 2px + (r.depth - 1) * 20px;
+                            padding-right: 6px;
+                            padding-top: 4px;
+                            spacing: 0px;
+                            Rectangle {
+                                width: 24px;
+                                if r.has-children: GlyphButton {
+                                    y: 0;
+                                    glyph: r.expanded ? "▾" : "▸";
+                                    font-size: 15px;
+                                    size: 24px;
+                                    color: Theme.muted;
+                                    tip: "展開／收合子任務";
+                                    clicked => {
+                                        TasksPageData.tree-toggle(i);
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                width: 28px;
+                                if r.has-row: TimerGlyph {
+                                    y: 0;
                                     key: r.key;
-                                    font-size: Theme.fs-md;
-                                    copy(k) => {
-                                        TasksPageData.copy-key(k);
+                                    timing: r.row.timing;
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: start;
+                                spacing: 2px;
+                                opacity: r.opacity;
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    CopyKey {
+                                        key: r.key;
+                                        font-size: Theme.fs-md;
+                                        copy(k) => {
+                                            TasksPageData.copy-key(k);
+                                        }
+                                    }
+                                    Text {
+                                        text: r.title;
+                                        color: Theme.ink;
+                                        font-size: Theme.fs-md;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                if r.sub-text != "": Text {
+                                    text: r.sub-text;
+                                    color: Theme.muted;
+                                    font-size: 11px;
+                                    overflow: elide;
+                                }
+                            }
+                            if r.has-row: VerticalLayout {
+                                alignment: start;
+                                spacing: 3px;
+                                if r.row.status != "": HorizontalLayout {
+                                    alignment: end;
+                                    SoftPill {
+                                        text: r.row.status;
                                     }
                                 }
                                 Text {
-                                    text: r.title;
-                                    color: Theme.ink;
-                                    font-size: Theme.fs-md;
-                                    overflow: elide;
-                                    horizontal-stretch: 1;
-                                    vertical-alignment: center;
+                                    text: r.row.due-text;
+                                    color: DueColor.of(r.row.due-tone);
+                                    font-size: 11px;
+                                    horizontal-alignment: right;
                                 }
-                            }
-                            if r.sub-text != "": Text {
-                                text: r.sub-text;
-                                color: Theme.muted;
-                                font-size: 11px;
-                                overflow: elide;
-                            }
-                        }
-                        if r.has-row: VerticalLayout {
-                            alignment: start;
-                            spacing: 3px;
-                            if r.row.status != "": HorizontalLayout {
-                                alignment: end;
-                                SoftPill {
-                                    text: r.row.status;
-                                }
-                            }
-                            Text {
-                                text: r.row.due-text;
-                                color: DueColor.of(r.row.due-tone);
-                                font-size: 11px;
-                                horizontal-alignment: right;
                             }
                         }
                     }
@@ -489,6 +497,14 @@ component KanbanCard {
     animate lift {
         duration: Motion.spring-dur;
         easing: Motion.spring;
+    }
+    // 浮起時的假陰影（軟體繪製畫不出 drop-shadow）
+    CardShadow {
+        y: -2px * root.lift;
+        width: root.width;
+        height: root.height;
+        radius: 16px;
+        strength: clamp(root.lift, 0, 1);
     }
     Rectangle {
         y: -2px * root.lift;
@@ -554,14 +570,28 @@ component KanbanCard {
             font-size: 10.5px;
             overflow: elide;
         }
-        Text {
-            text: root.card.title;
-            color: root.fg;
-            font-size: 12.5px;
-            font-weight: 600;
-            wrap: word-wrap;
-            overflow: elide;
-            max-height: 36px;
+        // 最多兩行：從第一行開始排、超過的切掉（換行加省略時 Slint 會只畫到後面幾行），滑過卡片看完整名稱
+        Rectangle {
+            clip: true;
+            height: min(card-title.preferred-height, 2 * one-line.preferred-height);
+            // 量一行的高度（不顯示）
+            one-line := Text {
+                visible: false;
+                text: "測";
+                font-size: 12.5px;
+                font-weight: 600;
+            }
+            card-title := Text {
+                y: 0;
+                width: parent.width;
+                height: self.preferred-height;
+                text: root.card.title;
+                color: root.fg;
+                font-size: 12.5px;
+                font-weight: 600;
+                wrap: word-wrap;
+                vertical-alignment: top;
+            }
         }
         HorizontalLayout {
             padding-top: 4px;
@@ -624,7 +654,8 @@ component KanbanColumn {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            Text {
+            // 數量變化時新數字從下方淡入
+            FadeText {
                 text: root.count;
                 color: Theme.ink;
                 font-family: Theme.font-num;
@@ -640,8 +671,13 @@ component KanbanColumn {
                 width: sv.visible-width - 4px;
                 padding-top: 4px;
                 spacing: 7px;
-                for c in root.cards: KanbanCard {
-                    card: c;
+                for c[ai] in root.cards: Appear {
+                    index: ai;
+                    rise: 14px;
+                    stagger: 40ms;
+                    KanbanCard {
+                        card: c;
+                    }
                 }
             }
         }

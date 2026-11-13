@@ -1,5 +1,6 @@
 // 面板、提示、設定共用的小元件（對應 C# App.xaml 的 SectionTitle、IconButton、FlatButton、Badge、ClickRow、StatusPill 樣式）。
-// 外觀照微互動元件牆的風格：淺灰底、ink 主色、按下縮放、滑過變色；色票都用 hb-ui-kit 的 Theme。
+// 外觀照微互動元件牆的風格：淺灰底、ink 主色、滑過變色、按下往下沉 1px；色票都用 hb-ui-kit 的 Theme。
+// 介面用軟體繪圖，不能縮放旋轉、畫不出 drop-shadow：按壓、滑過只用位移、顏色、半透明矩形；Theme.reduce-motion 時不播動畫。
 import { Theme, Motion, Tip } from "@hb/index.slint";
 
 /// 滑過時的說明泡泡（包在任何元件裡；空字串不顯示）。
@@ -48,6 +49,7 @@ export component SectionHeader {
             link-text := Text {
                 text: root.link;
                 color: link-ta.has-hover ? Theme.accent : Theme.accent-ink;
+                animate color { duration: Theme.reduce-motion ? 0ms : 150ms; }
                 font-size: 11px;
                 font-weight: 600;
                 vertical-alignment: bottom;
@@ -62,7 +64,7 @@ export component SectionHeader {
     }
 }
 
-/// 只有一個符號或幾個字的透明按鈕（C# IconButton）：滑過出現淡底，按下縮放。
+/// 只有一個符號或幾個字的透明按鈕（C# IconButton）：滑過出現淡底，按下底色加深、內容往下沉 1px。
 export component GlyphButton {
     in property <string> text;
     in property <color> color: Theme.ink;
@@ -80,17 +82,17 @@ export component GlyphButton {
     preferred-width: max(26px, lbl.preferred-width + 14px);
     horizontal-stretch: 0;
     opacity: !root.enabled ? 0.4 : (ta.has-hover || root.strong-hover ? 1 : root.rest-opacity);
-    animate opacity { duration: 150ms; }
+    animate opacity { duration: Theme.reduce-motion ? 0ms : 150ms; }
     Rectangle {
-        transform-scale: ta.pressed ? 0.88 : 1;
-        animate transform-scale {
-            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
-            easing: ta.pressed ? Motion.press : Motion.spring;
-        }
         border-radius: 8px;
-        background: ta.has-hover && root.enabled ? Theme.hover : transparent;
-        animate background { duration: 150ms; }
+        background: !root.enabled ? transparent : ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: Theme.reduce-motion ? 0ms : (ta.pressed ? 80ms : 150ms); }
         lbl := Text {
+            y: ta.pressed ? 1px : 0px;
+            animate y {
+                duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
+                easing: ta.pressed ? Motion.press : Motion.out;
+            }
             text: root.text;
             color: root.color;
             font-size: root.font-size;
@@ -112,6 +114,7 @@ export component GlyphButton {
 }
 
 /// 小按鈕（C# FlatButton／PrimaryButton 的面板尺寸）：primary 是 ink 底，否則淺灰底。
+/// 滑過時浮起 1px（下面露出淡淡的影子），按下時沉下去、底色加深。
 export component SmallButton {
     in property <string> text;
     in property <bool> primary: false;
@@ -125,18 +128,27 @@ export component SmallButton {
     min-width: self.preferred-width;
     horizontal-stretch: 0;
     opacity: root.enabled ? 1 : 0.45;
+    property <bool> lifted: ta.has-hover && root.enabled && !ta.pressed;
+    // 浮起時的影子：軟體繪圖畫不出 drop-shadow，用往下錯開 2px 的半透明圓角矩形代替
     Rectangle {
-        transform-scale: ta.pressed ? 0.94 : 1;
-        animate transform-scale {
-            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
-            easing: ta.pressed ? Motion.press : Motion.spring;
+        y: 2px;
+        border-radius: self.height / 2;
+        background: Theme.shadow;
+        opacity: root.lifted ? 1 : 0;
+        animate opacity { duration: Theme.reduce-motion ? 0ms : 180ms; }
+    }
+    Rectangle {
+        y: root.lifted ? -1px : (ta.pressed ? 1px : 0px);
+        animate y {
+            duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
+            easing: ta.pressed ? Motion.press : Motion.out;
         }
         border-radius: self.height / 2;
         background: root.primary ? Theme.ink : Theme.fill;
         Rectangle {
             border-radius: parent.border-radius;
-            background: ta.has-hover && root.enabled ? (root.primary ? Theme.on-ink.with-alpha(0.12) : Theme.ink.with-alpha(0.06)) : transparent;
-            animate background { duration: 150ms; }
+            background: !root.enabled ? transparent : ta.pressed ? (root.primary ? Theme.on-ink.with-alpha(0.2) : Theme.ink.with-alpha(0.1)) : ta.has-hover ? (root.primary ? Theme.on-ink.with-alpha(0.12) : Theme.ink.with-alpha(0.06)) : transparent;
+            animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
         }
         lbl := Text {
             text: root.text;
@@ -193,8 +205,8 @@ export component StatusChip {
     horizontal-stretch: 0;
     Rectangle {
         border-radius: 9px;
-        background: ta.has-hover ? Theme.selected : Theme.fill;
-        animate background { duration: 150ms; }
+        background: ta.pressed ? Theme.accent-soft.darker(0.08) : ta.has-hover ? Theme.selected : Theme.fill;
+        animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
     }
     lbl := Text {
         text: root.text;
@@ -227,8 +239,8 @@ export component ClickRow {
     preferred-height: lay.preferred-height;
     Rectangle {
         border-radius: 10px;
-        background: ta.has-hover ? Theme.hover : transparent;
-        animate background { duration: 120ms; }
+        background: ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent;
+        animate background { duration: Theme.reduce-motion ? 0ms : 120ms; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -261,9 +273,14 @@ export component SummaryCard {
     min-height: max(34px, sum.min-height);
     preferred-height: max(34px, sum.preferred-height);
     Rectangle {
+        y: ta.has-hover && !ta.pressed ? -1px : 0px;
+        animate y {
+            duration: Theme.reduce-motion ? 0ms : 180ms;
+            easing: Motion.out;
+        }
         border-radius: 12px;
-        background: ta.has-hover ? Theme.hover : Theme.fill;
-        animate background { duration: 150ms; }
+        background: ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : Theme.fill;
+        animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
     }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -278,11 +295,19 @@ export component SummaryCard {
         padding-bottom: 7px;
         spacing: 6px;
         @children
-        Text {
-            text: "›";
-            color: Theme.muted;
-            font-size: 14px;
-            vertical-alignment: center;
+        Rectangle {
+            width: arrow.preferred-width + 3px;
+            arrow := Text {
+                x: ta.has-hover ? 3px : 0px;
+                animate x {
+                    duration: Theme.reduce-motion ? 0ms : 200ms;
+                    easing: Motion.out;
+                }
+                text: "›";
+                color: ta.has-hover ? Theme.ink : Theme.muted;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
         }
     }
     Hint {
@@ -301,19 +326,20 @@ export component MiniChip {
     min-width: self.preferred-width;
     horizontal-stretch: 0;
     Rectangle {
-        transform-scale: ta.pressed ? 0.92 : 1;
-        animate transform-scale {
-            duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
-            easing: ta.pressed ? Motion.press : Motion.spring;
+        y: ta.pressed ? 1px : 0px;
+        animate y {
+            duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
+            easing: ta.pressed ? Motion.press : Motion.out;
         }
         border-radius: self.height / 2;
-        background: root.selected ? Theme.ink : (ta.has-hover ? Theme.hover : transparent);
+        background: root.selected ? Theme.ink : (ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent);
         border-width: 1px;
-        border-color: root.selected ? Theme.ink : Theme.line;
-        animate background, border-color { duration: 200ms; }
+        border-color: root.selected ? Theme.ink : (ta.has-hover ? Theme.faint : Theme.line);
+        animate background, border-color { duration: Theme.reduce-motion ? 0ms : 200ms; }
         lbl := Text {
             text: root.text;
             color: root.selected ? Theme.on-ink : Theme.ink;
+            animate color { duration: Theme.reduce-motion ? 0ms : 200ms; }
             font-size: 11.5px;
             font-weight: root.selected ? 600 : 500;
             horizontal-alignment: center;
@@ -328,5 +354,77 @@ export component MiniChip {
     }
     Hint {
         text: root.tip;
+    }
+}
+
+/// 數字、時間這類會變的文字：換字時新字從下面 4px 浮上來並淡入（220ms）；第一次顯示不播。
+export component FadeText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 400;
+    /// 空字串時用視窗預設字型
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    property <float> t: 1;
+    property <bool> snap;
+    animate t {
+        duration: Theme.reduce-motion || root.snap ? 0ms : 220ms;
+        easing: Motion.out;
+    }
+    changed text => {
+        root.snap = true;
+        root.t = 0;
+        root.snap = false;
+        root.t = 1;
+    }
+    min-width: txt.min-width;
+    preferred-width: txt.preferred-width;
+    min-height: txt.preferred-height;
+    preferred-height: txt.preferred-height;
+    horizontal-stretch: 0;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        y: (1 - root.t) * 4px;
+        opacity: 0.25 + 0.75 * root.t;
+        text: root.text;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: center;
+    }
+}
+
+/// 會換行的文字。高度照實際寬度算：Slint 的 for／if 裡直接放換行的 Text 時，高度會用單行估，
+/// 捲動區的內容高度就會少算、最後幾列捲不到；包成元件、用實際寬度算高度就不會。
+/// 最小寬度不超過 80px：很長的英文字（網址）不會把整個版面撐寬（超出的部分換到下一行或被切掉）。
+export component WrapText {
+    in property <string> text;
+    in property <brush> color: Theme.ink;
+    /// 0 是視窗預設字級
+    in property <length> font-size;
+    /// 0 是預設粗細
+    in property <int> font-weight;
+    in property <string> font-family;
+    in property <TextHorizontalAlignment> horizontal-alignment: left;
+    in property <TextVerticalAlignment> vertical-alignment: top;
+    min-width: min(txt.min-width, 80px);
+    preferred-width: txt.preferred-width;
+    min-height: txt.preferred-height;
+    preferred-height: txt.preferred-height;
+    txt := Text {
+        width: root.width;
+        height: root.height;
+        text: root.text;
+        color: root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        wrap: word-wrap;
     }
 }

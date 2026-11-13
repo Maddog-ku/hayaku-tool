@@ -3,6 +3,7 @@
 // 外觀沿用 hb-ui-kit 的 Theme 與微互動：冷灰底卡片、黑主色、橘強調、彈簧緩動（reduce-motion 時不回彈）。
 import { Theme, Motion, Button, ButtonKind, ScrollView, TipArea, Tip } from "@hb/index.slint";
 import { TextArea, MutedText } from "@hbc/index.slint";
+import { Appear, CardShadow } from "../shared/anim.slint";
 
 /// 清單的一列（C# PageParts.Row）：粗體標題＋淡色說明。depth／expandable／expanded 給頁面樹用；
 /// accent：標題用強調色（檔案連結）；tip：滑過的提示。
@@ -64,13 +65,16 @@ export component SmallButton {
             border-radius: 15px;
             background: root.primary ? Theme.ink : ta.has-hover ? Theme.hover : transparent;
             opacity: root.enabled ? 1 : 0.45;
-            transform-scale: ta.pressed ? 0.94 : 1;
-            animate transform-scale {
-                duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
-                easing: ta.pressed ? Motion.press : Motion.spring;
-            }
             animate background { duration: 200ms; }
             lbl := Text {
+                // 按下往下沉一點，放開彈回（軟體繪製不支援縮放）
+                property <length> sink: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
+                y: self.sink;
+                height: parent.height;
+                animate sink {
+                    duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
+                    easing: ta.pressed ? Motion.press : Motion.spring;
+                }
                 text: root.text;
                 color: root.primary ? Theme.on-ink : Theme.ink;
                 font-size: Theme.fs-sm;
@@ -160,8 +164,10 @@ export component TipSegmented {
             accessible-label: item;
             accessible-item-selected: self.on;
             Rectangle {
-                transform-scale: ta.pressed ? 0.92 : 1;
-                animate transform-scale {
+                // 按下往下沉一點，放開彈回（軟體繪製不支援縮放）
+                property <length> sink: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
+                y: self.sink;
+                animate sink {
                     duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
                     easing: ta.pressed ? Motion.press : Motion.spring;
                 }
@@ -275,21 +281,28 @@ export component RowList {
     callback activated(index: int);
     callback toggled(index: int);
     sv := ScrollView {
+        // 內容寬度跟著可見寬度（換行的長文字不會把內容撐寬、被右邊切掉）
+        content-width: self.visible-width;
         VerticalLayout {
             padding-right: 6px;
             spacing: 1px;
             alignment: start;
-            for row[i] in root.rows: ListRow {
-                data: row;
-                selected: i == root.current;
-                clicked => {
-                    root.selected(i);
-                }
-                double-clicked => {
-                    root.activated(i);
-                }
-                toggled => {
-                    root.toggled(i);
+            // 載入、切換時依序浮現（ListReveal 開著才播）
+            for row[i] in root.rows: Appear {
+                index: i;
+                rise: 6px;
+                ListRow {
+                    data: row;
+                    selected: i == root.current;
+                    clicked => {
+                        root.selected(i);
+                    }
+                    double-clicked => {
+                        root.activated(i);
+                    }
+                    toggled => {
+                        root.toggled(i);
+                    }
                 }
             }
         }
@@ -297,14 +310,27 @@ export component RowList {
 }
 
 /// 唯讀、可選取複製的內文（C# PageParts.Reader：PlainText、13px）。
-export component Reader inherits TextInput {
-    read-only: true;
-    single-line: false;
-    wrap: word-wrap;
-    color: Theme.ink;
-    font-size: 13px;
-    selection-background-color: Theme.accent-soft;
-    selection-foreground-color: Theme.ink;
+/// 包一層、依實際寬度算高度：直接用會換行的 TextInput 放在 for／if 裡時，Slint 估的高度會偏少，
+/// 很長的訊息最後幾段捲不到（同 hayakubar 的 WrapText）。
+export component Reader {
+    in property <string> text;
+    in property <length> font-size: 13px;
+    min-width: min(input.min-width, 80px);
+    preferred-width: input.preferred-width;
+    min-height: input.preferred-height;
+    preferred-height: input.preferred-height;
+    input := TextInput {
+        width: root.width;
+        height: root.height;
+        text: root.text;
+        read-only: true;
+        single-line: false;
+        wrap: word-wrap;
+        color: Theme.ink;
+        font-size: root.font-size;
+        selection-background-color: Theme.accent-soft;
+        selection-foreground-color: Theme.ink;
+    }
 }
 
 /// 淡底圓角的區塊（C# SubtleBrush Border：會議紀錄、論壇回應）。
@@ -411,13 +437,23 @@ export component ConfirmOverlay inherits Rectangle {
     in property <string> message;
     callback ok();
     callback cancel();
-    visible: root.open;
-    background: Theme.dark ? #00000080 : #0E0F1333;
+    // 打開：底色淡入、卡片往上浮出（340ms）；關閉反向淡出（160ms），播完才不顯示
+    visible: root.open || root.t > 0.01;
     border-radius: Theme.radius-card;
+    property <float> t: root.open ? 1 : 0;
+    animate t {
+        duration: root.open ? (Theme.reduce-motion ? 160ms : 340ms) : 160ms;
+        easing: root.open ? Motion.soft : Motion.out;
+    }
     changed open => {
         if root.open {
             keys.focus();
         }
+    }
+    Rectangle {
+        border-radius: Theme.radius-card;
+        background: Theme.dark ? #00000080 : #0E0F1333;
+        opacity: clamp(root.t, 0, 1);
     }
     TouchArea { }
     keys := FocusScope {
@@ -432,18 +468,22 @@ export component ConfirmOverlay inherits Rectangle {
             }
             reject
         }
+        // 假陰影（軟體繪製畫不出 drop-shadow）
+        CardShadow {
+            x: card.x;
+            y: card.y;
+            width: card.width;
+            height: card.height;
+            radius: Theme.radius-card;
+            strength: clamp(root.t, 0, 1);
+        }
         card := Rectangle {
-            property <float> t: root.open ? 1 : 0;
-            animate t {
-                duration: Motion.spring-dur;
-                easing: Motion.spring;
-            }
             width: min(440px, root.width - 40px);
-            height: lay.preferred-height;
+            height: min(lay.preferred-height, root.height - 32px);
             x: (root.width - self.width) / 2;
-            y: (root.height - self.height) / 2;
-            transform-scale: 0.94 + 0.06 * self.t;
-            opacity: clamp(self.t * 1.5, 0, 1);
+            y: (root.height - self.height) / 2 + (Theme.reduce-motion ? 0px : (1 - root.t) * 24px);
+            opacity: clamp(root.t * 1.5, 0, 1);
+            clip: true;
             background: Theme.card;
             border-radius: Theme.radius-card;
             drop-shadow-color: Theme.shadow;
@@ -558,6 +598,16 @@ export component W3Group inherits Text {
 
 /// 置中的淡色訊息（清單空白、讀取中）。
 export component CenterNote inherits Text {
+    // 出現時淡入（讀取中、清單空白）
+    property <float> t: 0;
+    init => {
+        t = 1;
+    }
+    animate t {
+        duration: Theme.reduce-motion ? 0ms : 260ms;
+        easing: Motion.out;
+    }
+    opacity: root.t;
     color: Theme.muted;
     font-size: Theme.fs-md;
     horizontal-alignment: center;
