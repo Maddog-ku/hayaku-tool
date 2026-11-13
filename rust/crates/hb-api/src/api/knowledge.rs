@@ -230,6 +230,23 @@ impl HayakuApi {
             .map(drop)
     }
 
+    /// 移到同一個空間的上層 parent_id 底下、排在 after_id 那頁後面（None＝放最前面）。
+    /// 跟上 Hayaku 1.5.4（move_space_page 多了 afterId：null 放最前面、不給放最後）；C# 版沒有。
+    pub async fn move_space_page_after(
+        &self,
+        space: &str,
+        page_id: &str,
+        parent_id: Option<&str>,
+        after_id: Option<&str>,
+    ) -> Result<(), McpError> {
+        self.call(
+            "move_space_page",
+            json!({ "space": space, "pageId": page_id, "parentId": parent_id, "afterId": after_id }),
+        )
+        .await
+        .map(drop)
+    }
+
     /// 刪除一頁（連子頁）；30 天內空間管理員可以在網頁還原。
     pub async fn delete_space_page(&self, space: &str, page_id: &str) -> Result<(), McpError> {
         self.call("delete_space_page", json!({ "space": space, "pageId": page_id })).await.map(drop)
@@ -639,6 +656,22 @@ mod tests {
         assert_eq!(poll.closes_at, None);
         assert_eq!((poll.options[0].votes, poll.options[0].voters.len(), poll.options[0].mine), (Some(3), 3, false));
         assert!(poll.options[1].mine);
+    }
+
+    #[test]
+    fn move_space_page_原本排最後_after_id_換位置() {
+        use std::sync::Arc;
+        let fake = Arc::new(FakeTransport::default());
+        let api = HayakuApi::new(fake.clone());
+        block_on(api.move_space_page("RULES", "p1", Some("p0"))).expect("move");
+        block_on(api.move_space_page_after("RULES", "p1", Some("p0"), Some("p2"))).expect("move");
+        block_on(api.move_space_page_after("RULES", "p1", None, None)).expect("move");
+        let calls = fake.calls.lock().expect("lock");
+        // 原本的呼叫不送 afterId（排在最後）
+        assert_eq!(calls[0].1, json!({ "space": "RULES", "pageId": "p1", "parentId": "p0" }));
+        assert_eq!(calls[1].1, json!({ "space": "RULES", "pageId": "p1", "parentId": "p0", "afterId": "p2" }));
+        // afterId: null＝放最前面
+        assert_eq!(calls[2].1, json!({ "space": "RULES", "pageId": "p1", "parentId": null, "afterId": null }));
     }
 
     #[test]

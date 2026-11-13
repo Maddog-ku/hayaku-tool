@@ -1,10 +1,26 @@
 // 工作台「提醒」頁（對應 C# UI/Work/RemindersPage.xaml）：新增（一次或重複、可綁任務）、延後、暫停重複、刪除。
 // 契約：匯出 global RemindersPageData（Rust 端用 window.global::<RemindersPageData>() 讀寫）與 component RemindersPage；
 // 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
-import { Theme, ScrollView, Segmented, TipArea } from "@hb/index.slint";
+import { Theme, Motion, ScrollView, Segmented, TipArea, Icon, Icons } from "@hb/index.slint";
 import { FieldLabel, SelectField, StatusLine, LinkButton } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Confirm, W2Title } from "w2-common.slint";
-import { Appear, SlideSwitch } from "../shared/anim.slint";
+import { Appear, SlideSwitch, CardShadow } from "../shared/anim.slint";
+
+/// 快速時間的一個選項（Hayaku 1.5.4 起照上班時段即時算；C# 版只有三個固定的）。tip：算出來的時間。
+export struct RemindersQuick {
+    tag: string,
+    label: string,
+    tip: string,
+}
+
+/// 「綁在」清單的一列（Hayaku 1.5.4 起；C# 版沒有）：header 是分組標題（最近填過、指派給我的、近期會議）。
+export struct RemindersBind {
+    header: bool,
+    key: string,
+    title: string,
+    meta: string,
+    meeting: bool,
+}
 
 /// 提醒列表的一列（C# ReminderListVm）。busy：執行中的按鈕（snooze、pause、delete）。
 export struct RemindersRow {
@@ -50,6 +66,16 @@ export global RemindersPageData {
     in-out property <bool> confirm-open;
     in-out property <string> confirm-title;
     in-out property <string> confirm-text;
+    in-out property <[RemindersQuick]> quick-items;
+    in-out property <[RemindersBind]> bind-rows;
+    /// 清單沒東西時的說明
+    in-out property <string> bind-empty;
+    /// 綁的是會議（從清單選了會議）
+    in-out property <bool> bind-meeting;
+    callback quick-refresh();
+    callback bind-open();
+    callback bind-picked(index: int);
+    callback task-edited(text: string);
     callback confirm-ok();
     callback confirm-cancel();
     callback tab-selected(index: int);
@@ -70,6 +96,175 @@ component Field {
             text: root.label;
         }
         @children
+    }
+}
+
+/// 「綁在」：輸入框＋右邊的箭頭，點了列出最近填過、指派給我的任務與近期會議（跟上 Hayaku 1.5.4；C# 版只能打編號）。
+/// 清單用 engine 已有的資料（打開時由 Rust 重排，不發請求）；選了填進編號，會議另外記 bind-meeting。
+component BindField {
+    in-out property <string> text;
+    in property <string> placeholder;
+    callback accepted();
+    forward-focus: box;
+    height: 34px;
+    min-width: 40px;
+    preferred-width: 120px;
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    box := W2Input {
+        width: root.width;
+        height: root.height;
+        placeholder: root.placeholder;
+        text <=> root.text;
+        accepted => {
+            root.accepted();
+        }
+        edited(t) => {
+            RemindersPageData.task-edited(t);
+        }
+    }
+    // 箭頭（蓋在輸入框右邊；輸入框的字不會打到這裡，右邊留了 10px 再加箭頭寬度也不影響短編號）
+    arrow := Rectangle {
+        x: root.width - self.width - 3px;
+        y: 3px;
+        width: 28px;
+        height: root.height - 6px;
+        border-radius: 9px;
+        background: arrow-ta.has-hover || popup-open ? Theme.hover : transparent;
+        animate background { duration: Motion.fast; }
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 15px;
+            height: 15px;
+            // 軟體繪製不支援旋轉：打開時換成向上的箭頭
+            path: popup-open ? Icons.chevron-up : Icons.chevron-down;
+            color: Theme.ink;
+        }
+        arrow-ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                RemindersPageData.bind-open();
+                popup.show();
+            }
+        }
+    }
+    property <bool> popup-open: popup.is-open;
+    property <length> menu-width: max(root.width, 340px);
+    popup := PopupWindow {
+        // 右邊對齊欄位（欄位在表單最右邊，往左展開才不會超出視窗）；四周多留 14px 給假陰影
+        x: root.width - root.menu-width - 14px;
+        y: root.height + 6px - 14px;
+        width: root.menu-width + 28px;
+        height: min(330px, lay.preferred-height + 10px) + 28px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        CardShadow {
+            x: card.x;
+            y: card.y;
+            width: card.width;
+            height: card.height;
+            radius: 14px;
+            strength: card.opacity;
+        }
+        card := Rectangle {
+            // 打開時往下滑出並淡入（同 W2ProjectSelect）；reduce-motion 時直接出現
+            property <float> t: 0;
+            init => {
+                t = 1;
+            }
+            animate t {
+                duration: Theme.reduce-motion ? 0ms : 260ms;
+                easing: Motion.out;
+            }
+            x: 14px;
+            y: 14px - 6px * (1 - self.t);
+            opacity: clamp(self.t * 1.5, 0, 1);
+            width: parent.width - 28px;
+            height: parent.height - 28px;
+            border-radius: 14px;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.line;
+            clip: true;
+            Flickable {
+                x: 5px;
+                y: 5px;
+                width: parent.width - 10px;
+                height: parent.height - 10px;
+                content-height: lay.preferred-height;
+                lay := VerticalLayout {
+                    spacing: 0px;
+                    if RemindersPageData.bind-rows.length == 0: Text {
+                        height: 40px;
+                        text: RemindersPageData.bind-empty;
+                        color: Theme.muted;
+                        font-size: Theme.fs-sm;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    for r[i] in RemindersPageData.bind-rows: Rectangle {
+                        height: r.header ? 28px : 36px;
+                        border-radius: 10px;
+                        background: !r.header && row-ta.has-hover ? Theme.fill : transparent;
+                        if r.header: Text {
+                            x: 10px;
+                            y: 4px;
+                            width: parent.width - 20px;
+                            height: parent.height - 4px;
+                            text: r.title;
+                            color: Theme.muted;
+                            font-size: Theme.fs-xs + 0.5px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        if !r.header: HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            if r.meeting: Icon {
+                                y: (parent.height - self.height) / 2;
+                                width: 14px;
+                                height: 14px;
+                                path: Icons.calendar;
+                                color: Theme.muted;
+                            }
+                            Text {
+                                text: r.key;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 700;
+                                font-family: Theme.font-num;
+                                vertical-alignment: center;
+                                horizontal-stretch: 0;
+                            }
+                            Text {
+                                text: r.title;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            if r.meta != "": Text {
+                                text: r.meta;
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                                vertical-alignment: center;
+                                horizontal-stretch: 0;
+                            }
+                        }
+                        row-ta := TouchArea {
+                            enabled: !r.header;
+                            mouse-cursor: pointer;
+                            clicked => {
+                                RemindersPageData.bind-picked(i);
+                                popup.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -100,6 +295,14 @@ export component RemindersPage inherits Rectangle {
             border-width: 1px;
             border-color: Theme.line;
             border-radius: W2.card-radius;
+            // 滑鼠移進新增區時重算快速時間（本機算，不輪詢、不發請求；沒變不重畫）
+            TouchArea {
+                changed has-hover => {
+                    if self.has-hover {
+                        RemindersPageData.quick-refresh();
+                    }
+                }
+            }
             VerticalLayout {
                 padding: 16px;
                 spacing: 10px;
@@ -140,14 +343,34 @@ export component RemindersPage inherits Rectangle {
                         }
                     }
                     Field {
-                        label: "綁任務（選填）";
+                        // 跟上 Hayaku 1.5.4 的「綁在」：任務或會議（C# 版是「綁任務（選填）」）
+                        label: RemindersPageData.bind-meeting ? "綁在（會議）" : "綁在（選填）";
                         horizontal-stretch: 1;
-                        task-box := W2Input {
-                            placeholder: "例 F2P-97";
+                        task-box := BindField {
+                            placeholder: "任務或會議編號";
                             text <=> RemindersPageData.task-text;
                             accepted => { RemindersPageData.add(); }
                         }
                     }
+                }
+                // 快速時間（Hayaku 1.5.4 起照自己的上班時段即時算；滑過顯示算出來的時間）
+                HorizontalLayout {
+                    spacing: 14px;
+                    min-height: 24px;
+                    Text {
+                        text: "快速：";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    for q in RemindersPageData.quick-items: TipArea {
+                        text: q.tip;
+                        LinkButton {
+                            y: (parent.height - self.height) / 2;
+                            text: q.label;
+                            clicked => { RemindersPageData.quick(q.tag); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
                 }
                 HorizontalLayout {
                     spacing: 8px;
@@ -165,26 +388,6 @@ export component RemindersPage inherits Rectangle {
                         height: 36px;
                         items: RemindersPageData.repeat-items;
                         current <=> RemindersPageData.repeat-index;
-                    }
-                    Rectangle { width: 8px; }
-                    Text {
-                        text: "快速：";
-                        color: Theme.muted;
-                        vertical-alignment: center;
-                    }
-                    LinkButton {
-                        text: "30 分鐘後";
-                        clicked => { RemindersPageData.quick("30"); }
-                    }
-                    Rectangle { width: 4px; }
-                    LinkButton {
-                        text: "1 小時後";
-                        clicked => { RemindersPageData.quick("60"); }
-                    }
-                    Rectangle { width: 4px; }
-                    LinkButton {
-                        text: "明天上班";
-                        clicked => { RemindersPageData.quick("tomorrow"); }
                     }
                     Rectangle { horizontal-stretch: 1; }
                     W2Button {

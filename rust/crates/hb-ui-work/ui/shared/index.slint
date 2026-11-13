@@ -17,10 +17,14 @@ export component SmallButton {
     in property <bool> active;
     in property <string> tip;
     in property <length> font-size: Theme.fs-sm;
+    /// 按鈕本身的高度。元件被列撐高時（HorizontalLayout 會把固定高度的子元素貼齊上緣），按鈕在元件裡垂直置中
+    in property <length> face-height: 32px;
     in property <length> horizontal-padding: 12px;
     callback clicked;
     out property <bool> hovered: ta.has-hover;
-    height: 32px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
     min-width: lbl.preferred-width + 2 * root.horizontal-padding;
     preferred-width: lbl.preferred-width + 2 * root.horizontal-padding;
     horizontal-stretch: 0;
@@ -29,14 +33,18 @@ export component SmallButton {
     accessible-label: text;
     accessible-action-default => { ta.clicked(); }
     property <color> fg: root.kind == 0 ? Theme.on-ink : root.kind == 4 ? Theme.on-accent : root.active ? Theme.accent-ink : Theme.ink;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
     bg := Rectangle {
+        height: root.face-h;
         border-radius: self.height / 2;
         background: root.active ? Theme.selected : root.kind == 0 ? Theme.ink : root.kind == 1 ? Theme.fill : root.kind == 4 ? Theme.accent : transparent;
         border-width: root.active || root.kind == 2 ? 1.5px : 0px;
         border-color: root.active ? Theme.accent : Theme.line;
         // 按下往下沉 1px（軟體繪製不支援縮放），放開以彈簧彈回
-        y: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
-        animate y {
+        property <length> sink: ta.pressed && !Theme.reduce-motion ? 1.5px : 0px;
+        y: root.face-y + self.sink;
+        animate sink {
             duration: ta.pressed ? Motion.press-dur : Motion.spring-dur;
             easing: ta.pressed ? Motion.press : Motion.spring;
         }
@@ -56,6 +64,8 @@ export component SmallButton {
         }
     }
     ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
@@ -82,11 +92,18 @@ export component GlyphButton {
     in property <string> tip;
     callback clicked;
     width: root.size;
-    height: root.size;
+    // 不固定高度：被列撐高時圓鈕在元件裡垂直置中（固定高度的子元素會被 HorizontalLayout 貼齊上緣）
+    min-height: root.size;
+    preferred-height: root.size;
+    vertical-stretch: 0;
     opacity: enabled ? 1 : 0.4;
     accessible-role: button;
     accessible-label: tip != "" ? tip : glyph;
+    property <length> face-h: min(root.height, root.size);
+    property <length> face-y: (root.height - self.face-h) / 2;
     Rectangle {
+        y: root.face-y;
+        height: root.face-h;
         border-radius: self.height / 2;
         background: ta.pressed && root.enabled ? Theme.line : ta.has-hover && root.enabled ? Theme.hover : transparent;
         animate background { duration: 150ms; }
@@ -106,6 +123,8 @@ export component GlyphButton {
         }
     }
     ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
@@ -399,7 +418,10 @@ export component CheckText {
     in property <bool> accent;
     in property <string> tip;
     callback toggled(checked: bool);
-    height: 28px;
+    // 不固定高度：被列撐高時勾選框與文字在元件裡垂直置中（固定高度會被 HorizontalLayout 貼齊上緣）
+    min-height: 28px;
+    preferred-height: 28px;
+    vertical-stretch: 0;
     horizontal-stretch: 0;
     HorizontalLayout {
         spacing: 7px;
@@ -740,15 +762,23 @@ export component SoftPill {
     in property <color> fg: Theme.ink;
     in property <length> font-size: 11px;
     horizontal-stretch: 0;
-    height: 22px;
+    // 不固定高度：被列撐高時膠囊在元件裡垂直置中
+    min-height: 22px;
+    preferred-height: 22px;
+    vertical-stretch: 0;
     min-width: min(lbl.preferred-width + 16px, 40px);
     preferred-width: lbl.preferred-width + 16px;
+    property <length> face-h: min(root.height, 22px);
     Rectangle {
+        y: (root.height - self.height) / 2;
+        height: root.face-h;
         border-radius: self.height / 2;
         background: root.bg;
     }
     lbl := Text {
         x: 8px;
+        y: (root.height - self.height) / 2;
+        height: root.face-h;
         width: parent.width - 16px;
         text: root.text;
         color: root.fg;

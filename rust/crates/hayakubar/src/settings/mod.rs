@@ -34,6 +34,23 @@ const POLL_SECONDS: [i32; 4] = [15, 30, 60, 120];
 const PANEL_HEIGHTS: [i32; 5] = [360, 440, 520, 600, 0];
 const MEETING_LEADS: [i32; 6] = [0, 1, 3, 5, 10, 15];
 const POPUP_SECONDS: [i32; 5] = [3, 5, 8, 15, 0];
+/// 建立任務提示自動收起的選項（秒；0 是不自動收起）；下拉最後一項是「自訂」。
+const NEW_WORK_SECONDS: [i32; 11] = [15, 30, 45, 60, 120, 180, 300, 600, 900, 1800, 0];
+
+/// 建立任務提示的秒數 → 下拉的索引：跟某個選項一樣就是那一項，不然是「自訂」（最後一項）。
+pub fn new_work_index(seconds: i32) -> usize {
+    NEW_WORK_SECONDS.iter().position(|v| *v == seconds.max(0)).unwrap_or(NEW_WORK_SECONDS.len())
+}
+
+/// 輸入框的文字 → 秒數（0～86400）；看不懂回 None。
+pub fn parse_new_work_seconds(text: &str) -> Option<i32> {
+    text.trim().parse::<i32>().ok().filter(|v| (0..=86_400).contains(v))
+}
+
+/// 輸入框的文字 → 「今天下班前」的分鐘數（0～600）；看不懂回 None。
+pub fn parse_before_end_minutes(text: &str) -> Option<i32> {
+    text.trim().parse::<i32>().ok().filter(|v| (0..=600).contains(v))
+}
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
 /// C# `new[] { … }.MinBy(v => Math.Abs(v - value))`：最接近的那一個的索引（一樣近取前面的）。
@@ -474,6 +491,9 @@ impl SettingsInner {
             } else {
                 nearest(&POPUP_SECONDS[..4], c.notification_popup_seconds) as i32
             });
+            ui.set_new_work_index(new_work_index(c.new_work_toast_seconds) as i32);
+            ui.set_new_work_text(c.new_work_toast_seconds.max(0).to_string().into());
+            ui.set_before_end_text(c.reminder_before_end_minutes.to_string().into());
             ui.set_sync_only_work(c.sync_only_during_work);
             ui.set_prompt_unfilled(c.prompt_unfilled);
             ui.set_quiet_when_busy(c.quiet_when_busy);
@@ -528,6 +548,9 @@ impl SettingsInner {
         ui.on_popup_seconds_changed(
             with_settings!(self.me, |p, i| p.set_int(i, &POPUP_SECONDS, |c, v| c.notification_popup_seconds = v))
         );
+        ui.on_new_work_changed(with_settings!(self.me, |p, i| p.new_work_changed(i)));
+        ui.on_new_work_commit(with_settings!(self.me, |p| p.new_work_commit()));
+        ui.on_before_end_commit(with_settings!(self.me, |p| p.before_end_commit()));
         ui.on_meeting_lead_changed(
             with_settings!(self.me, |p, i| p.set_int(i, &MEETING_LEADS, |c, v| c.meeting_lead_minutes = v))
         );
@@ -803,6 +826,44 @@ impl SettingsInner {
         }
         self.ui.set_offset_text("0".into());
         self.apply();
+    }
+
+    /// 建立任務提示自動收起：選了預設值就套用；選「自訂」只是讓人去改右邊的秒數。
+    fn new_work_changed(&self, index: i32) {
+        if self.loading.get() {
+            return;
+        }
+        let Some(v) = NEW_WORK_SECONDS.get(index as usize) else { return };
+        self.ui.set_new_work_text(v.to_string().into());
+        self.engine.config_mut().new_work_toast_seconds = *v;
+        self.apply();
+    }
+
+    fn new_work_commit(&self) {
+        let current = self.engine.config().new_work_toast_seconds;
+        let Some(v) = parse_new_work_seconds(&self.ui.get_new_work_text()) else {
+            self.ui.set_new_work_text(current.max(0).to_string().into());
+            return;
+        };
+        self.ui.set_new_work_text(v.to_string().into());
+        self.ui.set_new_work_index(new_work_index(v) as i32);
+        if v != current {
+            self.engine.config_mut().new_work_toast_seconds = v;
+            self.apply();
+        }
+    }
+
+    fn before_end_commit(&self) {
+        let current = self.engine.config().reminder_before_end_minutes;
+        let Some(v) = parse_before_end_minutes(&self.ui.get_before_end_text()) else {
+            self.ui.set_before_end_text(current.to_string().into());
+            return;
+        };
+        self.ui.set_before_end_text(v.to_string().into());
+        if v != current {
+            self.engine.config_mut().reminder_before_end_minutes = v;
+            self.apply();
+        }
     }
 
     fn offset_commit(&self) {
@@ -1182,6 +1243,28 @@ mod tests {
 
     fn dt(m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(2026, m, d).unwrap().and_hms_opt(h, min, 0).unwrap()
+    }
+
+    #[test]
+    fn 建立任務提示的秒數與下拉() {
+        assert_eq!(0, new_work_index(15));
+        assert_eq!(6, new_work_index(300));
+        assert_eq!(10, new_work_index(0));
+        assert_eq!(10, new_work_index(-5));
+        assert_eq!(11, new_work_index(90)); // 自訂
+        assert_eq!(Some(90), parse_new_work_seconds(" 90 "));
+        assert_eq!(Some(0), parse_new_work_seconds("0"));
+        assert_eq!(None, parse_new_work_seconds("-1"));
+        assert_eq!(None, parse_new_work_seconds("86401"));
+        assert_eq!(None, parse_new_work_seconds("五分鐘"));
+    }
+
+    #[test]
+    fn 今天下班前的分鐘數() {
+        assert_eq!(Some(15), parse_before_end_minutes("15"));
+        assert_eq!(Some(0), parse_before_end_minutes("0"));
+        assert_eq!(None, parse_before_end_minutes("601"));
+        assert_eq!(None, parse_before_end_minutes(""));
     }
 
     #[test]

@@ -9,11 +9,18 @@ export struct MoveRow {
     dim: bool,
 }
 
+/// 選擇任務的一列。跟上 Hayaku 1.5.4（C# 版沒有）：header＝分組標題（最近填過、指派給我的）；
+/// detail 寫所屬專案、上層與狀態；disabled 的灰掉、reason 寫原因；top、height 是在清單裡的位置（列高不一樣）。
 export struct PickRow {
     key: string,
     title: string,
     detail: string,
     selected: bool,
+    header: bool,
+    disabled: bool,
+    reason: string,
+    top: length,
+    height: length,
 }
 
 /// 選取列：淡色底＋左邊橘色細條（彈出），滑過淡灰（設計稿清單的 active）。
@@ -232,6 +239,8 @@ export component TaskPickerWindow inherits Window {
     in property <string> prompt;
     in-out property <string> search;
     in property <[PickRow]> rows;
+    /// 清單的總高度（每列 top＋height 的最後一個）
+    in property <length> list-height;
     in-out property <int> current: -1;
     callback search-edited(text: string);
     /// 點了第 index 列（ctrl、shift：多選時加選、範圍選）
@@ -243,8 +252,8 @@ export component TaskPickerWindow inherits Window {
         search-box.focus();
     }
     title: "選擇任務";
-    preferred-width: 480px;
-    preferred-height: 520px;
+    preferred-width: 520px;
+    preferred-height: 560px;
     min-width: 360px;
     min-height: 360px;
     background: Theme.card;
@@ -252,13 +261,20 @@ export component TaskPickerWindow inherits Window {
     default-font-size: 13px;
     always-on-top: true;
     forward-focus: search-box;
+    // 依序浮現用的平均列高
     property <length> row-height: 48px;
     function scroll-to-current() {
-        let top = root.current * root.row-height;
-        if top + list.content-y < 0 {
-            list.content-y = -top;
-        } else if top + root.row-height + list.content-y > list.visible-height {
-            list.content-y = list.visible-height - top - root.row-height;
+        if root.current < 0 || root.current >= root.rows.length {
+            return;
+        }
+        let top = root.rows[root.current].top;
+        let h = root.rows[root.current].height;
+        // 往上捲時連分組標題一起露出來
+        let head = root.current > 0 && root.rows[root.current - 1].header ? root.rows[root.current - 1].height : 0px;
+        if top - head + list.content-y < 0 {
+            list.content-y = -(top - head);
+        } else if top + h + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - top - h;
         }
     }
     changed current => {
@@ -339,22 +355,40 @@ export component TaskPickerWindow inherits Window {
                             y: 6px;
                             width: parent.width - 12px;
                             height: parent.height - 12px;
-                            content-height: root.rows.length * root.row-height;
+                            content-height: root.list-height;
+                            // 分組標題（最近填過、指派給我的）
+                            for r[i] in root.rows: Text {
+                                property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                                visible: r.header;
+                                x: 12px;
+                                y: r.top + (1 - self.a) * Motion.rise;
+                                opacity: self.a;
+                                width: list.visible-width - 24px;
+                                height: r.header ? r.height : 0px;
+                                text: r.header ? r.title : "";
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                                font-weight: 600;
+                                vertical-alignment: bottom;
+                            }
                             for r[i] in root.rows: ListRow {
                                 property <float> a: Stagger.at(intro.progress, i - floor(-list.content-y / root.row-height));
+                                visible: !r.header;
                                 x: 0;
-                                y: i * root.row-height + (1 - self.a) * Motion.rise;
-                                opacity: self.a;
+                                y: r.top + (1 - self.a) * Motion.rise;
+                                opacity: self.a * (r.disabled ? 0.5 : 1);
                                 width: list.visible-width - 4px;
-                                height: root.row-height;
+                                height: r.header ? 0px : r.height;
                                 selected: r.selected;
-                                // 名稱被截掉時，滑過顯示完整名稱
-                                tip: title-text.preferred-width > title-text.width ? r.title : "";
+                                // 名稱被截掉時，滑過顯示完整名稱；不能選的顯示原因
+                                tip: r.disabled ? r.reason : title-text.preferred-width > title-text.width ? r.title : "";
                                 clicked(e) => {
                                     root.row-clicked(i, e.modifiers.control, e.modifiers.shift);
                                 }
                                 double-clicked => {
-                                    root.accept();
+                                    if !r.disabled {
+                                        root.accept();
+                                    }
                                 }
                                 VerticalLayout {
                                     padding-left: 14px;
@@ -368,13 +402,21 @@ export component TaskPickerWindow inherits Window {
                                             color: Theme.ink;
                                             font-size: Theme.fs-md;
                                             font-weight: 700;
+                                            vertical-alignment: center;
                                         }
                                         title-text := Text {
                                             horizontal-stretch: 1;
                                             text: r.title;
                                             color: Theme.ink;
                                             font-size: Theme.fs-md;
+                                            vertical-alignment: center;
                                             overflow: elide;
+                                        }
+                                        if r.disabled: Text {
+                                            text: r.reason;
+                                            color: Theme.warn;
+                                            font-size: Theme.fs-sm;
+                                            vertical-alignment: center;
                                         }
                                     }
                                     Text {

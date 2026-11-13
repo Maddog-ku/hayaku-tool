@@ -1,8 +1,8 @@
 // 工作台「工時紀錄」頁（對應 C# UI/Work/DayEntriesPage.xaml）：查看、修改、補登某一天的計時紀錄。
 // 契約：匯出 global EntriesPageData（Rust 端用 window.global::<EntriesPageData>() 讀寫）與 component EntriesPage；
 // 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
-import { Theme, ScrollView, Tip } from "@hb/index.slint";
-import { DayTimeline, DayTimelineModel, ComboField, LinkButton } from "@hbc/index.slint";
+import { Theme, Motion, ScrollView, Tip, Icon, Icons } from "@hb/index.slint";
+import { DayTimeline, DayTimelineModel, ComboField, LinkButton, DateRangePicker } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Confirm } from "w2-common.slint";
 import { Appear } from "../shared/anim.slint";
 
@@ -23,6 +23,9 @@ export global EntriesPageData {
     in-out property <bool> loading;
     in-out property <string> date-text;
     in-out property <bool> today-enabled;
+    /// 日曆選日期（跟上 Hayaku 1.5.3；C# 版沒有）：目前看的那天、今天（yyyymmdd）
+    in-out property <int> pick-date;
+    in-out property <int> today-int;
     in-out property <string> total-text;
     /// 還沒填滿：合計用強調色
     in-out property <bool> total-accent;
@@ -54,6 +57,7 @@ export global EntriesPageData {
     callback prev-day();
     callback next-day();
     callback today();
+    callback date-picked(date: int);
     callback edit-start(index: int, text: string);
     callback edit-end(index: int, text: string);
     callback edit-note(index: int, text: string);
@@ -218,12 +222,64 @@ export component EntriesPage inherits Rectangle {
                 font-size: 15px;
                 clicked => { EntriesPageData.prev-day(); }
             }
-            Text {
-                text: EntriesPageData.date-text;
-                color: Theme.ink;
-                font-size: 20px;
-                font-weight: 600;
-                vertical-alignment: center;
+            // 點日期從日曆選（跟上 Hayaku 1.5.3 補登可以直接切換日期；C# 版只有前一天、後一天）
+            Rectangle {
+                horizontal-stretch: 0;
+                min-width: date-row.preferred-width;
+                border-radius: 10px;
+                background: date-ta.has-hover ? Theme.hover : transparent;
+                animate background { duration: Motion.fast; }
+                date-row := HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text {
+                        text: EntriesPageData.date-text;
+                        color: Theme.ink;
+                        font-size: 20px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Icon {
+                        y: (parent.height - self.height) / 2;
+                        width: 16px;
+                        height: 16px;
+                        path: Icons.calendar;
+                        color: date-ta.has-hover ? Theme.ink : Theme.muted;
+                    }
+                }
+                date-ta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        picker.open-calendar();
+                    }
+                    Tooltip {
+                        Tip {
+                            text: "點一下從日曆選日期";
+                        }
+                    }
+                }
+                // 只借 DateRangePicker（單日）的日曆：欄位本身裁掉不顯示，日曆從日期底下打開
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 44px;
+                    width: 0px;
+                    height: 0px;
+                    clip: true;
+                    picker := DateRangePicker {
+                        x: 0;
+                        y: 0;
+                        width: 200px;
+                        height: 44px;
+                        single: true;
+                        start <=> EntriesPageData.pick-date;
+                        end <=> EntriesPageData.pick-date;
+                        today: EntriesPageData.today-int;
+                        applied => {
+                            EntriesPageData.date-picked(EntriesPageData.pick-date);
+                        }
+                    }
+                }
             }
             W2Button {
                 y: (parent.height - self.height) / 2;

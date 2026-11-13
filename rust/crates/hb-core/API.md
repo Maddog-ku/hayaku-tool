@@ -23,6 +23,8 @@ slint::spawn_local(async move { e.start().await });                 // C# await 
 ```
 
 - `TimerEngine` 是 `Rc<Inner>` 的包裝，`clone()` 很便宜。
+- `TimerEngine::current() -> Option<TimerEngine>`：這個執行緒最後建立、還活著的 engine（只存弱參照）。給不收 engine 參數的共用視窗用
+  （hb-ui-common 的選任務視窗；Hayaku 1.5.4 起，C# 版沒有）。
 - C# 的 `async Task XxxAsync` → `async fn xxx`，呼叫端用 `slint::spawn_local(async move { e.xxx().await })`。
 - C# 內部 fire-and-forget（`_ = …`）走 `engine.spawn(fut)`，預設 `slint::spawn_local`；測試可用 `set_spawner` 換掉。
 - 回傳 C# `IReadOnlyList<T>` 的屬性回 `Rc<Vec<T>>`（整份換掉的快照）。

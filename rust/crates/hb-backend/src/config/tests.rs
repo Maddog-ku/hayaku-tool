@@ -31,9 +31,17 @@ fn app_state_資料夾對應_保留原本的鍵_設定時不分大小寫() {
     assert!(hints.is_empty());
 }
 
+/// C# 寫的 config.json 加上 Rust 版（v2.1.0）新增的兩個欄位：緊接在 notificationPopupSeconds 後面、用預設值。
+/// 其他內容、順序、縮排、換行都要跟 C# 一字不差（C# 讀到不認識的欄位會略過）。
+fn with_rust_fields(cs: &str) -> String {
+    let anchor = "  \"notificationPopupSeconds\": 3,\r\n";
+    assert_eq!(1, cs.matches(anchor).count());
+    cs.replace(anchor, &format!("{anchor}  \"reminderBeforeEndMinutes\": 15,\r\n  \"newWorkToastSeconds\": 300,\r\n"))
+}
+
 #[test]
 fn app_config_預設值寫出來跟c_sharp一字不差() {
-    assert_eq!(CS_CONFIG_DEFAULT, json_file::to_string(&AppConfig::default()).unwrap());
+    assert_eq!(with_rust_fields(CS_CONFIG_DEFAULT), json_file::to_string(&AppConfig::default()).unwrap());
 }
 
 #[test]
@@ -50,7 +58,10 @@ fn app_config_讀c_sharp的檔再寫回_一字不差() {
     assert_eq!(r"D:\repo", config.repos[0].path);
     assert!(config.repos[0].auto_create && config.repos[0].include_subprojects);
     assert!(!config.repos[0].projects[0].enabled);
-    assert_eq!(CS_CONFIG_CUSTOM, json_file::to_string(&config).unwrap());
+    // C# 的檔沒有 Rust 版新增的欄位：用預設值
+    assert_eq!(15, config.reminder_before_end_minutes);
+    assert_eq!(300, config.new_work_toast_seconds);
+    assert_eq!(with_rust_fields(CS_CONFIG_CUSTOM), json_file::to_string(&config).unwrap());
 }
 
 #[test]

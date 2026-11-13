@@ -1,4 +1,7 @@
 //! 工作台「工時紀錄」頁（對應 C# `UI/Work/DayEntriesPage.xaml(.cs)`）：查看、修改、補登某一天的計時紀錄。
+//! 跟上 Hayaku 1.5.3／1.5.4（C# 版沒有）：點日期從日曆選日期（DateRangePicker 單日）；
+//! 移動工時選好任務直接移過去、不再多確認（C# 版本來就沒有多一步），移完可以〔復原〕；
+//! 選任務的視窗會列最近填過、指派給我的任務與所屬專案、上層（hb-ui-common task_picker）。
 //!
 //! 契約（不可改簽章）：`init` 在第一次切到這頁時呼叫一次（綁定 callback）；
 //! `activate` 每次切到這頁時呼叫（對應 C# `IWorkPage.ActivateAsync(arg)`）。
@@ -8,6 +11,7 @@ use std::rc::Rc;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use hb_api::{DateTimeOffset, DaySchedule, KeyFinder, TimeEntry, WorkMath};
+use hb_ui_common::date_range::{from_int, to_int, today_int};
 use hb_ui_common::{DayTimelineData, day_timeline_model, inputs, task_picker};
 use slint::{ComponentHandle, SharedString};
 
@@ -146,6 +150,14 @@ pub fn init(ctx: &WorkCtx) {
     g.on_prev_day(show_day(Some(-1)));
     g.on_next_day(show_day(Some(1)));
     g.on_today(show_day(None));
+    g.on_date_picked(|v| {
+        let Some(page) = current() else { return };
+        let Some(day) = from_int(v) else { return };
+        if day != page.day.get() {
+            page.day.set(day);
+            spawn("切換日期", load(page));
+        }
+    });
     g.on_edit_start(|i, text| edited(i, Field::Start, text.as_str()));
     g.on_edit_end(|i, text| edited(i, Field::End, text.as_str()));
     g.on_edit_note(|i, text| edited(i, Field::Note, text.as_str()));
@@ -202,6 +214,7 @@ pub fn init(ctx: &WorkCtx) {
                 "把 {} {}–{} 這段移到哪個任務？（也可以直接輸入編號）",
                 row.entry.task, row.start_text, row.end_text
             );
+            // 選好任務直接移過去（同 Hayaku 1.5.4 的〔移過去〕，不再多問一次），移完可以〔復原〕
             let Some(keys) = task_picker::pick(&tasks, &prompt, false).await else { return };
             let Some(to) = keys.first().cloned() else { return };
             move_entry(page, row.entry, to, false).await;
@@ -247,6 +260,8 @@ async fn load(page: Rc<Page>) {
         let g = window.global::<EntriesPageData>();
         g.set_date_text(md_weekday(day).into());
         g.set_today_enabled(day != hb_core::time::today());
+        g.set_pick_date(to_int(Some(day)));
+        g.set_today_int(today_int());
         g.set_loading(true);
         g.set_empty(false);
         g.set_error_text(SharedString::new());

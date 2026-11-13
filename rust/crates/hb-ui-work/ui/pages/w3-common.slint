@@ -34,7 +34,15 @@ export component PageButton {
     in property <string> tip;
     callback clicked;
     horizontal-stretch: 0;
-    TipArea {
+    // 按鈕高 34；元件被列撐高時按鈕垂直置中（固定高度的子元素會被 HorizontalLayout 貼齊上緣）
+    min-height: 34px;
+    preferred-height: 34px;
+    vertical-stretch: 0;
+    min-width: page-tip.min-width;
+    preferred-width: page-tip.preferred-width;
+    page-tip := TipArea {
+        y: (root.height - self.height) / 2;
+        height: 34px;
         text: root.tip;
         Button {
             height: 34px;
@@ -57,7 +65,15 @@ export component SmallButton {
     in property <bool> primary: false;
     callback clicked;
     horizontal-stretch: 0;
-    TipArea {
+    // 按鈕高 30；元件被列撐高時按鈕垂直置中
+    min-height: 30px;
+    preferred-height: 30px;
+    vertical-stretch: 0;
+    min-width: small-tip.min-width;
+    preferred-width: small-tip.preferred-width;
+    small-tip := TipArea {
+        y: (root.height - self.height) / 2;
+        height: 30px;
         text: root.tip;
         Rectangle {
             height: 30px;

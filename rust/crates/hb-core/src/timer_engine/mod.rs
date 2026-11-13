@@ -254,6 +254,11 @@ pub(crate) struct Inner {
 #[derive(Clone)]
 pub struct TimerEngine(Rc<Inner>);
 
+thread_local! {
+    /// [`TimerEngine::current`]：只存弱參照，不會讓 engine 活得比 App 久。
+    static CURRENT: RefCell<Weak<Inner>> = const { RefCell::new(Weak::new()) };
+}
+
 /// 一個班表時間點（上班開始 S0、結束 E0…）。
 #[derive(Debug, Clone)]
 struct Boundary {
@@ -291,7 +296,7 @@ impl TimerEngine {
                 log::error!("無法在 UI 執行緒執行背景工作: {err}");
             }
         });
-        TimerEngine(Rc::new(Inner {
+        let engine = TimerEngine(Rc::new(Inner {
             config,
             state,
             auth,
@@ -314,7 +319,15 @@ impl TimerEngine {
             tree_cache: RefCell::new(CiMap::new()),
             slack: RefCell::new(None),
             files: RefCell::new(None),
-        }))
+        }));
+        CURRENT.with(|c| *c.borrow_mut() = engine.weak());
+        engine
+    }
+
+    /// 這個執行緒最後建立、還活著的 engine（UI 執行緒只有一個）。
+    /// 給不收 engine 參數的共用視窗用（例：選任務視窗要列最近填過的任務、所屬專案與上層；Hayaku 1.5.4 起，C# 版沒有）。
+    pub fn current() -> Option<TimerEngine> {
+        CURRENT.with(|c| Self::from_weak(&c.borrow()))
     }
 
     fn weak(&self) -> Weak<Inner> {

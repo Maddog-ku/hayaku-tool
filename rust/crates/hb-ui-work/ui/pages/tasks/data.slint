@@ -163,6 +163,22 @@ export struct TkLine {
     dim: bool,
 }
 
+/// 工時記錄的一個數字（合計、本週、本月、每個人；跟上 Hayaku 1.5.3，C# 版沒有）。
+export struct TkStat {
+    label: string,
+    value: string,
+}
+
+/// 工時記錄的一列（跟上 Hayaku 1.5.3）：header＝一天／一週／一個月的標題（group 是第幾組、expanded 有沒有展開），
+/// 其他是那組裡的一段紀錄。
+export struct TkHourRow {
+    header: bool,
+    group: int,
+    label: string,
+    meta: string,
+    expanded: bool,
+}
+
 /// 相依關係的一列。kind：0 小標題、1 相依、2 關聯、3 淡色說明、4 錯誤。
 export struct TkDep {
     kind: int,
@@ -394,6 +410,15 @@ export global TasksPageData {
     in-out property <bool> d-tree-expanded;
     in property <string> d-tree-header: "整棵子任務樹";
     in property <[TkLine]> d-tree-lines;
+    // 這個任務的工時記錄（跟上 Hayaku 1.5.3：合計、本週、本月、每個人；按天分組，較早的按週、按月收起來；展開才讀）
+    in-out property <bool> d-hours-expanded;
+    in property <string> d-hours-header: "工時記錄";
+    in property <[TkStat]> d-hours-stats;
+    in property <[TkStat]> d-hours-people;
+    in property <[TkHourRow]> d-hours-rows;
+    /// 讀取中…、讀取失敗、還沒有工時；空字串不顯示
+    in property <string> d-hours-message;
+    in property <bool> d-hours-error;
     // 備註
     in property <string> d-note;
     in property <bool> d-note-visible;
@@ -439,6 +464,10 @@ export global TasksPageData {
     callback d-complete();
     callback d-remind();
     callback d-new-child();
+    /// 子任務旁的〔套用範本〕（跟上 Hayaku 1.5.4）
+    callback d-apply-template();
+    callback d-hours-toggled(bool);
+    callback d-hours-group-toggled(int);
     callback d-pin();
     callback d-move();
     callback d-delete();

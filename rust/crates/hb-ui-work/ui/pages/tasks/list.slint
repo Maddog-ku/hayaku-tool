@@ -34,6 +34,7 @@ component TimerGlyph {
 }
 
 /// 清單的一列：欄位照設定的順序與寬度。
+/// 每一欄的第一行都放在跟計時鈕一樣高（26px）的行框裡垂直置中，兩行的列裡第一行的字、標籤、計時鈕才在同一條中線上。
 component ListRow {
     in property <TkRow> item;
     in property <[TkColumn]> columns;
@@ -81,6 +82,7 @@ component ListRow {
                 if c.key == "key": VerticalLayout {
                     alignment: start;
                     CopyKey {
+                        height: 26px;
                         key: root.item.key;
                         font-size: Theme.fs-md;
                         copy(k) => {
@@ -93,6 +95,7 @@ component ListRow {
                     spacing: 2px;
                     horizontal-stretch: 1;
                     HorizontalLayout {
+                        height: 26px;
                         spacing: 6px;
                         if !root.key-column: CopyKey {
                             key: root.item.key;
@@ -120,6 +123,7 @@ component ListRow {
                 if c.key == "project" && root.item.has-project: VerticalLayout {
                     alignment: start;
                     ProjectBadge {
+                        height: 26px;
                         glyph: root.item.glyph;
                         tint: root.item.tint;
                         name: root.item.project-text;
@@ -129,6 +133,7 @@ component ListRow {
                 if c.key == "status" && root.item.status != "": VerticalLayout {
                     alignment: start;
                     SoftPill {
+                        height: 26px;
                         text: root.item.status;
                     }
                 }
@@ -136,13 +141,15 @@ component ListRow {
                     text: root.item.priority-text;
                     color: Theme.ink;
                     font-size: Theme.fs-sm;
-                    vertical-alignment: top;
+                    height: 26px;
+                    vertical-alignment: center;
                 }
                 if c.key == "start": Text {
                     text: root.item.start-text;
                     color: root.item.start-hint ? Theme.faint : Theme.muted;
                     font-size: Theme.fs-sm;
-                    vertical-alignment: top;
+                    height: 26px;
+                    vertical-alignment: center;
                     overflow: elide;
                 }
                 if c.key == "end": Text {
@@ -150,7 +157,8 @@ component ListRow {
                     color: DueColor.of(root.item.due-tone);
                     font-size: Theme.fs-sm;
                     font-weight: root.item.due-tone == 1 ? 600 : 400;
-                    vertical-alignment: top;
+                    height: 26px;
+                    vertical-alignment: center;
                     overflow: elide;
                 }
                 if c.key == "elapsed": Text {
@@ -159,7 +167,8 @@ component ListRow {
                     font-family: Theme.font-num;
                     font-size: Theme.fs-md;
                     font-weight: 600;
-                    vertical-alignment: top;
+                    height: 26px;
+                    vertical-alignment: center;
                 }
             }
         }
@@ -172,7 +181,8 @@ component ColumnHeader {
     height: 26px;
     HorizontalLayout {
         padding-left: 4px;
-        padding-right: 6px;
+        // 列在捲動區裡右邊留 12px 給捲軸：標題也留，欄位才會跟列對齊
+        padding-right: 6px + 12px;
         Rectangle {
             width: 28px;
         }
@@ -264,6 +274,8 @@ export component ListView {
                 content-height: col.preferred-height + 8px;
                 content-width: self.visible-width;
                 col := VerticalLayout {
+                    // 靠左（不置中）：欄位跟上面的標題對齊，右邊 12px 留給捲軸
+                    x: 0;
                     width: sv.visible-width - 12px;
                     padding-top: 4px;
                     spacing: 1px;
@@ -414,6 +426,8 @@ export component TreeView {
                                 width: 24px;
                                 if r.has-children: GlyphButton {
                                     y: 0;
+                                    // 高度跟計時鈕一樣 26px（圓鈕 24px 在裡面置中），跟計時鈕、第一行同一條中線
+                                    height: 26px;
                                     glyph: r.expanded ? "▾" : "▸";
                                     font-size: 15px;
                                     size: 24px;
@@ -438,6 +452,8 @@ export component TreeView {
                                 spacing: 2px;
                                 opacity: r.opacity;
                                 HorizontalLayout {
+                                    // 第一行跟左邊的 ▸、計時鈕（26px）同一條中線
+                                    height: 26px;
                                     spacing: 6px;
                                     CopyKey {
                                         key: r.key;
@@ -467,6 +483,7 @@ export component TreeView {
                                 spacing: 3px;
                                 if r.row.status != "": HorizontalLayout {
                                     alignment: end;
+                                    height: 26px;
                                     SoftPill {
                                         text: r.row.status;
                                     }
@@ -656,6 +673,8 @@ component KanbanColumn {
             }
             // 數量變化時新數字從下方淡入
             FadeText {
+                // 不跟標題分寬度（標題撐滿，數字靠右）
+                horizontal-stretch: 0;
                 text: root.count;
                 color: Theme.ink;
                 font-family: Theme.font-num;

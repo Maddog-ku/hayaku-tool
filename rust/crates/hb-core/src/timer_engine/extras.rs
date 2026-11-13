@@ -61,6 +61,8 @@ pub struct ToastRequest {
     pub message: String,
     pub actions: Vec<ToastAction>,
     pub sticky: bool,
+    /// 要按掉才關、而且不會時間到自己收（sticky 原本最多停 10 分鐘，同 C#）；建立任務提示設成「不自動收起」時用。
+    pub persistent: bool,
     pub duration: Option<Duration>,
     pub from_bottom: bool,
     pub important: bool,
@@ -74,6 +76,15 @@ impl ToastRequest {
 
     pub fn sticky(mut self, sticky: bool) -> Self {
         self.sticky = sticky;
+        self
+    }
+
+    /// 不會時間到自己收起（一定是 sticky）。
+    pub fn persistent(mut self, persistent: bool) -> Self {
+        self.persistent = persistent;
+        if persistent {
+            self.sticky = true;
+        }
         self
     }
 

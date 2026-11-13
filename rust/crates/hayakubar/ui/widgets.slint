@@ -75,24 +75,35 @@ export component GlyphButton {
     /// 平常的不透明度（⋯ 平常淡、滑過整列才清楚）
     in property <float> rest-opacity: 1;
     in property <bool> strong-hover: false;
+    /// 按鈕本身的高度。元件被列撐高時（HorizontalLayout 會把固定高度的子元素貼齊上緣），按鈕在元件裡垂直置中。
+    in property <length> face-height: 26px;
+    /// 符號的垂直微調（正值往下）。⋯、⟳ 是退回字型畫的，字型度量跟文字不同，置中後墨跡會偏下：預設往上拉回
+    in property <length> glyph-dy: root.text == "⋯" ? -0.14 * root.font-size : root.text == "⟳" ? -0.1 * root.font-size : 0px;
     callback clicked();
     out property <bool> hovered: ta.has-hover;
-    height: 26px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
     min-width: 26px;
     preferred-width: max(26px, lbl.preferred-width + 14px);
     horizontal-stretch: 0;
     opacity: !root.enabled ? 0.4 : (ta.has-hover || root.strong-hover ? 1 : root.rest-opacity);
     animate opacity { duration: Theme.reduce-motion ? 0ms : 150ms; }
-    Rectangle {
+    face := Rectangle {
+        height: min(root.height, root.face-height);
+        y: (root.height - self.height) / 2;
         border-radius: 8px;
         background: !root.enabled ? transparent : ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent;
         animate background { duration: Theme.reduce-motion ? 0ms : (ta.pressed ? 80ms : 150ms); }
         lbl := Text {
-            y: ta.pressed ? 1px : 0px;
-            animate y {
+            // 按下往下沉 1px（放開回到原位；平常不偏移）
+            property <length> sink: ta.pressed ? 1px : 0px;
+            animate sink {
                 duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
                 easing: ta.pressed ? Motion.press : Motion.out;
             }
+            y: root.glyph-dy + self.sink;
+            height: parent.height;
             text: root.text;
             color: root.color;
             font-size: root.font-size;
@@ -100,16 +111,16 @@ export component GlyphButton {
             horizontal-alignment: center;
             vertical-alignment: center;
         }
-    }
-    ta := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
+        ta := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => {
+                root.clicked();
+            }
         }
-    }
-    Hint {
-        text: root.tip;
+        Hint {
+            text: root.tip;
+        }
     }
 }
 
@@ -122,27 +133,37 @@ export component SmallButton {
     in property <string> tip;
     in property <length> font-size: 12px;
     in property <length> horizontal-padding: 12px;
+    /// 按鈕本身的高度。元件被列撐高時，按鈕在元件裡垂直置中（不會貼齊上緣）
+    in property <length> face-height: 28px;
     callback clicked();
-    height: 28px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
     preferred-width: lbl.preferred-width + 2 * root.horizontal-padding;
     min-width: self.preferred-width;
     horizontal-stretch: 0;
     opacity: root.enabled ? 1 : 0.45;
     property <bool> lifted: ta.has-hover && root.enabled && !ta.pressed;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
     // 浮起時的影子：軟體繪圖畫不出 drop-shadow，用往下錯開 2px 的半透明圓角矩形代替
     Rectangle {
-        y: 2px;
+        y: root.face-y + 2px;
+        height: root.face-h;
         border-radius: self.height / 2;
         background: Theme.shadow;
         opacity: root.lifted ? 1 : 0;
         animate opacity { duration: Theme.reduce-motion ? 0ms : 180ms; }
     }
     Rectangle {
-        y: root.lifted ? -1px : (ta.pressed ? 1px : 0px);
-        animate y {
+        // 滑過浮起 1px、按下沉 1px；平常不偏移
+        property <length> lift: root.lifted ? -1px : (ta.pressed ? 1px : 0px);
+        animate lift {
             duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
             easing: ta.pressed ? Motion.press : Motion.out;
         }
+        y: root.face-y + self.lift;
+        height: root.face-h;
         border-radius: self.height / 2;
         background: root.primary ? Theme.ink : Theme.fill;
         Rectangle {
@@ -160,6 +181,8 @@ export component SmallButton {
         }
     }
     ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
@@ -167,6 +190,8 @@ export component SmallButton {
         }
     }
     Hint {
+        y: root.face-y;
+        height: root.face-h;
         text: root.tip;
     }
 }
@@ -177,15 +202,24 @@ export component CountBadge {
     in property <color> background: Theme.accent;
     in property <color> foreground: #FFFFFF;
     visible: root.text != "";
-    height: 16px;
+    /// 徽章本身的高度；元件被列撐高時徽章垂直置中
+    in property <length> face-height: 16px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
     min-width: 16px;
     preferred-width: max(16px, lbl.preferred-width + 8px);
     horizontal-stretch: 0;
+    property <length> face-h: min(root.height, root.face-height);
     Rectangle {
-        border-radius: 8px;
+        y: (root.height - self.height) / 2;
+        height: root.face-h;
+        border-radius: self.height / 2;
         background: root.background;
     }
     lbl := Text {
+        y: (root.height - self.height) / 2;
+        height: root.face-h;
         text: root.text;
         color: root.foreground;
         font-size: 10px;
@@ -198,17 +232,27 @@ export component CountBadge {
 /// 任務列上的狀態（C# StatusPill）：點一下改狀態。
 export component StatusChip {
     in property <string> text;
+    /// 標籤本身的高度；元件被列撐高時標籤垂直置中（不會貼齊上緣）
+    in property <length> face-height: 18px;
     callback clicked(x: length, y: length);
-    height: 18px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
     preferred-width: lbl.preferred-width + 14px;
     min-width: self.preferred-width;
     horizontal-stretch: 0;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
     Rectangle {
-        border-radius: 9px;
+        y: root.face-y;
+        height: root.face-h;
+        border-radius: self.height / 2;
         background: ta.pressed ? Theme.accent-soft.darker(0.08) : ta.has-hover ? Theme.selected : Theme.fill;
         animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
     }
     lbl := Text {
+        y: root.face-y;
+        height: root.face-h;
         text: root.text;
         color: Theme.muted;
         font-size: 10.5px;
@@ -217,12 +261,16 @@ export component StatusChip {
         vertical-alignment: center;
     }
     ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
         mouse-cursor: pointer;
         clicked => {
             root.clicked(self.absolute-position.x + self.width, self.absolute-position.y);
         }
     }
     Hint {
+        y: root.face-y;
+        height: root.face-h;
         text: "點一下改狀態";
     }
 }
@@ -319,18 +367,27 @@ export component SummaryCard {
 export component MiniChip {
     in property <string> text;
     in property <bool> selected;
+    /// 標籤本身的高度；元件被列撐高時標籤垂直置中
+    in property <length> face-height: 24px;
     in property <string> tip;
     callback clicked();
-    height: 24px;
+    min-height: root.face-height;
+    preferred-height: root.face-height;
+    vertical-stretch: 0;
     preferred-width: lbl.preferred-width + 20px;
     min-width: self.preferred-width;
     horizontal-stretch: 0;
+    property <length> face-h: min(root.height, root.face-height);
+    property <length> face-y: (root.height - self.face-h) / 2;
     Rectangle {
-        y: ta.pressed ? 1px : 0px;
-        animate y {
+        // 按下往下沉 1px；平常不偏移
+        property <length> sink: ta.pressed ? 1px : 0px;
+        animate sink {
             duration: Theme.reduce-motion ? 0ms : (ta.pressed ? Motion.press-dur : 200ms);
             easing: ta.pressed ? Motion.press : Motion.out;
         }
+        y: root.face-y + self.sink;
+        height: root.face-h;
         border-radius: self.height / 2;
         background: root.selected ? Theme.ink : (ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : transparent);
         border-width: 1px;
@@ -347,12 +404,16 @@ export component MiniChip {
         }
     }
     ta := TouchArea {
+        y: root.face-y;
+        height: root.face-h;
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
         }
     }
     Hint {
+        y: root.face-y;
+        height: root.face-h;
         text: root.tip;
     }
 }

@@ -138,6 +138,13 @@ pub struct AppConfig {
     /// 新通知的彈窗停留幾秒後自動收回；0 表示不自動收回。
     pub notification_popup_seconds: i32,
 
+    /// 新增提醒的快速時間「今天下班前」是下班前幾分鐘（跟上 Hayaku 1.5.4；C# 版沒有）。
+    pub reminder_before_end_minutes: i32,
+
+    /// Claude 在改程式卻對應不到任務時跳出的「要建立任務嗎？」提示，停留幾秒後自動收起；0 表示要按掉才收起
+    /// （C# 版沒有這個設定，是要按掉才收起）。
+    pub new_work_toast_seconds: i32,
+
     /// 全螢幕、簡報、Windows 安靜時段或鎖定時先不跳提示，結束後再一起顯示（會議快開始除外）。
     pub quiet_when_busy: bool,
 
@@ -192,6 +199,8 @@ impl Default for AppConfig {
             reminder_alerts: true,
             notification_alerts: true,
             notification_popup_seconds: 3,
+            reminder_before_end_minutes: 15,
+            new_work_toast_seconds: 300,
             quiet_when_busy: true,
             prompt_unfilled: true,
             hook_port: 47823,

@@ -52,6 +52,9 @@ export global SpacesPageData {
     in-out property <string> move-label;
     in-out property <[W3Row]> move-choices;
     in-out property <int> move-index;
+    // 上移、下移（Hayaku 1.5.4 起；C# 版沒有）：已經在同一層的最前、最後時停用
+    in-out property <bool> move-up-enabled;
+    in-out property <bool> move-down-enabled;
     // 確認
     in-out property <bool> confirm-open;
     in-out property <string> confirm-title;
@@ -71,6 +74,8 @@ export global SpacesPageData {
     callback append();
     callback edit();
     callback move();
+    callback move-up();
+    callback move-down();
     callback delete();
     callback compose-submit();
     callback compose-cancel();
@@ -426,6 +431,27 @@ export component SpacesPage inherits Rectangle {
                             tip: "改頁名、整頁換成新的內容（換掉前網頁會自動存一版）";
                             clicked => {
                                 SpacesPageData.edit();
+                            }
+                        }
+                    }
+                    // 位置：上移、下移（Hayaku 1.5.4 起）、移動、刪除；按鈕多了分兩列，窄的時候不會擠出右邊
+                    if SpacesPageData.actions-visible: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        PageButton {
+                            text: "↑ 上移";
+                            enabled: SpacesPageData.move-up-enabled;
+                            tip: SpacesPageData.move-up-enabled ? "跟同一層的上一頁換位置" : "已經在這一層的最前面";
+                            clicked => {
+                                SpacesPageData.move-up();
+                            }
+                        }
+                        PageButton {
+                            text: "↓ 下移";
+                            enabled: SpacesPageData.move-down-enabled;
+                            tip: SpacesPageData.move-down-enabled ? "跟同一層的下一頁換位置" : "已經在這一層的最後面";
+                            clicked => {
+                                SpacesPageData.move-down();
                             }
                         }
                         PageButton {

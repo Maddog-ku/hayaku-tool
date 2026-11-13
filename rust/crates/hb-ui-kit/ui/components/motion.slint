@@ -108,7 +108,9 @@ export global Stagger {
 
 /// 假陰影（軟體繪圖畫不出 drop-shadow）：在元素後面疊三層往外擴、往下偏的半透明圓角矩形。
 /// 放在要有陰影的元素前面、同樣的位置與大小；strength 0–1 控制深淺（可以拿來做動畫，0 時看不到）。
-export component SoftShadow {
+/// 繼承 Rectangle（本身透明）：沒給寬高時跟一般矩形一樣撐滿父元素。之前沒給寬度時寬度是 0、被置中，
+/// 三層圓角矩形縮成上下兩端各一個小灰點（日曆、下拉清單打開時上緣與下緣正中間的點）。
+export component SoftShadow inherits Rectangle {
     in property <length> radius;
     in property <float> strength: 1;
     in property <length> offset-y: 3px;

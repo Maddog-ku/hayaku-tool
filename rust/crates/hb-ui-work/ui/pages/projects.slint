@@ -252,8 +252,10 @@ component TaskRow inherits Rectangle {
                         }
                         if root.data.results != "": Rectangle {
                             horizontal-stretch: 0;
-                            min-width: res.preferred-width;
+                            // 跟名稱隔 6px（之前緊貼在名稱後面）
+                            min-width: res.preferred-width + 6px;
                             res := Text {
+                                x: 6px;
                                 text: root.data.results;
                                 color: Theme.muted;
                                 font-size: 11px;
@@ -521,6 +523,8 @@ export component ProjectsPage inherits Rectangle {
             vertical-stretch: 1;
             content-height: list.preferred-height;
             list := VerticalLayout {
+                // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                x: 0;
                 width: sv.visible-width - 14px;
                 spacing: 2px;
                 for row[i] in ProjectsPageData.rows: Appear {

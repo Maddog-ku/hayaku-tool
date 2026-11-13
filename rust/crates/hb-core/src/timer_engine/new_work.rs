@@ -209,6 +209,8 @@ impl TimerEngine {
                 log::info!("{} 的 Claude session {sid} 在改程式但沒有任務，詢問要不要建立", repo.name());
             }
         }
+        // 停留多久自動收起（設定 › 一般；0 是要按掉才收起）。收起後同一個 session 不會再問
+        let stay_seconds = self.0.config.borrow().new_work_toast_seconds;
         for suggestion in suggestions {
             let (e1, e2) = (self.clone(), self.clone());
             let (s1, s2) = (suggestion.clone(), suggestion.clone());
@@ -229,7 +231,9 @@ impl TimerEngine {
                         ToastAction::new("不用", || async {}),
                     ],
                 )
-                .sticky(true),
+                .sticky(stay_seconds <= 0)
+                .persistent(stay_seconds <= 0)
+                .duration((stay_seconds > 0).then(|| Duration::from_secs(stay_seconds as u64))),
             );
             let e = self.clone();
             self.spawn(async move { e.prefetch_new_work(&suggestion).await });

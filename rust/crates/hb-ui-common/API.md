@@ -172,7 +172,7 @@ row.time_color = vm.time_color.code();   // .slint：color: ColorKeys.color(row.
 | `delete_task::open(engine, key, title, children: Option<i32>, owner) -> impl Future<Output = bool>` | `DeleteTaskWindow` | 有沒有刪 |
 | `delete_task::confirm(engine, key, title, children, owner).await -> bool` | `ConfirmAsync` | 刪了就 `after_external_change` |
 | `move_task::pick_parent(engine, task, current_parent: Option<&str>, owner) -> impl Future<Output = Option<Option<String>>>` | `MoveTaskWindow` | None＝取消；Some(None)＝最上層；移動由呼叫端 `engine.move_task` |
-| `task_picker::pick(&[TaskItem], prompt, multi_select) -> impl Future<Output = Option<Vec<String>>>` | `TaskPickerWindow` | None＝取消；多選可 Ctrl／Shift；可直接輸入編號 |
+| `task_picker::pick(&[TaskItem], prompt, multi_select) -> impl Future<Output = Option<Vec<String>>>` | `TaskPickerWindow` | None＝取消；多選可 Ctrl／Shift；可直接輸入編號。跟上 Hayaku 1.5.4（C# 版沒有）：每列寫所屬專案與上層；沒打字時先列「最近填過」（今天計時過的）再列「指派給我的」；完成類狀態、分類任務灰掉並寫原因。這些資料從 `TimerEngine::current()` 已有的資料拿，不發請求、參數不變 |
 | `poll::show(engine, poll_id: Option<&str>, owner)` | `PollWindow.Show` | |
 | `feedback::open(engine, number)` | `FeedbackWindow` | 同一則只開一個（App.OpenWorkspace("feedback")） |
 | `file_preview::show(engine, id, name, owner, web_url: Option<&str>)` | `FilePreviewWindow.Show` | 同一個檔案已開就拉到前面；圖片 image crate 解碼、另存用 rfd；文字「繼續讀」 |

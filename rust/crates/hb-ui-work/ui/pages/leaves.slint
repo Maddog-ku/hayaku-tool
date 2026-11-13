@@ -138,6 +138,7 @@ component HayakuView {
                 }
                 HorizontalLayout {
                     spacing: 10px;
+                    // 日期（DateRangePicker 44px）、時段、備註都是 44px 高、靠下對齊，標題與框才在同一條線上
                     // 窄的時候日期、時段、備註一起縮，「登記」不會被擠出卡片
                     VerticalLayout {
                         min-width: 200px;
@@ -169,7 +170,7 @@ component HayakuView {
                                 text: "開始";
                             }
                             TextField {
-                                height: 40px;
+                                height: 44px;
                                 min-width: 40px;
                                 font-size: Theme.fs-md;
                                 placeholder: "14:00";
@@ -183,7 +184,7 @@ component HayakuView {
                                 text: "結束";
                             }
                             TextField {
-                                height: 40px;
+                                height: 44px;
                                 min-width: 40px;
                                 font-size: Theme.fs-md;
                                 placeholder: "16:00";
@@ -201,7 +202,7 @@ component HayakuView {
                         }
                         TextField {
                             min-width: 60px;
-                            height: 40px;
+                            height: 44px;
                             font-size: Theme.fs-md;
                             placeholder: "選填";
                             text <=> LeavesPageData.note;
@@ -209,6 +210,8 @@ component HayakuView {
                     }
                     VerticalLayout {
                         alignment: end;
+                        // 跟左邊的日期、備註框（44px）同一條中線
+                        padding-bottom: 5px;
                         PageButton {
                             text: "登記";
                             primary: true;

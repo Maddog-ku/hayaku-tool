@@ -329,3 +329,13 @@ fn 審核提示_文字與按鈕() {
     assert_eq!(vec!["（測試）這是模擬的申請，沒有真的送出".to_owned()], *h.notices.borrow());
     assert!(h.fake.calls().is_empty());
 }
+
+#[test]
+fn current_是最後建立還活著的engine() {
+    // 同一個測試只能建一個 Harness（TempApp 會鎖住 APP_DIR_LOCK）
+    let h = Harness::new();
+    assert!(TimerEngine::current().is_some_and(|e| Rc::ptr_eq(&e.0, &h.engine.0)));
+    drop(h);
+    // 只存弱參照：engine 不在了就是 None，不會讓它多活
+    assert!(TimerEngine::current().is_none());
+}

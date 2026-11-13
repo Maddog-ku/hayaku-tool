@@ -251,6 +251,8 @@ export component ColumnsDialog {
                 preferred-height: cols.preferred-height;
                 content-height: cols.preferred-height;
                 cols := VerticalLayout {
+                    // 靠左（不置中）：勾選框跟下面「專案欄只顯示代碼」對齊，右邊 12px 留給捲軸
+                    x: 0;
                     width: cols-sv.visible-width - 12px;
                     spacing: 4px;
                     for c[i] in TasksPageData.col-draft: HorizontalLayout {

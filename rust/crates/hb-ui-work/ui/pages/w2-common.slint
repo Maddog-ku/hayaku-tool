@@ -49,7 +49,14 @@ export component W2Button {
     callback clicked;
     horizontal-stretch: 0;
     vertical-stretch: 0;
-    TipBox {
+    // 按鈕高 button-height；元件被列撐高時按鈕垂直置中（固定高度的子元素會被 HorizontalLayout 貼齊上緣）
+    min-height: root.button-height;
+    preferred-height: root.button-height;
+    min-width: w2-tip.min-width;
+    preferred-width: w2-tip.preferred-width;
+    w2-tip := TipBox {
+        y: (root.height - self.height) / 2;
+        height: root.button-height;
         tip: root.tip;
         Button {
             text: root.text;
@@ -281,9 +288,6 @@ export component W2Confirm inherits Rectangle {
         opacity: clamp(root.t * 1.4, 0, 1);
         background: Theme.card;
         border-radius: 24px;
-        drop-shadow-color: Theme.dark ? #00000099 : #0E0F1340;
-        drop-shadow-blur: 28px;
-        drop-shadow-offset-y: 10px;
         vl := VerticalLayout {
             padding: 22px;
             spacing: 12px;
@@ -415,9 +419,6 @@ export component W2ProjectSelect {
             background: Theme.card;
             border-width: 1px;
             border-color: Theme.line;
-            drop-shadow-color: Theme.dark ? #00000080 : #0E0F1329;
-            drop-shadow-blur: 22px;
-            drop-shadow-offset-y: 8px;
             fl := Flickable {
                 x: 5px;
                 y: 5px;

@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "hayakubar"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "hb-api"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "chrono",
  "log",
@@ -1943,7 +1943,7 @@ dependencies = [
 
 [[package]]
 name = "hb-backend"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1966,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "hb-claude"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1981,7 +1981,7 @@ dependencies = [
 
 [[package]]
 name = "hb-core"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -2001,7 +2001,7 @@ dependencies = [
 
 [[package]]
 name = "hb-eip"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2019,7 +2019,7 @@ dependencies = [
 
 [[package]]
 name = "hb-slack"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "hb-ui-common"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -2065,14 +2065,14 @@ dependencies = [
 
 [[package]]
 name = "hb-ui-kit"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "slint",
 ]
 
 [[package]]
 name = "hb-ui-work"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "hb-win"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "ab_glyph",
  "log",

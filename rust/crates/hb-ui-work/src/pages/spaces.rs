@@ -5,6 +5,8 @@
 //! 點兩下檔案直接看內容，〔下載〕拿下載連結（1 小時有效）用瀏覽器開；可以在資料夾裡新增文件、子資料夾。
 //! 搜尋也會找到檔名符合的檔案，點了打開所在的資料夾和預覽。上傳、打包 zip 下載請到網頁。
 //! 第一次切到這頁才讀；頁面樹、頁面內容快取到按重新整理或換空間。
+//! 跟上 Hayaku 1.5.4（C# 版沒有）：〔上移〕〔下移〕在同一個上層裡跟前一頁、後一頁換位置（move_space_page 的 afterId），
+//! 跟刪除一樣先確認（會改公司的正式文件）。拖拉排序沒有做。
 //!
 //! 契約（不可改簽章）：`init` 在第一次切到這頁時呼叫一次（綁定 callback）；
 //! `activate` 每次切到這頁時呼叫（對應 C# `IWorkPage.ActivateAsync(arg)`）。
@@ -162,6 +164,8 @@ pub fn init(ctx: &WorkCtx) {
     bind!(g.on_edit, page, || page.compose(ComposeMode::Edit, false));
     bind!(g.on_new_top, page, || page.compose(ComposeMode::Child, true));
     bind!(g.on_move, page, || page.open_move());
+    bind!(g.on_move_up, page, || page.reorder(true));
+    bind!(g.on_move_down, page, || page.reorder(false));
     bind!(g.on_delete, page, || page.delete());
     bind!(g.on_compose_submit, page, || spawn(async move { page.submit().await }));
     bind!(g.on_compose_cancel, page, || {
@@ -534,6 +538,24 @@ impl Page {
         self.with(|g| {
             g.set_doc_only_visible(!folder);
             g.set_actions_visible(writable);
+        });
+        self.render_order_buttons();
+    }
+
+    /// 〔上移〕〔下移〕：已經在同一層的最前、最後時停用。
+    fn render_order_buttons(&self) {
+        let (up, down) = {
+            let st = self.st.borrow();
+            match (st.node.as_ref(), st.tree()) {
+                (Some(node), Some(nodes)) => {
+                    (reorder_target(nodes, node, true).is_some(), reorder_target(nodes, node, false).is_some())
+                }
+                _ => (false, false),
+            }
+        };
+        self.with(|g| {
+            g.set_move_up_enabled(up);
+            g.set_move_down_enabled(down);
         });
     }
 
@@ -928,6 +950,61 @@ impl Page {
         });
     }
 
+    /// 上移／下移（跟上 Hayaku 1.5.4，C# 版沒有）：同一個上層裡跟前一頁或後一頁換位置；先確認再送。
+    fn reorder(self: &Rc<Self>, up: bool) {
+        let (space, node, target) = {
+            let st = self.st.borrow();
+            let (Some(space), Some(node), Some(nodes)) = (st.space_key.clone(), st.node.clone(), st.tree()) else {
+                return;
+            };
+            let Some(target) = reorder_target(nodes, &node, up) else { return };
+            (space, node, target)
+        };
+        let (title, text, done) = reorder_texts(&node.title, &target.neighbor, up);
+        let page = self.clone();
+        self.st.borrow_mut().confirm = Some(Box::new(move || {
+            spawn(async move {
+                let api = page.ctx.engine.api();
+                let id = node.id.clone();
+                let parent = node.parent_id.clone();
+                let after = target.after.clone();
+                let ok = inputs::run(
+                    |_| {},
+                    |m| page.show(m),
+                    || async move {
+                        api.move_space_page_after(&space, &id, parent.as_deref(), after.as_deref())
+                            .await
+                            .map_err(ActionError::from)
+                    },
+                    Some(&done),
+                )
+                .await;
+                if ok {
+                    let message = page.status_text();
+                    // 重讀頁面樹後保留原本展開的節點與選取（C# 的重畫會收起來；這裡換位置要看得到結果）
+                    let (expanded, selected) = {
+                        let st = page.st.borrow();
+                        (st.expanded.clone(), st.tree_selected.clone())
+                    };
+                    page.clone().load_tree(true).await;
+                    {
+                        let mut st = page.st.borrow_mut();
+                        st.expanded.extend(expanded);
+                        st.tree_selected = selected;
+                    }
+                    page.render_tree_rows();
+                    page.render_order_buttons();
+                    page.show(Some(StatusMessage::ok(message)));
+                }
+            });
+        }));
+        self.with(|g| {
+            g.set_confirm_title(title.into());
+            g.set_confirm_text(text.into());
+            g.set_confirm_open(true);
+        });
+    }
+
     fn delete(self: &Rc<Self>) {
         let (space, node, children, files) = {
             let st = self.st.borrow();
@@ -1114,6 +1191,45 @@ pub(crate) fn move_choices(nodes: &[SpaceNode], node: &SpaceNode) -> (Vec<(Optio
     (choices, current)
 }
 
+/// 上移／下移的目標：after＝排在哪一頁後面（None＝放最前面，送 afterId: null）、neighbor＝跟誰換位置。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReorderTarget {
+    pub after: Option<String>,
+    pub neighbor: String,
+}
+
+/// 同一個上層裡的上一頁／下一頁（照頁面樹的順序）；已經在最前（上移）或最後（下移）回 None。
+pub(crate) fn reorder_target(nodes: &[SpaceNode], node: &SpaceNode, up: bool) -> Option<ReorderTarget> {
+    let parent = effective_parent(nodes, node);
+    let siblings: Vec<&SpaceNode> = nodes.iter().filter(|n| effective_parent(nodes, n) == parent).collect();
+    let i = siblings.iter().position(|n| n.id == node.id)?;
+    if up {
+        let prev = siblings.get(i.checked_sub(1)?)?;
+        let after = i.checked_sub(2).and_then(|j| siblings.get(j)).map(|n| n.id.clone());
+        Some(ReorderTarget { after, neighbor: prev.title.clone() })
+    } else {
+        let next = siblings.get(i + 1)?;
+        Some(ReorderTarget { after: Some(next.id.clone()), neighbor: next.title.clone() })
+    }
+}
+
+/// 上移／下移的確認標題、內容與完成訊息。
+pub(crate) fn reorder_texts(title: &str, neighbor: &str, up: bool) -> (&'static str, String, String) {
+    if up {
+        (
+            "上移頁面",
+            format!("把「{title}」移到「{neighbor}」前面？\n團隊空間是公司的正式文件，大家都看得到。"),
+            format!("已上移「{title}」"),
+        )
+    } else {
+        (
+            "下移頁面",
+            format!("把「{title}」移到「{neighbor}」後面？\n團隊空間是公司的正式文件，大家都看得到。"),
+            format!("已下移「{title}」"),
+        )
+    }
+}
+
 /// 刪除前的確認文字。
 pub(crate) fn delete_text(node: &SpaceNode, children: usize, files: Option<i32>) -> String {
     let mut text = format!("刪除「{}」？", node.title);
@@ -1199,6 +1315,41 @@ mod tests {
         let texts: Vec<_> = choices.iter().map(|(_, t)| t.as_str()).collect();
         assert_eq!(vec!["（最上層）", "A", "   Y"], texts);
         assert_eq!(Some("a".to_owned()), current);
+    }
+
+    #[test]
+    fn reorder_target_同一層跟前後一頁換位置() {
+        let nodes = vec![
+            n("a", None, None),
+            n("a1", Some("a"), None),
+            n("b", None, None),
+            n("a2", Some("a"), None),
+            n("c", None, None),
+            n("a3", Some("a"), None),
+            n("x", Some("zz"), None), // 上層不在樹上：當最上層
+        ];
+        let t = |i: usize, up: bool| reorder_target(&nodes, &nodes[i], up);
+        // 最上層：a b c x
+        assert_eq!(None, t(0, true));
+        assert_eq!(Some(ReorderTarget { after: Some("b".into()), neighbor: "B".into() }), t(0, false));
+        // b 上移：放最前面（afterId: null）
+        assert_eq!(Some(ReorderTarget { after: None, neighbor: "A".into() }), t(2, true));
+        // c 上移：排在 a 後面
+        assert_eq!(Some(ReorderTarget { after: Some("a".into()), neighbor: "B".into() }), t(4, true));
+        assert_eq!(None, t(6, false));
+        // a 底下：a1 a2 a3
+        assert_eq!(Some(ReorderTarget { after: Some("a1".into()), neighbor: "A2".into() }), t(5, true));
+        assert_eq!(None, t(5, false));
+        assert_eq!(Some(ReorderTarget { after: Some("a3".into()), neighbor: "A3".into() }), t(3, false));
+    }
+
+    #[test]
+    fn reorder_texts_確認文字() {
+        let (title, text, done) = reorder_texts("規章", "請假", true);
+        assert_eq!("上移頁面", title);
+        assert_eq!("把「規章」移到「請假」前面？\n團隊空間是公司的正式文件，大家都看得到。", text);
+        assert_eq!("已上移「規章」", done);
+        assert_eq!("已下移「規章」", reorder_texts("規章", "請假", false).2);
     }
 
     #[test]

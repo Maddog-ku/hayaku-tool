@@ -1,9 +1,13 @@
 //! 對應 C# `UI/Work/TasksPage.xaml.cs` 的「詳細」：彈窗裡直接改名稱、狀態、優先級、日期、預估工時；計時、完成、釘選、移動；
 //! 子任務的工時、整棵子任務樹（展開才讀）、聊天。
+//! 跟上 Hayaku 1.5.3／1.5.4（C# 版沒有）：這個任務的工時記錄（合計、本週、本月、每個人；按天分組，較早的按週、按月收起來，
+//! 展開才用 list_time_entries 的 task 讀）；〔＋ 子任務〕旁的〔套用範本…〕。
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use chrono::Local;
+use chrono::{Datelike, Local, NaiveDate, TimeDelta};
 use hb_api::{KeyFinder, ProjectDetail, TaskDetail, TimeEntry, WorkMath};
 use hb_ui_common::date_range::{from_int, to_int};
 use hb_ui_common::inputs::{self, ActionError, StatusMessage};
@@ -15,7 +19,7 @@ use slint::ComponentHandle;
 use super::Page;
 use super::vm;
 use crate::shared::{self, string_model, vec_model};
-use crate::{PageArg, TasksPageData, TkChat, TkLine};
+use crate::{PageArg, TasksPageData, TkChat, TkHourRow, TkLine, TkStat};
 
 const PRIORITIES: [&str; 5] = ["緊急", "高", "中", "低", "無"];
 
@@ -51,6 +55,158 @@ pub(super) fn entry_text(t: &TimeEntry, now: &hb_api::DateTimeOffset) -> String 
         s += &format!("　{n}");
     }
     s
+}
+
+/// 工時記錄的一段：日期（with_date）、起訖、時長、誰、備註。
+pub(super) fn entry_line(t: &TimeEntry, now: &hb_api::DateTimeOffset, with_date: bool) -> (String, String) {
+    let fmt = if with_date { "%-m/%-d %H:%M" } else { "%H:%M" };
+    let start = t.started_at.map(|s| s.with_timezone(&Local).format(fmt).to_string()).unwrap_or_default();
+    let end = if t.running {
+        "進行中".to_owned()
+    } else {
+        t.ended_at.map(|e| e.with_timezone(&Local).format("%H:%M").to_string()).unwrap_or_default()
+    };
+    let mut text = format!("{start}–{end}");
+    if let Some(u) = t.user.as_deref().filter(|u| !u.is_empty()) {
+        text += &format!("　{u}");
+    }
+    if let Some(n) = t.note.as_deref().filter(|n| !n.is_empty()) {
+        text += &format!("　{n}");
+    }
+    (text, WorkMath::hours_minutes(entry_minutes(t, now)))
+}
+
+/// 工時記錄的摘要：合計、本週（週一起）、本月，以及每個人（時數多的在前；沒有名字的只算進合計）。
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct HoursSummary {
+    pub total: f64,
+    pub week: f64,
+    pub month: f64,
+    pub people: Vec<(String, f64)>,
+}
+
+fn local_date(t: &TimeEntry) -> Option<NaiveDate> {
+    t.started_at.map(|s| s.with_timezone(&Local).date_naive())
+}
+
+fn week_start(d: NaiveDate) -> NaiveDate {
+    d - TimeDelta::days(i64::from(d.weekday().num_days_from_monday()))
+}
+
+pub(super) fn hours_summary(entries: &[TimeEntry], now: &hb_api::DateTimeOffset) -> HoursSummary {
+    let today = now.with_timezone(&Local).date_naive();
+    let (week, month) = (week_start(today), today.with_day(1).unwrap_or(today));
+    let sum = |from: Option<NaiveDate>| -> f64 {
+        entries
+            .iter()
+            .filter(|t| from.is_none_or(|f| local_date(t).is_some_and(|d| d >= f)))
+            .map(|t| entry_minutes(t, now))
+            .sum()
+    };
+    let mut people: Vec<(String, f64)> = Vec::new();
+    for t in entries {
+        let Some(user) = t.user.as_deref().filter(|u| !u.is_empty()) else { continue };
+        match people.iter_mut().find(|p| p.0 == user) {
+            Some(p) => p.1 += entry_minutes(t, now),
+            None => people.push((user.to_owned(), entry_minutes(t, now))),
+        }
+    }
+    people.sort_by(|a, b| b.1.total_cmp(&a.1));
+    HoursSummary { total: sum(None), week: sum(Some(week)), month: sum(Some(month)), people }
+}
+
+/// 工時記錄的一組：本週的每一天各一組（展開）；再往前四週按週（收起）；更早的按月（收起）。新的在前，組內也是新的在前。
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct HoursGroup {
+    pub label: String,
+    pub minutes: f64,
+    pub expanded: bool,
+    /// true：組內每段要寫日期（按週、按月的組）
+    pub with_date: bool,
+    pub entries: Vec<TimeEntry>,
+}
+
+pub(super) fn hours_groups(entries: &[TimeEntry], now: &hb_api::DateTimeOffset) -> Vec<HoursGroup> {
+    let today = now.with_timezone(&Local).date_naive();
+    let this_week = week_start(today);
+    let weeks_from = this_week - TimeDelta::days(28);
+    // 排序鍵：(0 天 1 週 2 月 反過來比較用的日期)；同一組的鍵一樣
+    let mut groups: BTreeMap<std::cmp::Reverse<NaiveDate>, HoursGroup> = BTreeMap::new();
+    for t in entries {
+        let Some(d) = local_date(t) else { continue };
+        let (key, label, expanded, with_date) = if d >= this_week {
+            let label = if d == today {
+                "今天".to_owned()
+            } else if Some(d) == today.pred_opt() {
+                "昨天".to_owned()
+            } else {
+                super::super::hours::w2_common::md_weekday(d)
+            };
+            (d, label, true, false)
+        } else if d >= weeks_from {
+            let w = week_start(d);
+            let end = w + TimeDelta::days(6);
+            (w, format!("{}/{}–{}/{} 那週", w.month(), w.day(), end.month(), end.day()), false, true)
+        } else {
+            let m = d.with_day(1).unwrap_or(d);
+            (m, format!("{} 年 {} 月", m.year(), m.month()), false, true)
+        };
+        let g = groups.entry(std::cmp::Reverse(key)).or_insert_with(|| HoursGroup {
+            label,
+            minutes: 0.0,
+            expanded,
+            with_date,
+            entries: Vec::new(),
+        });
+        g.minutes += entry_minutes(t, now);
+        g.entries.push(t.clone());
+    }
+    groups
+        .into_values()
+        .map(|mut g| {
+            g.entries.sort_by_key(|t| std::cmp::Reverse(t.started_at));
+            g
+        })
+        .collect()
+}
+
+/// 工時記錄攤平成畫面上的列：組的標題＋展開的組裡每一段。
+pub(super) fn hours_rows(groups: &[HoursGroup], now: &hb_api::DateTimeOffset) -> Vec<TkHourRow> {
+    let mut rows = Vec::new();
+    for (i, g) in groups.iter().enumerate() {
+        rows.push(TkHourRow {
+            header: true,
+            group: i as i32,
+            label: format!("{}（{} 段）", g.label, g.entries.len()).into(),
+            meta: WorkMath::hours_minutes(g.minutes).into(),
+            expanded: g.expanded,
+        });
+        if g.expanded {
+            for t in &g.entries {
+                let (text, minutes) = entry_line(t, now, g.with_date);
+                rows.push(TkHourRow {
+                    header: false,
+                    group: i as i32,
+                    label: text.into(),
+                    meta: minutes.into(),
+                    expanded: false,
+                });
+            }
+        }
+    }
+    rows
+}
+
+/// 工時記錄（展開才讀）：讀的是哪個任務、讀好的分組（點標題展開／收起不重讀）。
+#[derive(Default)]
+struct HoursState {
+    key: Option<String>,
+    groups: Vec<HoursGroup>,
+    version: u64,
+}
+
+thread_local! {
+    static HOURS: RefCell<HoursState> = RefCell::new(HoursState::default());
 }
 
 /// 實際日期：「2026-11-01 → 進行中」；都沒有是「—」。
@@ -110,6 +266,14 @@ impl Page {
                 shared::spawn("讀取子任務的工時", async move { p.load_child_hours().await });
             }
         });
+        on!(d, self, on_d_apply_template, |p| p.apply_template());
+        // 工時記錄：每次展開都重讀（使用者按了才讀，不預先讀）；點組的標題只在本機展開／收起
+        on!(d, self, on_d_hours_toggled, |p, open| {
+            if open {
+                shared::spawn("讀取任務的工時", async move { p.load_hours().await });
+            }
+        });
+        on!(d, self, on_d_hours_group_toggled, |p, i| p.toggle_hours_group(i));
         on!(d, self, on_d_tree_toggled, |p, open| {
             if open {
                 shared::spawn("讀取子任務樹", async move { p.load_subtree().await });
@@ -175,6 +339,14 @@ impl Page {
         self.st.borrow_mut().loading_detail = true;
         let reset_child_hours = self.st.borrow().child_hours_for.as_deref() != Some(d.key.as_str());
         let reset_tree = self.st.borrow().tree_for.as_deref() != Some(d.key.as_str());
+        let reset_hours = HOURS.with(|h| {
+            let mut h = h.borrow_mut();
+            let reset = h.key.as_deref() != Some(d.key.as_str());
+            if reset {
+                *h = HoursState { version: h.version + 1, ..HoursState::default() };
+            }
+            reset
+        });
         let mut statuses: Vec<String> = project.statuses.iter().map(|s| s.name.clone()).collect();
         if !statuses.contains(&d.status) {
             statuses.insert(0, d.status.clone());
@@ -229,6 +401,15 @@ impl Page {
                 x.set_d_tree_expanded(false);
                 x.set_d_tree_lines(vec_model(Vec::new()));
                 x.set_d_tree_header("整棵子任務樹".into());
+            }
+            if reset_hours {
+                x.set_d_hours_expanded(false);
+                x.set_d_hours_header("工時記錄".into());
+                x.set_d_hours_stats(vec_model(Vec::new()));
+                x.set_d_hours_people(vec_model(Vec::new()));
+                x.set_d_hours_rows(vec_model(Vec::new()));
+                x.set_d_hours_message(SharedString::new());
+                x.set_d_hours_error(false);
             }
         });
         {
@@ -605,6 +786,96 @@ impl Page {
         });
     }
 
+    /// 〔套用範本…〕（跟上 Hayaku 1.5.4，C# 版只有右鍵選單）：套到這個任務底下，套了就重讀詳細（同右鍵選單）。
+    fn apply_template(&self) {
+        let Some(key) = self.st.borrow().detail.as_ref().map(|d| d.key.clone()) else { return };
+        let owner = self.ctx.window();
+        let weak = self.me.clone();
+        let k = key.clone();
+        hb_ui_common::apply_template::open(
+            self.engine(),
+            KeyFinder::project_of(&key),
+            vec![key.clone()],
+            owner.as_ref().map(|w| w.window()),
+            Box::new(move |applied| {
+                if applied
+                    && let Some(p) = weak.upgrade()
+                    && p.st.borrow().detail.as_ref().is_some_and(|d| d.key == k)
+                {
+                    p.open_key(&k);
+                }
+            }),
+        );
+    }
+
+    /// 展開「工時記錄」才讀（跟上 Hayaku 1.5.3）：list_time_entries 帶 task，每個人的都有。
+    async fn load_hours(self: Rc<Self>) {
+        let Some(key) = self.st.borrow().detail.as_ref().map(|d| d.key.clone()) else { return };
+        let version = HOURS.with(|h| {
+            let mut h = h.borrow_mut();
+            h.version += 1;
+            h.key = Some(key.clone());
+            h.version
+        });
+        self.with_data(|d| {
+            d.set_d_hours_message("讀取中…".into());
+            d.set_d_hours_error(false);
+        });
+        let result = self.engine().api().list_task_entries(&key).await;
+        if HOURS.with(|h| h.borrow().version) != version
+            || self.st.borrow().detail.as_ref().is_none_or(|d| d.key != key)
+        {
+            return;
+        }
+        let entries = match result {
+            Ok(e) => e,
+            Err(e) => {
+                log::error!("讀取 {key} 的工時失敗: {}", e.0);
+                self.with_data(|d| {
+                    d.set_d_hours_message(format!("讀取失敗：{}", e.0).into());
+                    d.set_d_hours_error(true);
+                });
+                return;
+            }
+        };
+        let now = Local::now().fixed_offset();
+        let summary = hours_summary(&entries, &now);
+        let groups = hours_groups(&entries, &now);
+        let rows = hours_rows(&groups, &now);
+        let stats = vec![
+            TkStat { label: "合計".into(), value: WorkMath::hours_minutes(summary.total).into() },
+            TkStat { label: "本週".into(), value: WorkMath::hours_minutes(summary.week).into() },
+            TkStat { label: "本月".into(), value: WorkMath::hours_minutes(summary.month).into() },
+        ];
+        let people: Vec<TkStat> = summary
+            .people
+            .iter()
+            .map(|(name, m)| TkStat { label: name.as_str().into(), value: WorkMath::hours_minutes(*m).into() })
+            .collect();
+        let empty = entries.is_empty();
+        self.with_data(|d| {
+            d.set_d_hours_header(format!("工時記錄　合計 {}", WorkMath::hours_minutes(summary.total)).into());
+            d.set_d_hours_message(if empty { "還沒有工時" } else { "" }.into());
+            d.set_d_hours_stats(vec_model(if empty { Vec::new() } else { stats }));
+            d.set_d_hours_people(vec_model(people));
+            d.set_d_hours_rows(vec_model(rows));
+        });
+        HOURS.with(|h| h.borrow_mut().groups = groups);
+    }
+
+    /// 點了一組的標題：展開或收起（不重讀）。
+    fn toggle_hours_group(&self, index: i32) {
+        let rows = HOURS.with(|h| {
+            let mut h = h.borrow_mut();
+            let g = usize::try_from(index).ok().and_then(|i| h.groups.get_mut(i))?;
+            g.expanded = !g.expanded;
+            Some(hours_rows(&h.groups, &Local::now().fixed_offset()))
+        });
+        if let Some(rows) = rows {
+            self.with_data(|d| d.set_d_hours_rows(vec_model(rows)));
+        }
+    }
+
     /// 展開「整棵子任務樹」才讀（最多 5 層）：照樹狀縮排，點編號打開那個任務。
     async fn load_subtree(self: Rc<Self>) {
         let Some(key) = self.st.borrow().detail.as_ref().map(|d| d.key.clone()) else { return };
@@ -716,6 +987,89 @@ mod tests {
         assert_eq!(180.0, entry_minutes(&t, &now));
         t.user = Some("amy".into());
         assert!(entry_text(&t, &now).ends_with("–進行中　3 小時　amy"));
+    }
+
+    fn local_at(y: i32, m: u32, d: u32, h: u32, min: u32) -> hb_api::DateTimeOffset {
+        use chrono::TimeZone;
+        Local
+            .from_local_datetime(&NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, 0).unwrap())
+            .unwrap()
+            .fixed_offset()
+    }
+
+    fn hour_entry(user: &str, start: hb_api::DateTimeOffset, minutes: i32) -> TimeEntry {
+        let mut t = TimeEntry::new(
+            "1",
+            "F2P-2",
+            "x",
+            Some(start),
+            Some(start + TimeDelta::minutes(minutes as i64)),
+            None,
+            false,
+            None,
+        );
+        t.user = Some(user.into());
+        t
+    }
+
+    #[test]
+    fn 工時記錄_合計本週本月與每個人() {
+        // 2026-11-12 週四
+        let now = local_at(2026, 11, 12, 15, 0);
+        let entries = vec![
+            hour_entry("amy", local_at(2026, 11, 12, 9, 0), 60),
+            hour_entry("bob", local_at(2026, 11, 9, 9, 0), 120), // 本週一
+            hour_entry("amy", local_at(2026, 11, 3, 9, 0), 30),  // 本月、上週
+            hour_entry("bob", local_at(2026, 10, 20, 9, 0), 240), // 上個月
+            hour_entry("", local_at(2026, 10, 1, 9, 0), 15),     // 沒有名字：只算合計
+        ];
+        let s = hours_summary(&entries, &now);
+        assert_eq!((465.0, 180.0, 210.0), (s.total, s.week, s.month));
+        assert_eq!(vec![("bob".to_owned(), 360.0), ("amy".to_owned(), 90.0)], s.people);
+    }
+
+    #[test]
+    fn 工時記錄_本週按天_較早按週按月收起來() {
+        let now = local_at(2026, 11, 12, 15, 0);
+        let entries = vec![
+            hour_entry("amy", local_at(2026, 11, 12, 9, 0), 60),
+            hour_entry("amy", local_at(2026, 11, 12, 13, 0), 30),
+            hour_entry("amy", local_at(2026, 11, 11, 9, 0), 60),
+            hour_entry("amy", local_at(2026, 11, 9, 9, 0), 60),
+            hour_entry("amy", local_at(2026, 11, 3, 9, 0), 45),
+            hour_entry("amy", local_at(2026, 11, 2, 9, 0), 15),
+            hour_entry("amy", local_at(2026, 10, 12, 9, 0), 30), // 本週一往前 28 天內
+            hour_entry("amy", local_at(2026, 10, 5, 9, 0), 30),  // 更早：按月
+            hour_entry("amy", local_at(2026, 9, 1, 9, 0), 30),
+        ];
+        let groups = hours_groups(&entries, &now);
+        let view: Vec<(&str, f64, bool, usize)> =
+            groups.iter().map(|g| (g.label.as_str(), g.minutes, g.expanded, g.entries.len())).collect();
+        assert_eq!(
+            vec![
+                ("今天", 90.0, true, 2),
+                ("昨天", 60.0, true, 1),
+                ("11/9（週一）", 60.0, true, 1),
+                ("11/2–11/8 那週", 60.0, false, 2),
+                ("10/12–10/18 那週", 30.0, false, 1),
+                ("2026 年 10 月", 30.0, false, 1),
+                ("2026 年 9 月", 30.0, false, 1),
+            ],
+            view
+        );
+        // 組內新的在前
+        assert_eq!(Some(local_at(2026, 11, 12, 13, 0)), groups[0].entries[0].started_at);
+        // 攤平：收起的組只有標題
+        let rows = hours_rows(&groups, &now);
+        assert_eq!(7 + 4, rows.len()); // 7 組標題＋展開的三天裡 4 段
+        assert_eq!("今天（2 段）", rows[0].label.as_str());
+        assert_eq!("1 小時 30 分", rows[0].meta.as_str());
+        assert_eq!("13:00–13:30　amy", rows[1].label.as_str());
+        assert!(rows.last().is_some_and(|r| r.header && !r.expanded));
+        let mut groups = groups;
+        groups[3].expanded = true;
+        let rows = hours_rows(&groups, &now);
+        assert!(rows.iter().any(|r| r.label.as_str() == "11/3 09:00–09:45　amy"));
     }
 
     #[test]

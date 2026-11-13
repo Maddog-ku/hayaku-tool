@@ -199,6 +199,8 @@ export component WorkLogPage inherits Rectangle {
             vertical-stretch: 1;
             content-height: body.preferred-height;
             body := VerticalLayout {
+                // 靠左（不置中）：跟捲動區上面的標題、篩選對齊，右邊留的空間給捲軸
+                x: 0;
                 width: sv.visible-width - 14px;
                 spacing: 8px;
                 if WorkLogPageData.draft-visible: VerticalLayout {

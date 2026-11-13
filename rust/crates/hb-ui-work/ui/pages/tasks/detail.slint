@@ -1,5 +1,5 @@
 // 我的任務：任務詳細的彈窗內容（C# TasksPage.xaml 的 DetailPanel；測試流程 Testing.cs、補一段 Note.cs、展開區塊 Extras.cs）。
-import { Theme, ScrollView, Tip } from "@hb/index.slint";
+import { Theme, ScrollView, Tip, Icon, Icons } from "@hb/index.slint";
 import { DateRangePicker, FieldLabel, GroupLabel, LinkButton, PlainText, StatusLine, TextArea, InlineEdit } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, HintBox, CheckText, Expander } from "../../shared/index.slint";
 import { Reader } from "../w3-common.slint";
@@ -283,6 +283,14 @@ export component DetailView {
                             TasksPageData.d-new-child();
                         }
                     }
+                    // 跟上 Hayaku 1.5.4：新增子任務旁直接〔套用範本〕（C# 版只在右鍵選單）
+                    SmallButton {
+                        text: "套用範本…";
+                        tip: "用子任務範本一次建好一組子任務";
+                        clicked => {
+                            TasksPageData.d-apply-template();
+                        }
+                    }
                 }
                 HorizontalLayout {
                     spacing: 6px;
@@ -449,6 +457,124 @@ export component DetailView {
                         tip: "一般、測試、測試結果；測試結果只能放在測試任務底下";
                         selected(i) => {
                             TasksPageData.d-type-selected(i);
+                        }
+                    }
+                }
+            }
+
+            // 這個任務的工時記錄（跟上 Hayaku 1.5.3；C# 版沒有）：展開才讀
+            VerticalLayout {
+                padding-top: 14px;
+                Expander {
+                    title: TasksPageData.d-hours-header;
+                    expanded <=> TasksPageData.d-hours-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-hours-toggled(e);
+                    }
+                    if TasksPageData.d-hours-message != "": Text {
+                        text: TasksPageData.d-hours-message;
+                        color: TasksPageData.d-hours-error ? Theme.error : Theme.muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    // 合計、本週、本月
+                    if TasksPageData.d-hours-stats.length > 0: HorizontalLayout {
+                        spacing: 8px;
+                        padding-bottom: 4px;
+                        for s in TasksPageData.d-hours-stats: Rectangle {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            border-radius: 12px;
+                            background: Theme.fill;
+                            VerticalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 7px;
+                                padding-bottom: 7px;
+                                spacing: 1px;
+                                Text {
+                                    text: s.label;
+                                    color: Theme.muted;
+                                    font-size: Theme.fs-sm;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: s.value;
+                                    color: Theme.ink;
+                                    font-size: Theme.fs-base;
+                                    font-weight: 600;
+                                    font-family: Theme.font-num;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                    // 每個人的時數
+                    for s in TasksPageData.d-hours-people: HorizontalLayout {
+                        spacing: 8px;
+                        min-height: 22px;
+                        Text {
+                            text: s.label;
+                            color: Theme.ink;
+                            font-size: Theme.fs-md;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        Text {
+                            text: s.value;
+                            color: Theme.muted;
+                            font-size: Theme.fs-md;
+                            font-family: Theme.font-num;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+                    if TasksPageData.d-hours-rows.length > 0: Rectangle {
+                        height: 6px;
+                    }
+                    // 按天分組；較早的按週、按月收起來，點標題展開
+                    for r in TasksPageData.d-hours-rows: Rectangle {
+                        min-height: r.header ? 28px : 22px;
+                        border-radius: 8px;
+                        background: r.header && hour-ta.has-hover ? Theme.hover : transparent;
+                        HorizontalLayout {
+                            padding-left: r.header ? 4px : 22px;
+                            padding-right: 4px;
+                            spacing: 6px;
+                            if r.header: Icon {
+                                y: (parent.height - self.height) / 2;
+                                width: 12px;
+                                height: 12px;
+                                // 軟體繪製不支援旋轉：直接換箭頭
+                                path: r.expanded ? Icons.chevron-down : Icons.chevron-right;
+                                color: Theme.muted;
+                                weight: 2.6;
+                            }
+                            Text {
+                                text: r.label;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: r.header ? 600 : 400;
+                                vertical-alignment: center;
+                                wrap: r.header ? no-wrap : word-wrap;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            if r.meta != "": Text {
+                                text: r.meta;
+                                color: Theme.muted;
+                                font-size: Theme.fs-md;
+                                font-family: Theme.font-num;
+                                vertical-alignment: center;
+                            }
+                        }
+                        hour-ta := TouchArea {
+                            enabled: r.header;
+                            mouse-cursor: r.header ? pointer : default;
+                            clicked => {
+                                TasksPageData.d-hours-group-toggled(r.group);
+                            }
                         }
                     }
                 }

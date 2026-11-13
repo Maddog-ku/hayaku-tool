@@ -388,6 +388,11 @@ export component SettingsWindow inherits Window {
     in-out property <bool> meeting-pauses-others;
     in-out property <bool> reminder-alerts;
     in-out property <int> popup-seconds-index;
+    /// 建立任務提示自動收起：下拉（預設值＋不自動收起＋自訂）與秒數
+    in-out property <int> new-work-index;
+    in-out property <string> new-work-text: "300";
+    /// 提醒的「今天下班前」是下班前幾分鐘
+    in-out property <string> before-end-text: "15";
     in-out property <bool> notification-alerts;
     in-out property <bool> quiet-when-busy;
     in-out property <bool> prompt-unfilled;
@@ -436,6 +441,9 @@ export component SettingsWindow inherits Window {
     callback hotkey-default();
     callback meeting-lead-changed(int);
     callback popup-seconds-changed(int);
+    callback new-work-changed(int);
+    callback new-work-commit();
+    callback before-end-commit();
     callback startup-toggled(bool);
     callback poll-changed(int);
     callback open-data-dir();
@@ -533,6 +541,9 @@ export component SettingsWindow inherits Window {
                     }
                 }
                 for item[i] in root.nav: SettingsNavItem {
+                    // 撐滿導覽寬度（不設寬度時用文字寬度、被置中，文字就不靠左了）
+                    x: 0;
+                    width: parent.width;
                     y: i * 40px;
                     text: item;
                     selected: i == root.page;
@@ -592,7 +603,7 @@ export component SettingsWindow inherits Window {
                             VerticalLayout {
                                 alignment: center;
                                 SmallButton {
-                                    height: 32px;
+                                    face-height: 32px;
                                     horizontal-padding: 18px;
                                     text: root.account-button;
                                     primary: root.account-primary;
@@ -843,7 +854,7 @@ export component SettingsWindow inherits Window {
                         VerticalLayout {
                             alignment: center;
                             discover-btn := SmallButton {
-                                height: 32px;
+                                face-height: 32px;
                                 text: "從最近的 session 加入 ▾";
                                 tip: "列出 Claude Code（CLI 與桌面版）最近用過的資料夾";
                                 clicked => {
@@ -854,7 +865,7 @@ export component SettingsWindow inherits Window {
                         VerticalLayout {
                             alignment: center;
                             SmallButton {
-                                height: 32px;
+                                face-height: 32px;
                                 text: "＋ 選擇資料夾";
                                 primary: true;
                                 clicked => {
@@ -1039,7 +1050,6 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                                 GlyphButton {
-                                    y: (parent.height - self.height) / 2;
                                     text: "重新偵測";
                                     clicked => {
                                         root.redetect(i);
@@ -1276,7 +1286,7 @@ export component SettingsWindow inherits Window {
                                 padding-top: 12px;
                                 alignment: end;
                                 SmallButton {
-                                    height: 32px;
+                                    face-height: 32px;
                                     horizontal-padding: 18px;
                                     text: "登入";
                                     primary: true;
@@ -1514,7 +1524,7 @@ export component SettingsWindow inherits Window {
                                 padding-top: 8px;
                                 alignment: end;
                                 SmallButton {
-                                    height: 32px;
+                                    face-height: 32px;
                                     horizontal-padding: 18px;
                                     text: "連線並送測試訊息";
                                     primary: true;
@@ -1722,6 +1732,96 @@ export component SettingsWindow inherits Window {
                                     toggled => {
                                         root.toggled();
                                     }
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        stagger: root.card-t;
+                        HorizontalLayout {
+                            spacing: 14px;
+                            SettingText {
+                                title: "建立任務的提示自動收起";
+                                desc: "Claude 在改程式、對應不到任務時跳出的「要建立任務嗎？」提示，停留多久後自動收起（滑鼠移上去會停住）。收起後同一個對話不會再問，要補建可以在面板的 Claude Code 列按「選擇」。右邊也可以直接輸入秒數。";
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: end;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 140px;
+                                        height: 46px;
+                                        Dropdown {
+                                            items: ["15 秒", "30 秒", "45 秒", "1 分鐘", "2 分鐘", "3 分鐘", "5 分鐘", "10 分鐘", "15 分鐘", "30 分鐘", "不自動收起", "自訂"];
+                                            current <=> root.new-work-index;
+                                            selected(i) => {
+                                                root.new-work-changed(i);
+                                            }
+                                        }
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    TextField {
+                                        width: 76px;
+                                        height: 36px;
+                                        font-size: 13px;
+                                        radius: 12px;
+                                        text <=> root.new-work-text;
+                                        property <bool> focused: self.has-focus;
+                                        changed focused => {
+                                            if !self.focused {
+                                                root.new-work-commit();
+                                            }
+                                        }
+                                        accepted => {
+                                            root.new-work-commit();
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: "秒";
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                    SettingCard {
+                        stagger: root.card-t;
+                        HorizontalLayout {
+                            spacing: 14px;
+                            SettingText {
+                                title: "提醒的「今天下班前」";
+                                desc: "新增提醒時，快速時間「今天下班前」要定在下班前幾分鐘。";
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: end;
+                                VerticalLayout {
+                                    alignment: center;
+                                    TextField {
+                                        width: 76px;
+                                        height: 36px;
+                                        font-size: 13px;
+                                        radius: 12px;
+                                        text <=> root.before-end-text;
+                                        property <bool> focused: self.has-focus;
+                                        changed focused => {
+                                            if !self.focused {
+                                                root.before-end-commit();
+                                            }
+                                        }
+                                        accepted => {
+                                            root.before-end-commit();
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: "分鐘";
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
                                 }
                             }
                         }

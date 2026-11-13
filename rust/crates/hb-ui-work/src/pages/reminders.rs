@@ -1,4 +1,6 @@
 //! 工作台「提醒」頁（對應 C# `UI/Work/RemindersPage.xaml(.cs)`）：新增（一次或重複、可綁任務）、延後、暫停重複、刪除。
+//! 跟上 Hayaku 1.5.4（C# 版沒有）：快速時間照自己的上班時段即時算（[`quick_times`]）；
+//! 「綁在」直接列出最近填過、指派給我的任務與近期會議（[`bind_choices`]，只用 engine 已有的資料，不多發請求），選會議送 `meeting: true`。
 //!
 //! 契約（不可改簽章）：`init` 在第一次切到這頁時呼叫一次（綁定 callback）；
 //! `activate` 每次切到這頁時呼叫（對應 C# `IWorkPage.ActivateAsync(arg)`）。
@@ -6,14 +8,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Timelike};
-use hb_api::{DateTimeOffset, KeyFinder, ReminderFull};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, TimeDelta, Timelike};
+use hb_api::{DateTimeOffset, DaySchedule, KeyFinder, MeetingItem, ReminderFull, TaskItem, TimeEntry};
 use hb_ui_common::inputs::{self, StatusMessage};
 use serde_json::{Map, Value, json};
 use slint::{ComponentHandle, SharedString};
 
 use super::hours::w2_common::{self, ConfirmSlot, PageCell, model, spawn, strings};
-use crate::{PageArg, RemindersPageData, RemindersRow, WorkCtx};
+use crate::{PageArg, RemindersBind, RemindersPageData, RemindersQuick, RemindersRow, WorkCtx};
 
 /// 分頁（C# RadioButton 的 Tag）。
 pub(crate) const TABS: [&str; 3] = ["upcoming", "fired", "repeat"];
@@ -83,6 +85,119 @@ pub(crate) fn next_slot(now: NaiveDateTime) -> NaiveDateTime {
     next.date().and_hms_opt(next.hour(), minute, 0).unwrap_or(next)
 }
 
+/// 快速時間的一個選項。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QuickTime {
+    pub tag: &'static str,
+    pub label: &'static str,
+    pub at: NaiveDateTime,
+}
+
+/// 快速時間（跟上 Hayaku 1.5.4，C# 版只有 30 分鐘後、1 小時後、明天上班）：照自己的上班時段即時算；
+/// 已經過了或不適用的不列。schedule 是今天的班表（不是今天的當作沒有）；is_workday 判斷某天要不要上班。
+/// 明天、下個工作日的時間照今天的上班時段（第一段開始＝上班、第二段開始＝午休後）；今天不用上班、
+/// 或今天請了假（時段不是平常的）就不知道平常幾點上班，不列這幾個。
+/// before_end_minutes：「今天下班前」是下班前幾分鐘（設定 › 一般，預設 15）。
+pub(crate) fn quick_times(
+    now: NaiveDateTime,
+    schedule: Option<&DaySchedule>,
+    before_end_minutes: i64,
+    is_workday: impl Fn(NaiveDate) -> bool,
+) -> Vec<QuickTime> {
+    let mut out: Vec<QuickTime> = [("5", "5 分鐘後", 5), ("10", "10 分鐘後", 10), ("60", "1 小時後", 60)]
+        .into_iter()
+        .map(|(tag, label, m)| QuickTime { tag, label, at: now + TimeDelta::minutes(m) })
+        .collect();
+    let today = now.date();
+    let Some(schedule) = schedule.filter(|s| s.date == today && !s.working.is_empty()) else {
+        return out;
+    };
+    let mut segments = schedule.working.clone();
+    segments.sort_by_key(|w| w.start);
+    let first = segments[0].start;
+    let after_lunch = segments.get(1).map(|w| w.start);
+    if let Some(lunch) = after_lunch.map(|t| today.and_time(t)).filter(|t| *t > now) {
+        out.push(QuickTime { tag: "lunch", label: "午休後", at: lunch });
+    }
+    if let Some(last) = segments.last() {
+        let before_end = today.and_time(last.end) - TimeDelta::minutes(before_end_minutes);
+        if before_end > now && before_end > today.and_time(last.start) {
+            out.push(QuickTime { tag: "end", label: "今天下班前", at: before_end });
+        }
+    }
+    if schedule.on_leave {
+        return out;
+    }
+    let tomorrow = today.succ_opt();
+    if let Some(t) = tomorrow.filter(|t| is_workday(*t)) {
+        out.push(QuickTime { tag: "tomorrow", label: "明天上班", at: t.and_time(first) });
+    }
+    // 下個工作日：跳過不上班的日子（最多找一個月）
+    let next = (1..=31).filter_map(|n| today.checked_add_signed(TimeDelta::days(n))).find(|d| is_workday(*d));
+    if let Some(next) = next {
+        // 下個工作日就是明天時，上午跟「明天上班」一樣，不重複列
+        if Some(next) != tomorrow {
+            out.push(QuickTime { tag: "next-am", label: "下個工作日上午", at: next.and_time(first) });
+        }
+        if let Some(lunch) = after_lunch {
+            out.push(QuickTime { tag: "next-pm", label: "下個工作日下午", at: next.and_time(lunch) });
+        }
+    }
+    out
+}
+
+/// 「綁在」清單的一項：任務或會議。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BindChoice {
+    /// 0 最近填過、1 指派給我的、2 近期會議
+    pub group: usize,
+    pub key: String,
+    pub title: String,
+    pub meta: String,
+}
+
+pub(crate) const BIND_GROUPS: [&str; 3] = ["最近填過", "指派給我的", "近期會議"];
+
+/// 「綁在」直接列的選項（跟上 Hayaku 1.5.4，C# 版沒有）：今天計時過的任務（新的在前）、指派給我的其他任務、
+/// 還沒結束的會議（照開始時間）。只用 engine 已讀到的資料。
+pub(crate) fn bind_choices(
+    entries: &[TimeEntry],
+    my_tasks: &[TaskItem],
+    meetings: &[MeetingItem],
+    now: &DateTimeOffset,
+    today: NaiveDate,
+) -> Vec<BindChoice> {
+    let mut out: Vec<BindChoice> = Vec::new();
+    let has = |out: &[BindChoice], key: &str| out.iter().any(|c| c.key.eq_ignore_ascii_case(key));
+    let mut recent: Vec<&TimeEntry> = entries.iter().filter(|e| !e.task.is_empty()).collect();
+    recent.sort_by_key(|e| std::cmp::Reverse(e.started_at));
+    for e in recent {
+        if out.len() >= 8 {
+            break;
+        }
+        if !has(&out, &e.task) {
+            let meta = if e.running { "計時中".to_owned() } else { String::new() };
+            out.push(BindChoice { group: 0, key: e.task.clone(), title: e.title.clone(), meta });
+        }
+    }
+    let mine: Vec<BindChoice> = my_tasks
+        .iter()
+        .filter(|t| !has(&out, &t.key))
+        .take(30)
+        .map(|t| BindChoice { group: 1, key: t.key.clone(), title: t.title.clone(), meta: t.status.clone() })
+        .collect();
+    out.extend(mine);
+    let mut upcoming: Vec<&MeetingItem> = meetings.iter().filter(|m| !m.key.is_empty() && m.end_at >= *now).collect();
+    upcoming.sort_by_key(|m| m.start_at);
+    out.extend(upcoming.into_iter().take(10).map(|m| BindChoice {
+        group: 2,
+        key: m.key.clone(),
+        title: m.title.clone(),
+        meta: when_text(Some(&m.start_at), today),
+    }));
+    out
+}
+
 /// 日期欄的文字：今天、明天（quick 才有）或 M/d。
 pub(crate) fn date_box_text(at: NaiveDateTime, today: NaiveDate, with_tomorrow: bool) -> String {
     if at.date() == today {
@@ -105,6 +220,8 @@ pub(crate) struct Form {
     pub repeat: usize,
     pub relative: usize,
     pub audience: usize,
+    /// 綁的是會議（從「綁在」清單選了會議；Hayaku 1.5.4 起，C# 版沒有）
+    pub meeting: bool,
 }
 
 /// 驗證失敗時要把焦點移到哪。
@@ -147,6 +264,9 @@ pub(crate) fn build_request(
             Focus::Task,
         ));
     }
+    if !relative.is_empty() && f.meeting {
+        return Err(("照任務預計日期提醒只能綁任務，綁會議請改回「上面的日期」".into(), Focus::None));
+    }
     if !relative.is_empty() && repeat != "none" {
         return Err(("照任務預計日期提醒不能重複，重複請改回「上面的日期」".into(), Focus::None));
     }
@@ -160,6 +280,9 @@ pub(crate) fn build_request(
     }
     if let Some(t) = &task {
         args.insert("task".into(), json!(t));
+        if f.meeting {
+            args.insert("meeting".into(), json!(true));
+        }
     }
     if audience == "assignees" {
         args.insert("audience".into(), json!("assignees"));
@@ -227,6 +350,10 @@ struct Page {
     version: Cell<u64>,
     items: RefCell<Vec<ReminderFull>>,
     confirm: Rc<ConfirmSlot>,
+    /// 「綁在」清單畫面上每一列（None＝分組標題）
+    binds: RefCell<Vec<Option<BindChoice>>>,
+    /// 目前列出的快速時間（一樣就不重畫）
+    quicks: RefCell<Vec<QuickTime>>,
 }
 
 thread_local! {
@@ -275,7 +402,79 @@ impl Page {
             g.set_relative_index(0);
             g.set_offset_text(SharedString::new());
             g.set_audience_index(0);
+            g.set_bind_meeting(false);
         });
+        self.refresh_quick();
+    }
+
+    /// 算快速時間：今天的班表、哪些天要上班（不用上班的日子快取；還沒記過就只跳過週末）。
+    fn compute_quick(&self) -> Vec<QuickTime> {
+        let engine = &self.ctx.engine;
+        let (cached, off) = {
+            let st = engine.state();
+            (!st.off_days_updated.is_empty(), st.off_days.clone())
+        };
+        let is_workday = move |d: NaiveDate| {
+            if cached {
+                !off.contains_key(&d.format("%Y-%m-%d").to_string())
+            } else {
+                d.weekday().num_days_from_monday() < 5
+            }
+        };
+        let before_end = i64::from(engine.config().reminder_before_end_minutes.clamp(0, 600));
+        quick_times(hb_core::time::now(), engine.schedule().as_ref(), before_end, is_workday)
+    }
+
+    /// 重算快速時間（打開這頁、新增後、滑鼠移到新增區、按了快速時間時；只用本機資料）。有變才重畫。
+    fn refresh_quick(&self) {
+        let quicks = self.compute_quick();
+        if *self.quicks.borrow() == quicks {
+            return;
+        }
+        let today = hb_core::time::today();
+        let rows: Vec<RemindersQuick> = quicks
+            .iter()
+            .map(|q| RemindersQuick {
+                tag: q.tag.into(),
+                label: q.label.into(),
+                tip: format!("{} {}", inputs::short_date_at(q.at.date(), today), q.at.format("%H:%M")).into(),
+            })
+            .collect();
+        self.with(|g| g.set_quick_items(model(rows)));
+        *self.quicks.borrow_mut() = quicks;
+    }
+
+    /// 打開「綁在」清單：用 engine 已有的今天計時、我的任務、會議重排（不發請求）。
+    fn refresh_binds(&self) {
+        let engine = &self.ctx.engine;
+        let now = hb_core::time::now_offset();
+        let choices = bind_choices(&engine.entries(), &engine.my_tasks(), &engine.meetings(), &now, now.date_naive());
+        let mut slots: Vec<Option<BindChoice>> = Vec::new();
+        let mut rows: Vec<RemindersBind> = Vec::new();
+        for (group, label) in BIND_GROUPS.iter().enumerate() {
+            let items: Vec<&BindChoice> = choices.iter().filter(|c| c.group == group).collect();
+            if items.is_empty() {
+                continue;
+            }
+            slots.push(None);
+            rows.push(RemindersBind { header: true, title: (*label).into(), ..Default::default() });
+            for c in items {
+                slots.push(Some(c.clone()));
+                rows.push(RemindersBind {
+                    header: false,
+                    key: c.key.as_str().into(),
+                    title: c.title.as_str().into(),
+                    meta: c.meta.as_str().into(),
+                    meeting: c.group == 2,
+                });
+            }
+        }
+        let empty = rows.is_empty();
+        self.with(|g| {
+            g.set_bind_rows(model(rows));
+            g.set_bind_empty(if empty { "還沒有計時過、指派給我的任務或近期會議" } else { "" }.into());
+        });
+        *self.binds.borrow_mut() = slots;
     }
 
     fn form(&self) -> Form {
@@ -288,6 +487,7 @@ impl Page {
             repeat: usize::try_from(g.get_repeat_index()).unwrap_or(0),
             relative: usize::try_from(g.get_relative_index()).unwrap_or(0),
             audience: usize::try_from(g.get_audience_index()).unwrap_or(0),
+            meeting: g.get_bind_meeting(),
         })
         .unwrap_or_default()
     }
@@ -304,6 +504,8 @@ pub fn init(ctx: &WorkCtx) {
         version: Cell::new(0),
         items: RefCell::new(Vec::new()),
         confirm: Rc::new(ConfirmSlot::default()),
+        binds: RefCell::new(Vec::new()),
+        quicks: RefCell::new(Vec::new()),
     });
     PAGE.with(|p| p.set(page.clone()));
     let Some(window) = ctx.window() else { return };
@@ -322,25 +524,51 @@ pub fn init(ctx: &WorkCtx) {
     });
     g.on_quick(|tag| {
         let Some(page) = current() else { return };
-        let now = hb_core::time::now();
-        let today = now.date();
-        let at = if tag == "tomorrow" {
-            let start = page
-                .ctx
-                .engine
-                .schedule()
-                .and_then(|s| s.working.first().map(|w| w.start))
-                .unwrap_or(NaiveTime::from_hms_opt(9, 0, 0).unwrap_or_default());
-            today.succ_opt().unwrap_or(today).and_time(start)
-        } else {
-            now + TimeDelta::minutes(tag.parse::<i64>().unwrap_or(0))
+        let today = hb_core::time::today();
+        // 按下時再算一次：清單是之前算的，那個時間可能已經過了
+        let at = page.compute_quick().into_iter().find(|q| q.tag == tag.as_str()).map(|q| q.at);
+        page.refresh_quick();
+        let Some(at) = at else {
+            page.show_form(Some(StatusMessage::error("這個時間已經過了")));
+            return;
         };
+        page.show_form(None);
         page.with(|g| {
             g.set_date_text(date_box_text(at, today, true).into());
             g.set_time_text(at.format("%H:%M").to_string().into());
             g.set_repeat_index(0);
             g.set_focus_message(g.get_focus_message() + 1);
         });
+    });
+    g.on_quick_refresh(|| {
+        if let Some(page) = current() {
+            page.refresh_quick();
+        }
+    });
+    g.on_bind_open(|| {
+        if let Some(page) = current() {
+            page.refresh_binds();
+        }
+    });
+    g.on_bind_picked(|i| {
+        let Some(page) = current() else { return };
+        let Some(choice) = usize::try_from(i).ok().and_then(|i| page.binds.borrow().get(i).cloned().flatten()) else {
+            return;
+        };
+        page.with(|g| {
+            g.set_task_text(choice.key.as_str().into());
+            g.set_bind_meeting(choice.group == 2);
+            if g.get_message().is_empty() {
+                g.set_message(choice.title.as_str().into());
+            }
+            g.set_focus_message(g.get_focus_message() + 1);
+        });
+    });
+    // 自己打的編號當作任務（從清單選了會議才送 meeting）
+    g.on_task_edited(|_| {
+        if let Some(page) = current() {
+            page.with(|g| g.set_bind_meeting(false));
+        }
     });
     g.on_add(|| {
         if let Some(page) = current() {
@@ -411,6 +639,7 @@ pub async fn activate(_ctx: WorkCtx, arg: Option<PageArg>) {
         let title = page.ctx.engine.title_of(&k);
         page.with(|g| {
             g.set_task_text(k.as_str().into());
+            g.set_bind_meeting(false);
             if g.get_message().is_empty()
                 && let Some(t) = title
             {
@@ -419,6 +648,7 @@ pub async fn activate(_ctx: WorkCtx, arg: Option<PageArg>) {
             g.set_focus_message(g.get_focus_message() + 1);
         });
     }
+    page.refresh_quick();
     load(page).await;
 }
 
@@ -640,6 +870,168 @@ mod tests {
         let f = Form { repeat: 2, ..form("站會", "", "今天", "9:30") };
         let (args, _) = build_request(&f, now, today).unwrap();
         assert_eq!(json!({ "freq": "DAILY", "interval": 1, "workdaysOnly": true }), args["repeat"]["rule"]);
+    }
+
+    fn day_schedule(d: NaiveDate, segments: &[(u32, u32, u32, u32)], on_leave: bool) -> DaySchedule {
+        DaySchedule {
+            date: d,
+            working: segments
+                .iter()
+                .map(|&(h1, m1, h2, m2)| hb_api::WorkSegment {
+                    start: chrono::NaiveTime::from_hms_opt(h1, m1, 0).unwrap(),
+                    end: chrono::NaiveTime::from_hms_opt(h2, m2, 0).unwrap(),
+                })
+                .collect(),
+            expected_minutes: 480,
+            on_leave,
+            holiday: None,
+        }
+    }
+
+    fn weekdays(d: NaiveDate) -> bool {
+        d.weekday().num_days_from_monday() < 5
+    }
+
+    fn tags(q: &[QuickTime]) -> Vec<(&'static str, NaiveDateTime)> {
+        q.iter().map(|q| (q.tag, q.at)).collect()
+    }
+
+    #[test]
+    fn 快速時間_照班表即時算() {
+        // 2026-11-12 週四，08:30–12:00、13:30–17:30
+        let d = ymd(2026, 11, 12);
+        let s = day_schedule(d, &[(13, 30, 17, 30), (8, 30, 12, 0)], false);
+        let now = d.and_hms_opt(10, 0, 0).unwrap();
+        let q = quick_times(now, Some(&s), 30, weekdays);
+        assert_eq!(
+            vec![
+                ("5", d.and_hms_opt(10, 5, 0).unwrap()),
+                ("10", d.and_hms_opt(10, 10, 0).unwrap()),
+                ("60", d.and_hms_opt(11, 0, 0).unwrap()),
+                ("lunch", d.and_hms_opt(13, 30, 0).unwrap()),
+                ("end", d.and_hms_opt(17, 0, 0).unwrap()),
+                ("tomorrow", ymd(2026, 11, 13).and_hms_opt(8, 30, 0).unwrap()),
+                // 下個工作日就是明天：上午跟「明天上班」重複，不列
+                ("next-pm", ymd(2026, 11, 13).and_hms_opt(13, 30, 0).unwrap()),
+            ],
+            tags(&q)
+        );
+        assert_eq!(
+            vec!["5 分鐘後", "10 分鐘後", "1 小時後", "午休後", "今天下班前", "明天上班", "下個工作日下午"],
+            q.iter().map(|q| q.label).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn 快速時間_今天下班前照設定的分鐘數() {
+        let d = ymd(2026, 11, 12);
+        let s = day_schedule(d, &[(13, 30, 17, 30), (8, 30, 12, 0)], false);
+        let now = d.and_hms_opt(10, 0, 0).unwrap();
+        let end =
+            |minutes| quick_times(now, Some(&s), minutes, weekdays).into_iter().find(|q| q.tag == "end").map(|q| q.at);
+        assert_eq!(Some(d.and_hms_opt(17, 15, 0).unwrap()), end(15));
+        assert_eq!(Some(d.and_hms_opt(16, 30, 0).unwrap()), end(60));
+        // 17:20 時，下班前 15 分鐘（17:15）已經過了，不列
+        let late = d.and_hms_opt(17, 20, 0).unwrap();
+        assert!(!quick_times(late, Some(&s), 15, weekdays).iter().any(|q| q.tag == "end"));
+    }
+
+    #[test]
+    fn 快速時間_過了午休與下班前就不列() {
+        let d = ymd(2026, 11, 12);
+        let s = day_schedule(d, &[(8, 30, 12, 0), (13, 30, 17, 30)], false);
+        let q = quick_times(d.and_hms_opt(14, 0, 0).unwrap(), Some(&s), 30, weekdays);
+        assert!(!q.iter().any(|q| q.tag == "lunch"));
+        assert!(q.iter().any(|q| q.tag == "end"));
+        let q = quick_times(d.and_hms_opt(17, 0, 0).unwrap(), Some(&s), 30, weekdays);
+        assert!(!q.iter().any(|q| q.tag == "end" || q.tag == "lunch"));
+    }
+
+    #[test]
+    fn 快速時間_下個工作日跳過週末與不上班的日子() {
+        // 週五：明天週六不上班；下週一（11/16）放假 → 下個工作日是 11/17
+        let d = ymd(2026, 11, 13);
+        let s = day_schedule(d, &[(9, 0, 12, 0), (13, 0, 18, 0)], false);
+        let off = [ymd(2026, 11, 16)];
+        let q = quick_times(d.and_hms_opt(9, 0, 0).unwrap(), Some(&s), 30, |x| weekdays(x) && !off.contains(&x));
+        let t = tags(&q);
+        assert!(!t.iter().any(|(tag, _)| *tag == "tomorrow"));
+        assert!(t.contains(&("next-am", ymd(2026, 11, 17).and_hms_opt(9, 0, 0).unwrap())));
+        assert!(t.contains(&("next-pm", ymd(2026, 11, 17).and_hms_opt(13, 0, 0).unwrap())));
+    }
+
+    #[test]
+    fn 快速時間_沒有班表或請假只列不靠平常時段的() {
+        let d = ymd(2026, 11, 14);
+        let now = d.and_hms_opt(10, 0, 0).unwrap();
+        // 今天不用上班（沒有時段）、或班表不是今天的：只有幾分鐘後
+        let off = day_schedule(d, &[], false);
+        assert_eq!(
+            vec!["5", "10", "60"],
+            quick_times(now, Some(&off), 30, weekdays).iter().map(|q| q.tag).collect::<Vec<_>>()
+        );
+        let old = day_schedule(ymd(2026, 11, 13), &[(9, 0, 18, 0)], false);
+        assert_eq!(3, quick_times(now, Some(&old), 30, weekdays).len());
+        assert_eq!(3, quick_times(now, None, 30, weekdays).len());
+        // 請了半天假：今天的午休後、下班前照算，明天、下個工作日不列；只有一段就沒有午休後
+        let d = ymd(2026, 11, 12);
+        let half = day_schedule(d, &[(13, 30, 17, 30)], true);
+        let q = quick_times(d.and_hms_opt(9, 0, 0).unwrap(), Some(&half), 30, weekdays);
+        assert_eq!(vec!["5", "10", "60", "end"], q.iter().map(|q| q.tag).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn 綁在_最近填過指派給我的近期會議() {
+        let today = ymd(2026, 11, 12);
+        let now = at(today, 10, 0);
+        let entry = |task: &str, h: u32, running: bool| {
+            let mut e =
+                TimeEntry::new("x", task, format!("{task} 標題"), Some(at(today, h, 0)), None, None, running, None);
+            e.running = running;
+            e
+        };
+        let entries = vec![entry("F2P-1", 8, false), entry("F2P-2", 9, true), entry("f2p-1", 7, false)];
+        let task = |k: &str| TaskItem {
+            key: k.into(),
+            title: format!("{k} 名稱"),
+            project: "F2P".into(),
+            status: "進行中".into(),
+        };
+        let mine = vec![task("F2P-1"), task("F2P-3")];
+        let meeting = |key: &str, h: u32| MeetingItem {
+            key: key.into(),
+            id: key.into(),
+            title: format!("{key} 會"),
+            project: "F2P".into(),
+            start_at: at(today, h, 0),
+            end_at: at(today, h + 1, 0),
+            location: None,
+            my_status: None,
+        };
+        let meetings = vec![meeting("F2P-9", 14), meeting("F2P-8", 8), meeting("F2P-7", 11)];
+        let c = bind_choices(&entries, &mine, &meetings, &now, today);
+        let keys: Vec<(usize, &str)> = c.iter().map(|c| (c.group, c.key.as_str())).collect();
+        // 最近的在前、不分大小寫去重；指派給我的跳過已列的；已經結束的會議不列，照開始時間
+        assert_eq!(vec![(0, "F2P-2"), (0, "F2P-1"), (1, "F2P-3"), (2, "F2P-7"), (2, "F2P-9")], keys);
+        assert_eq!("計時中", c[0].meta);
+        assert_eq!("今天 11:00", c[3].meta);
+    }
+
+    #[test]
+    fn 新增_綁會議送meeting() {
+        let today = ymd(2026, 11, 12);
+        let now = at(today, 9, 0);
+        let f = Form { meeting: true, ..form("", "REVIVAL-9", "今天", "10:00") };
+        let (args, _) = build_request(&f, now, today).unwrap();
+        assert_eq!(
+            json!({ "task": "REVIVAL-9", "meeting": true, "at": inputs::iso(&at(today, 10, 0)) }),
+            Value::Object(args)
+        );
+        let f = Form { meeting: true, relative: 1, ..form("", "REVIVAL-9", "", "10:00") };
+        assert_eq!(
+            "照任務預計日期提醒只能綁任務，綁會議請改回「上面的日期」",
+            build_request(&f, now, today).unwrap_err().0
+        );
     }
 
     #[test]

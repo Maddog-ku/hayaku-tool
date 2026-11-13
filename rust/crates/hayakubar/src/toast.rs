@@ -91,6 +91,8 @@ pub struct Toast {
     actions: Vec<ToastAction>,
     timer: slint::Timer,
     interval: Duration,
+    /// 不會時間到自己收起（ToastRequest.persistent）
+    persistent: bool,
     closing: Cell<bool>,
     dismissed: RefCell<Option<DismissedFn>>,
     me: Weak<Toast>,
@@ -135,6 +137,7 @@ impl Toast {
             actions: request.actions.clone(),
             timer: slint::Timer::default(),
             interval: interval_of(request),
+            persistent: request.persistent,
             closing: Cell::new(false),
             dismissed: RefCell::new(None),
             me: me.clone(),
@@ -192,6 +195,9 @@ impl Toast {
     }
 
     fn start_timer(&self) {
+        if self.persistent {
+            return;
+        }
         let weak = self.me.clone();
         self.timer.start(slint::TimerMode::SingleShot, self.interval, move || {
             if let Some(t) = weak.upgrade() {
@@ -546,6 +552,14 @@ mod tests {
         let slots = [Slot { width: 516, height: 150, from_bottom: true }];
         let pos = layout(&slots, Some((rect(2500, 1548, 2620, 1620), false)), rect(0, 0, 2880, 1548), 1.5);
         assert_eq!((2620 - 516, 1548 - 12 - 150), pos[0]);
+    }
+
+    #[test]
+    fn 不自動收起的提示一定要按掉才關() {
+        let r = ToastRequest::new("t", "m", vec![]).persistent(true);
+        assert!(r.persistent && r.sticky);
+        let r = ToastRequest::new("t", "m", vec![]).sticky(true).persistent(false);
+        assert!(!r.persistent && r.sticky);
     }
 
     #[test]
