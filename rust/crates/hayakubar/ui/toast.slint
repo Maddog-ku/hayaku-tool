@@ -51,8 +51,13 @@ export component ToastWindow inherits Window {
     callback action(int);
     callback close-clicked();
     callback hover-changed(bool);
-    /// 內容的高度（還沒顯示時，Rust 用來先擺好位置）
+    /// 內容的高度（視窗高度就是它；Rust 用它擺位置與裁切）
     out property <length> pref-h: lay.preferred-height;
+    /// 內容高度變了（例如顯示後長文字換行才算出真正的高度）：Rust 重新排位置與裁切，不然下面會被切掉
+    callback height-changed();
+    changed pref-h => {
+        root.height-changed();
+    }
 
     // 停留倒數：剩下的比例（1 → 0，線性）；滑鼠移上去時停住
     property <float> remain: 1;

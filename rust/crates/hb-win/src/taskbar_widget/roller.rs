@@ -1,20 +1,14 @@
 //! 數字滾輪（參考設計稿的 Roller）：每個字元獨立一格，只有變動的字元會滾動。
-//! 數值增加時新字從下方進、減少時從上方進；舊字往反方向滑出淡出。由右往左錯開 30ms，模擬機械計數器的進位感。
+//! 數值增加時新字從下方進、減少時從上方進；舊字往反方向滑出淡出。由右往左錯開 15ms，模擬機械計數器的進位感。
+//! 要快：工時一變就要看到新數字（原本 600ms 的回彈彈簧看起來像延遲才跳，2026-11 改成 200ms 不回彈）。
 //! 長度改變時整組重建，以錯開的滑入取代瞬間跳換。
 
-/// 新字滑入：欠阻尼彈簧（阻尼比 0.52、自然頻率 13），約 600ms 靜止。
-pub(crate) const ENTER_MS: f64 = 600.0;
-/// 舊字滑出：320ms，cubic-bezier(.4,0,.7,.2)。
-pub(crate) const LEAVE_MS: f64 = 320.0;
+/// 新字滑入：200ms，緩出 cubic-bezier(.2,0,0,1)，不回彈。
+pub(crate) const ENTER_MS: f64 = 200.0;
+/// 舊字滑出：160ms，cubic-bezier(.4,0,.7,.2)。
+pub(crate) const LEAVE_MS: f64 = 160.0;
 /// 相鄰字元錯開。
-pub(crate) const STAGGER_MS: f64 = 30.0;
-
-/// 彈簧位移（t 秒），0 → 1，會略微超過 1 再回來。
-pub(crate) fn spring(t: f64) -> f64 {
-    let (z, w) = (0.52_f64, 13.0_f64);
-    let wd = w * (1.0 - z * z).sqrt();
-    1.0 - (-z * w * t).exp() * ((wd * t).cos() + (z * w / wd) * (wd * t).sin())
-}
+pub(crate) const STAGGER_MS: f64 = 15.0;
 
 /// CSS cubic-bezier(x1, y1, x2, y2) 在 x 時的 y。
 pub(crate) fn cubic_bezier(x1: f64, y1: f64, x2: f64, y2: f64, x: f64) -> f64 {
@@ -156,7 +150,7 @@ impl Roller {
                 let current = match &s.enter {
                     Some(m) => {
                         let t = ((now - m.start - m.delay) / ENTER_MS).clamp(0.0, 1.0);
-                        let e = if t >= 1.0 { 1.0 } else { spring(t * ENTER_MS / 1000.0) };
+                        let e = cubic_bezier(0.2, 0.0, 0.0, 1.0, t);
                         Glyph { ch: s.ch, offset: m.dir * (1.0 - e), opacity: e.clamp(0.0, 1.0) }
                     }
                     None => Glyph { ch: s.ch, offset: 0.0, opacity: 1.0 },
@@ -180,11 +174,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 彈簧收斂() {
-        assert_eq!(spring(0.0), 0.0);
-        assert!((spring(0.6) - 1.0).abs() < 0.03);
-        // 有回彈（超過 1）
-        assert!((0..60).map(|i| spring(i as f64 / 100.0)).fold(0.0, f64::max) > 1.05);
+    fn 新字滑入不回彈_很快就停() {
+        let mut r = Roller::default();
+        r.set("1", 0.0, true);
+        r.set("2", 0.0, true);
+        // 位移一路從 1 減到 0，不會衝過頭（變負）
+        let offsets: Vec<f64> = (0..=20).map(|i| r.frame(i as f64 * ENTER_MS / 20.0)[0].current.offset).collect();
+        assert!(offsets.windows(2).all(|w| w[1] <= w[0]), "{offsets:?}");
+        assert!(offsets.iter().all(|o| *o >= 0.0), "{offsets:?}");
+        assert!(!r.active(ENTER_MS));
     }
 
     #[test]
@@ -211,10 +209,10 @@ mod tests {
         assert_eq!(f[2].current.offset, 1.0);
         assert_eq!(f[2].current.opacity, 0.0);
         assert_eq!(f[2].leaving.map(|g| g.ch), Some('4'));
-        let later = r.frame(1000.0 + 30.0 + 200.0);
+        let later = r.frame(1000.0 + STAGGER_MS + LEAVE_MS / 2.0);
         assert!(later[2].leaving.is_some_and(|g| g.offset < 0.0));
-        assert!(!r.active(1000.0 + 30.0 + ENTER_MS));
-        let end = r.frame(1000.0 + 30.0 + ENTER_MS);
+        assert!(!r.active(1000.0 + STAGGER_MS + ENTER_MS));
+        let end = r.frame(1000.0 + STAGGER_MS + ENTER_MS);
         assert_eq!(end[2].current, Glyph { ch: '5', offset: 0.0, opacity: 1.0 });
         assert!(end[2].leaving.is_none());
     }
@@ -232,7 +230,7 @@ mod tests {
         let mut r = Roller::default();
         r.set("19", 0.0, true);
         r.set("20", 0.0, true);
-        let f = r.frame(20.0);
+        let f = r.frame(STAGGER_MS / 2.0);
         // 右邊（個位）先動，左邊（十位）還沒開始
         assert!(f[1].current.offset < 1.0);
         assert_eq!(f[0].current.offset, 1.0);
