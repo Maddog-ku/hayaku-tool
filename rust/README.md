@@ -58,8 +58,9 @@ hb-win（系統匣）、hb-ui-common、hb-ui-work（視窗圖示）用相對路�
    斷言內容不可放寬。
 9. **範圍**：只改分配給你的 crate；不要改根目錄 `Cargo.toml`、其他 crate、C# 原始碼；不要 commit／push／切分支。
    需要新的第三方套件時加在自己 crate 的 `Cargo.toml`（優先用根目錄 `[workspace.dependencies]` 已列的）。
-10. **建置**：多人同時建置時各自用自己的 `CARGO_TARGET_DIR`（分配時會給），用 `cargo check -p <crate>`、`cargo test -p <crate>`，
-    交付時不能有編譯錯誤，`cargo clippy -p <crate>` 不能有 error。
+10. **建置**：一律共用 `rust/target`，不要另設 `CARGO_TARGET_DIR`（每個目錄都要從頭編 Slint 等相依套件，同時跑會把 CPU、記憶體吃滿）；
+    不要同時跑多個 cargo，Cargo 遇到同一個 target 目錄會自動排隊（`Blocking waiting for file lock`），等著就好。
+    用 `cargo check -p <crate>`、`cargo test -p <crate>`，交付時不能有編譯錯誤，`cargo clippy -p <crate>` 不能有 error。
 
 ## 外觀（hb-ui-kit）
 
