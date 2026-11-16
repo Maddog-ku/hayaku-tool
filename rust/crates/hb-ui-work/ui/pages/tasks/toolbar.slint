@@ -1,7 +1,7 @@
 // 我的任務：清單上方的篩選列（狀態、專案、已完成期間、只看沒有子任務的…）與顯示方式、排序；
 // 「清單欄位」對話框（C# TasksPage.Columns.cs 的 Columns_Click）。有套用條件的控制項會亮起來。
 import { Theme, Motion, Checkbox, Tip, ScrollView } from "@hb/index.slint";
-import { LinkButton } from "@hbc/index.slint";
+import { LinkButton, StatusDot } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, CheckText, TipSegmented, Modal, GlyphButton, HintBox } from "../../shared/index.slint";
 import { TasksPageData } from "data.slint";
 
@@ -64,13 +64,17 @@ component StatusFilterButton {
                         vertical-alignment: center;
                     }
                     if it.kind == 1: HorizontalLayout {
-                        padding-left: 10px;
+                        padding-left: it.indent ? 30px : 10px;
                         spacing: 8px;
                         Checkbox {
                             y: (parent.height - self.height) / 2;
                             checked: it.checked;
                             enabled: false;
                             opacity: 1;
+                        }
+                        if it.dot > 0: StatusDot {
+                            y: (parent.height - self.height) / 2;
+                            kind: it.dot;
                         }
                         Text {
                             text: it.text;
@@ -124,7 +128,7 @@ component FilterLeft {
             }
         }
         if TasksPageData.done-days-visible: MiniSelect {
-            width: 110px;
+            min-width: 110px;
             items: TasksPageData.done-days-labels;
             current <=> TasksPageData.done-days-index;
             tip: "已完成：最近完成的在最上面";
@@ -182,7 +186,7 @@ component FilterRight {
             }
         }
         MiniSelect {
-            width: 150px;
+            min-width: 150px;
             items: TasksPageData.sort-labels;
             current <=> TasksPageData.sort-index;
             tip: "排序方式";

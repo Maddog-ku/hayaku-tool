@@ -1,5 +1,5 @@
 // 幾個只有說明＋一個欄位的小視窗：刪除任務（C# DeleteTaskWindow）、測試結果批次推到下一步（AdvanceTestsWindow）、
-// 駁回申請（RejectReviewWindow）。
+// 拒絕申請（RejectReviewWindow）。
 import { Theme, Button, ButtonKind, TextField } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, TextArea } from "../common.slint";
 import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
@@ -171,14 +171,14 @@ export component RejectReviewWindow inherits Window {
     icon: @image-url("../../../hayakubar/assets/app.ico");
     in property <string> heading;
     in property <string> details;
-    /// 駁回新增任務的申請會刪掉那個任務（紅字）；空字串不顯示
+    /// 拒絕新增任務的申請會刪掉那個任務（紅字）；空字串不顯示
     in property <string> warning;
-    in property <string> button-text: "駁回";
+    in property <string> button-text: "拒絕";
     in-out property <string> note;
     in property <bool> busy;
     callback reject(note: string);
     callback cancel();
-    title: "駁回申請";
+    title: "拒絕申請";
     width: 440px;
     min-height: body.content-height;
     max-height: body.content-height;

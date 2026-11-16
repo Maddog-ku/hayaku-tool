@@ -1,9 +1,9 @@
 // 我的任務：任務詳細的彈窗內容（C# TasksPage.xaml 的 DetailPanel；測試流程 Testing.cs、補一段 Note.cs、展開區塊 Extras.cs）。
-import { Theme, ScrollView, Tip, Icon, Icons } from "@hb/index.slint";
+import { Theme, ScrollView, Tip, Icon, Icons, Segmented } from "@hb/index.slint";
 import { DateRangePicker, FieldLabel, GroupLabel, LinkButton, PlainText, StatusLine, TextArea, InlineEdit } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, HintBox, CheckText, Expander } from "../../shared/index.slint";
 import { Reader } from "../w3-common.slint";
-import { TasksPageData, TkLine, TkDep } from "data.slint";
+import { TasksPageData, TkLine, TkDep, TkOvBar } from "data.slint";
 
 /// 任務編號連結（點了在這裡打開那個任務）。
 component KeyLink {
@@ -66,6 +66,119 @@ component LineView {
         mouse-cursor: pointer;
         clicked => {
             TasksPageData.d-open(root.line.key);
+        }
+    }
+}
+
+/// 清單裡一小格可以點的字，點了跳出選項（子任務的優先級；跟上 Hayaku 1.5.5）。
+component ChipMenu {
+    in property <string> text;
+    in property <color> color: Theme.ink;
+    in property <[string]> items;
+    callback picked(string);
+    height: 24px;
+    preferred-width: label.preferred-width + 14px;
+    Rectangle {
+        border-radius: 8px;
+        background: ta.has-hover || popup.is-open ? Theme.hover : transparent;
+        animate background { duration: 150ms; }
+    }
+    label := Text {
+        x: 7px;
+        height: root.height;
+        text: root.text;
+        color: root.color;
+        font-size: Theme.fs-sm;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            popup.show();
+        }
+    }
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: 120px;
+        height: root.items.length * 28px + 12px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: Theme.card;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: Theme.shadow;
+            VerticalLayout {
+                padding: 6px;
+                for it in root.items: Rectangle {
+                    height: 28px;
+                    border-radius: 8px;
+                    background: ita.has-hover ? Theme.hover : transparent;
+                    Text {
+                        x: 10px;
+                        height: parent.height;
+                        text: it;
+                        color: it == root.text ? Theme.accent-ink : Theme.ink;
+                        font-size: Theme.fs-md;
+                        font-weight: it == root.text ? 600 : 400;
+                        vertical-alignment: center;
+                    }
+                    ita := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.picked(it);
+                            popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 概況的一條橫條（各人投入）。
+component BarRow {
+    in property <TkOvBar> bar;
+    min-height: 24px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            width: 84px;
+            text: root.bar.label;
+            color: Theme.ink;
+            font-size: Theme.fs-md;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Rectangle {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.fill;
+            }
+            Rectangle {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width * root.bar.ratio;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.ink;
+            }
+        }
+        Text {
+            min-width: 70px;
+            text: root.bar.value;
+            color: Theme.muted;
+            font-size: Theme.fs-sm;
+            font-family: Theme.font-num;
+            vertical-alignment: center;
+            horizontal-alignment: right;
         }
     }
 }
@@ -345,6 +458,7 @@ export component DetailView {
                     label: "狀態";
                     MiniSelect {
                         items: TasksPageData.d-status-items;
+                        dots: TasksPageData.d-status-dots;
                         current <=> TasksPageData.d-status-index;
                         selected(i) => {
                             TasksPageData.d-status-selected(i);
@@ -429,11 +543,37 @@ export component DetailView {
                     row: 3;
                     col: 1;
                     label: "執行者";
-                    Text {
-                        text: TasksPageData.d-assignees;
-                        color: Theme.ink;
-                        font-size: Theme.fs-md;
-                        wrap: word-wrap;
+                    Rectangle {
+                        min-height: 34px;
+                        border-radius: 10px;
+                        background: assignee-ta.has-hover ? Theme.hover : transparent;
+                        animate background { duration: 150ms; }
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 8px;
+                            spacing: 6px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: TasksPageData.d-assignees;
+                                color: TasksPageData.d-assignees == "—" ? Theme.muted : Theme.ink;
+                                font-size: Theme.fs-md;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: assignee-ta.has-hover ? "選擇…" : "";
+                                color: Theme.accent-ink;
+                                font-size: Theme.fs-sm;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                        }
+                        assignee-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                TasksPageData.d-assignees-edit();
+                            }
+                        }
                     }
                 }
                 Rectangle {
@@ -461,6 +601,149 @@ export component DetailView {
                         tip: "一般、測試、測試結果；測試結果只能放在測試任務底下";
                         selected(i) => {
                             TasksPageData.d-type-selected(i);
+                        }
+                    }
+                }
+            }
+
+            // 概況（跟上 Hayaku 1.5.5；C# 版沒有）：子任務進度、逾期、工時、會不會延誤、每週趨勢、各人投入；展開才讀
+            VerticalLayout {
+                padding-top: 14px;
+                Expander {
+                    title: "概況";
+                    expanded <=> TasksPageData.d-ov-expanded;
+                    toggled(e) => {
+                        TasksPageData.d-ov-toggled(e);
+                    }
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-top: 4px;
+                        if TasksPageData.d-ov-risk != "": Rectangle {
+                            property <int> tone: TasksPageData.d-ov-risk-tone;
+                            border-radius: 12px;
+                            background: tone == 2 ? Theme.error-soft : tone == 1 ? Theme.warn-soft : tone == 0 ? Theme.run-soft : Theme.fill;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 8px;
+                                padding-bottom: 8px;
+                                Text {
+                                    text: TasksPageData.d-ov-risk;
+                                    color: tone == 2 ? Theme.error : tone == 1 ? Theme.warn : tone == 0 ? Theme.status-done-ink : Theme.muted;
+                                    font-size: Theme.fs-md;
+                                    font-weight: 600;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                        if TasksPageData.d-ov-stats.length > 0: HorizontalLayout {
+                            spacing: 8px;
+                            for s in TasksPageData.d-ov-stats: Rectangle {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                border-radius: 12px;
+                                background: Theme.fill;
+                                VerticalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    padding-top: 7px;
+                                    padding-bottom: 7px;
+                                    spacing: 1px;
+                                    Text {
+                                        text: s.label;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-sm;
+                                        overflow: elide;
+                                    }
+                                    Text {
+                                        text: s.value;
+                                        color: Theme.ink;
+                                        font-size: Theme.fs-base;
+                                        font-weight: 600;
+                                        font-family: Theme.font-num;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+                        // 子任務進度
+                        if TasksPageData.d-ov-progress-text != "": VerticalLayout {
+                            spacing: 4px;
+                            Rectangle {
+                                height: 8px;
+                                border-radius: 4px;
+                                background: Theme.fill;
+                                Rectangle {
+                                    x: 0px;
+                                    width: parent.width * TasksPageData.d-ov-progress;
+                                    border-radius: 4px;
+                                    background: Theme.run;
+                                }
+                            }
+                            Text {
+                                text: TasksPageData.d-ov-progress-text;
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                            }
+                        }
+                        if TasksPageData.d-ov-overdue.length > 0: Text {
+                            text: "逾期的子任務";
+                            color: Theme.error;
+                            font-size: Theme.fs-sm;
+                            font-weight: 600;
+                        }
+                        for l in TasksPageData.d-ov-overdue: LineView {
+                            line: l;
+                        }
+                        // 每週趨勢：最近 8 週，一週一根
+                        if TasksPageData.d-ov-weeks.length > 0: Text {
+                            text: "每週趨勢（小時）";
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            font-weight: 600;
+                        }
+                        if TasksPageData.d-ov-weeks.length > 0: HorizontalLayout {
+                            spacing: 6px;
+                            height: 92px;
+                            for w in TasksPageData.d-ov-weeks: VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: end;
+                                spacing: 2px;
+                                Text {
+                                    text: w.ratio > 0 ? w.value : "";
+                                    color: Theme.muted;
+                                    font-size: Theme.fs-xs;
+                                    font-family: Theme.font-num;
+                                    horizontal-alignment: center;
+                                }
+                                Rectangle {
+                                    height: max(2px, 52px * w.ratio);
+                                    border-radius: 4px;
+                                    background: w.ratio > 0 ? Theme.ink : Theme.line;
+                                }
+                                Text {
+                                    text: w.label;
+                                    color: Theme.muted;
+                                    font-size: Theme.fs-xs;
+                                    font-family: Theme.font-num;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                        }
+                        if TasksPageData.d-ov-people.length > 0: Text {
+                            text: "各人投入";
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            font-weight: 600;
+                        }
+                        for p in TasksPageData.d-ov-people: BarRow {
+                            bar: p;
+                        }
+                        if TasksPageData.d-ov-message != "": Text {
+                            text: TasksPageData.d-ov-message;
+                            color: TasksPageData.d-ov-error ? Theme.error : Theme.muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
                         }
                     }
                 }
@@ -601,7 +884,7 @@ export component DetailView {
                         }
                     }
                     MiniSelect {
-                        width: 110px;
+                        min-width: 110px;
                         items: TasksPageData.d-bucket-labels;
                         current <=> TasksPageData.d-bucket-index;
                         tip: "依狀態篩選";
@@ -610,13 +893,22 @@ export component DetailView {
                         }
                     }
                 }
+                // 跟上 Hayaku 1.5.5：每列看得到執行者、優先級、預計完成日、工時，點那一格就能直接改；點其他地方打開子任務
                 for c in TasksPageData.d-children: Rectangle {
-                    height: 28px;
+                    height: 30px;
                     border-radius: 8px;
                     background: child-ta.has-hover ? Theme.fill : transparent;
+                    child-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            TasksPageData.d-open(c.key);
+                        }
+                    }
                     HorizontalLayout {
                         padding-left: 4px;
+                        padding-right: 4px;
                         spacing: 6px;
+                        opacity: c.done ? 0.6 : 1;
                         Text {
                             text: c.key;
                             color: Theme.accent-ink;
@@ -630,19 +922,71 @@ export component DetailView {
                             font-size: Theme.fs-md;
                             vertical-alignment: center;
                             overflow: elide;
+                            horizontal-stretch: 1;
+                            min-width: 60px;
                         }
                         Text {
                             text: c.status;
                             color: Theme.muted;
-                            font-size: Theme.fs-md;
+                            font-size: Theme.fs-sm;
                             vertical-alignment: center;
-                            horizontal-stretch: 1;
                         }
-                    }
-                    child-ta := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            TasksPageData.d-open(c.key);
+                        if c.info: Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            height: 24px;
+                            horizontal-stretch: 0;
+                            max-width: 120px;
+                            preferred-width: people-text.preferred-width + 14px;
+                            border-radius: 8px;
+                            background: people-ta.has-hover ? Theme.hover : transparent;
+                            people-text := Text {
+                                x: 7px;
+                                width: parent.width - 14px;
+                                height: parent.height;
+                                text: c.people;
+                                color: c.people == "未指派" ? Theme.muted : Theme.ink;
+                                font-size: Theme.fs-sm;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            people-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    TasksPageData.d-child-assignees(c.key);
+                                }
+                            }
+                        }
+                        if c.info: ChipMenu {
+                            y: (parent.height - self.height) / 2;
+                            horizontal-stretch: 0;
+                            text: c.priority;
+                            color: c.priority == "緊急" ? Theme.error : c.priority == "高" ? Theme.warn : c.priority == "無" ? Theme.muted : Theme.ink;
+                            items: ["緊急", "高", "中", "低", "無"];
+                            picked(p) => {
+                                TasksPageData.d-child-priority(c.key, p);
+                            }
+                        }
+                        if c.info: DateRangePicker {
+                            y: (parent.height - self.height) / 2;
+                            width: 56px;
+                            horizontal-stretch: 0;
+                            compact: true;
+                            single: true;
+                            start: c.due-int;
+                            end: c.due-int;
+                            today: TasksPageData.today;
+                            compact-text: c.due;
+                            compact-color: c.due-tone == 1 ? Theme.error : c.due-tone == 2 ? Theme.muted : Theme.ink;
+                            applied => {
+                                TasksPageData.d-child-due(c.key, self.start);
+                            }
+                        }
+                        if c.hours != "": Text {
+                            text: c.hours;
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            font-family: Theme.font-num;
+                            vertical-alignment: center;
                         }
                     }
                 }
@@ -947,22 +1291,59 @@ export component DetailView {
                     toggled(e) => {
                         TasksPageData.d-history-toggled(e);
                     }
-                    for h in TasksPageData.d-history: HorizontalLayout {
-                        spacing: 0px;
-                        padding-top: 2px;
-                        padding-bottom: 2px;
-                        if h.kind == 1: Text {
-                            text: h.meta;
-                            color: Theme.muted;
+                    // 跟上 Hayaku 1.5.5：可篩選、按天分組、一句話一列，同一張變更申請收成一張卡
+                    HorizontalLayout {
+                        padding-bottom: 4px;
+                        alignment: start;
+                        Segmented {
+                            height: 32px;
                             font-size: Theme.fs-sm;
-                            font-family: Theme.font-num;
+                            item-padding: 14px;
+                            items: ["全部", "留言", "變更"];
+                            current <=> TasksPageData.d-history-filter;
+                            selected(i) => {
+                                TasksPageData.d-history-filter-changed(i);
+                            }
                         }
-                        Text {
-                            text: h.text;
-                            color: h.kind == 2 ? Theme.muted : h.kind == 3 ? Theme.error : Theme.ink;
-                            font-size: h.kind == 1 ? Theme.fs-md : Theme.fs-sm;
-                            wrap: word-wrap;
-                            horizontal-stretch: 1;
+                    }
+                    for h in TasksPageData.d-history: Rectangle {
+                        property <bool> in-card: h.kind == 5 || h.kind == 6;
+                        property <color> tone: h.depth == 1 ? Theme.run : h.depth == 2 ? Theme.error : h.depth == 3 ? Theme.muted : Theme.warn;
+                        background: in-card ? Theme.fill : transparent;
+                        HorizontalLayout {
+                            spacing: 0px;
+                            padding-left: in-card ? 12px : 0px;
+                            padding-right: in-card ? 8px : 0px;
+                            padding-top: h.kind == 4 ? 10px : h.kind == 5 ? 6px : 2px;
+                            padding-bottom: h.kind == 4 ? 4px : 2px;
+                            if h.kind == 1 || h.kind == 6: Text {
+                                text: h.meta;
+                                color: Theme.muted;
+                                font-size: Theme.fs-sm;
+                                font-family: Theme.font-num;
+                                vertical-alignment: top;
+                            }
+                            Text {
+                                text: h.text;
+                                color: h.kind == 2 || h.kind == 4 ? Theme.muted : h.kind == 3 ? Theme.error : Theme.ink;
+                                font-size: h.kind == 1 || h.kind == 5 ? Theme.fs-md : Theme.fs-sm;
+                                font-weight: h.kind == 4 || h.kind == 5 ? 600 : 400;
+                                wrap: word-wrap;
+                                horizontal-stretch: 1;
+                            }
+                            if h.kind == 5: Text {
+                                text: h.meta;
+                                color: tone;
+                                font-size: Theme.fs-sm;
+                                font-weight: 600;
+                            }
+                        }
+                        if in-card: Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: 3px;
+                            height: parent.height;
+                            background: tone;
                         }
                     }
                     if TasksPageData.d-history-more: HorizontalLayout {

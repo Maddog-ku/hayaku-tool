@@ -18,6 +18,14 @@ fn activity_label(name: &str) -> Option<&'static str> {
         "actualStartDate" => "實際開始",
         "actualEndDate" => "實際結束",
         "fields" => "欄位",
+        // 跟上 Hayaku 1.5.5（異動紀錄不再出現英文代碼）
+        "type" => "類型",
+        "approvalState" => "核准狀態",
+        "subtask" => "子任務",
+        "milestones" => "里程碑",
+        "category" => "分類",
+        "severity" => "嚴重度",
+        "durationSeconds" => "工時",
         _ => return None,
     })
 }
@@ -45,24 +53,116 @@ fn value_text(v: &Value) -> Option<String> {
 
 /// {"title": ["舊", "新"], …} → 「名稱：舊 → 新、狀態：處理中」。
 fn field_changes(changes: &Value, skip: Option<&str>) -> String {
+    field_changes_with(changes, skip.as_slice(), "：")
+}
+
+/// 同上，可以略過多個欄位、指定名稱和值中間的分隔（Hayaku 1.5.5 起寫成「類型 一般 → 測試」，用空白）。
+fn field_changes_with(changes: &Value, skip: &[&str], sep: &str) -> String {
     let Some(o) = changes.as_object() else {
         return String::new();
     };
     let mut parts = Vec::new();
     for (name, v) in o {
         let Some(pair) = v.as_array().filter(|a| a.len() == 2) else { continue };
-        if Some(name.as_str()) == skip {
+        if skip.contains(&name.as_str()) {
             continue;
         }
         let label = change_label(name).or_else(|| activity_label(name)).unwrap_or(name);
-        let (before, after) = (value_text(&pair[0]), value_text(&pair[1]));
+        let text = |v: &Value| match (name.as_str(), as_f64(v)) {
+            ("durationSeconds", Some(secs)) => Some(WorkMath::hours_minutes(secs / 60.0)),
+            _ => value_text(v),
+        };
+        let (before, after) = (text(&pair[0]), text(&pair[1]));
         let after = after.unwrap_or_else(|| "清空".to_owned());
         parts.push(match before {
-            None => format!("{label}：{after}"),
-            Some(b) => format!("{label}：{b} → {after}"),
+            None => format!("{label}{sep}{after}"),
+            Some(b) => format!("{label}{sep}{b} → {after}"),
         });
     }
     parts.join("、")
+}
+
+/// 計時的欄位：開始、結束時間跟這則的時間重複，工時另外接在最後，都不列在改了什麼裡。
+const TIMER_FIELDS: [&str; 4] = ["startedAt", "endedAt", "durationSeconds", "stopReason"];
+
+/// Hayaku 1.5.5 起 action 是中文（「修改了任務」「暫停了計時」）：動作＋改了什麼；
+/// 申請類型、經誰申請接在動作後面。什麼都組不出來時用伺服器的 summary（去掉開頭的人名）。
+fn localized_text(i: &Value, action: &str, changes: &Value, duration: &str) -> String {
+    let new = |field: &str| -> Option<String> {
+        match prop(changes, field) {
+            Some(Value::Array(pair)) if pair.len() == 2 => value_text(&pair[1]),
+            _ => None,
+        }
+    };
+    let mut skip: Vec<&str> = TIMER_FIELDS.to_vec();
+    let mut head = match new("stopReason").as_deref() {
+        Some("BREAK") => "休息時間自動暫停".to_owned(),
+        Some("END" | "OFF_DUTY") => "下班自動暫停".to_owned(),
+        _ => action.to_owned(),
+    };
+    if action.contains("變更申請")
+        && let Some(t) = new("type")
+    {
+        head += &format!("（{t}）");
+        skip.push("type");
+    }
+    if action.contains("子任務")
+        && let Some(sub) = new("subtask")
+    {
+        head += &format!(" {sub}");
+        skip.push("subtask");
+    } else if action.contains("建立")
+        && let Some(title) = new("title")
+    {
+        // 建立時帶的整份初始欄位太長，跟以前一樣只寫名稱
+        return format!("{head}「{title}」{duration}");
+    }
+    if let Some(by) = prop(i, "requestedBy").and_then(person) {
+        head += &format!("（經 {} 申請）", by.display_name);
+    }
+    let details = field_changes_with(changes, &skip, " ");
+    let text = if details.is_empty() { head } else { format!("{head}：{details}") };
+    if !text.is_empty() {
+        return text + duration;
+    }
+    let summary = str_(i, "summary").unwrap_or_default();
+    let actor = prop(i, "actor").and_then(person).map(|p| p.display_name).unwrap_or_default();
+    summary.strip_prefix(&format!("{actor} ")).unwrap_or(summary).to_owned()
+}
+
+/// 這則對變更申請做了什麼：舊版是 change_request.* 代碼，1.5.5 起是中文動作＋changeRequestId。
+fn request_step(i: &Value) -> Option<RequestStep> {
+    let action = str_(i, "action").unwrap_or_default();
+    let submitted_type = || match prop(obj(i, "changes"), "type") {
+        Some(Value::Array(pair)) if pair.len() == 2 => match value_text(&pair[1]).unwrap_or_default().as_str() {
+            "CREATE" => "新增".to_owned(),
+            "UPDATE" => "修改".to_owned(),
+            "DELETE" => "刪除".to_owned(),
+            other => other.to_owned(),
+        },
+        _ => String::new(),
+    };
+    if let Some(code) = action.strip_prefix("change_request.") {
+        return Some(match code {
+            "create" => RequestStep::Submit(submitted_type()),
+            "approve" => RequestStep::Approve,
+            "reject" => RequestStep::Reject,
+            "withdraw" => RequestStep::Withdraw,
+            _ => RequestStep::Other,
+        });
+    }
+    str_(i, "changeRequestId")?;
+    Some(if action.contains("提出") {
+        RequestStep::Submit(submitted_type())
+    } else if action.contains("核准") {
+        RequestStep::Approve
+    } else if action.contains("拒絕") || action.contains("駁回") {
+        RequestStep::Reject
+    } else if action.contains("撤回") {
+        RequestStep::Withdraw
+    } else {
+        RequestStep::Other
+    })
 }
 
 /// 一則異動 → 中文說明；認不得的動作照原本的代碼顯示。
@@ -87,6 +187,9 @@ fn activity_text(i: &Value) -> String {
     let Some(action) = str_(i, "action") else {
         return String::new();
     };
+    if action.is_empty() || !action.is_ascii() {
+        return localized_text(i, action, changes, &duration);
+    }
     match action {
         "task.create" => format!("建立任務「{}」", new("title").unwrap_or_default()),
         "task.subtask.create" => format!("新增子任務 {}", new("subtask").unwrap_or_default()),
@@ -162,6 +265,9 @@ impl HayakuApi {
                     status_category: first_string(c, &["statusCategory"]),
                     depth,
                     assignees,
+                    priority: first_string(c, &["priority"]),
+                    planned_start: day(c, "plannedStart"),
+                    planned_end: day(c, "plannedEnd"),
                 });
                 walk(rows, c, depth + 1);
             }
@@ -204,15 +310,16 @@ impl HayakuApi {
         Ok(Self::parse_content(&self.call("get_content", json!({ "task": task })).await?))
     }
 
-    /// 異動紀錄與留言（新到舊，一頁 50 筆）；回傳下一頁的 cursor。
+    /// 異動紀錄與留言（新到舊，一頁 50 筆）；回傳下一頁的 cursor。filter：all／comments／changes。
     pub async fn task_activity(
         &self,
         task: &str,
+        filter: &str,
         cursor: Option<&str>,
     ) -> Result<(Vec<TaskActivityItem>, Option<String>), McpError> {
         let mut args = Map::new();
         args.insert("task".into(), json!(task));
-        args.insert("filter".into(), json!("all"));
+        args.insert("filter".into(), json!(filter));
         if let Some(c) = cursor {
             args.insert("cursor".into(), json!(c));
         }
@@ -396,6 +503,9 @@ impl HayakuApi {
                     at: date(i, "createdAt").unwrap_or_else(min_value),
                     actor: actor.unwrap_or_else(|| if source == Some("SYSTEM") { "系統" } else { "" }.to_owned()),
                     text,
+                    comment: matches!(str_(i, "type"), Some("comment" | "chat")),
+                    change_request: string(i, "changeRequestId"),
+                    request_step: request_step(i),
                 }
             })
             .collect()
@@ -428,6 +538,59 @@ mod tests {
         assert_eq!(items[1].actor, "系統");
         assert_eq!(items[2].text, "新增子任務 F2P-76 系統規劃（已復原）");
         assert_eq!(items[3].text, "something.new");
+    }
+
+    #[test]
+    fn 異動紀錄_1_5_5_中文動作() {
+        // 實際回應（2026-11-16，F2P-97），時間與 id 簡化
+        let items = HayakuApi::parse_task_activity(&j(r#"
+            {"items":[
+              {"type":"change","action":"修改了任務","actor":{"username":"a","displayName":"小明"},"requestedBy":null,"source":"WEB",
+               "changes":{"status":["客戶驗證中","已完成"],"actualEndDate":[null,"2026-10-29"]},"undone":false,"changeRequestId":null,
+               "createdAt":"2026-10-29T08:18:25.728Z","summary":"小明 修改了任務：狀態 客戶驗證中 → 已完成；實際結束 2026-10-29"},
+              {"type":"change","action":"暫停了計時","actor":{"username":"a","displayName":"小明"},"source":"MCP",
+               "changes":{"endedAt":[null,"2026-10-28T03:21:35.446Z"],"durationSeconds":[null,10394]},"createdAt":"2026-10-28T03:21:35.458Z"},
+              {"type":"change","action":"核准了任務","actor":{"username":"b","displayName":"小華"},"requestedBy":{"username":"a","displayName":"小明"},
+               "source":"WEB","changes":{"approvalState":["待核准","已核准"]},"changeRequestId":"cr1","createdAt":"2026-10-27T09:23:04.489Z"},
+              {"type":"change","action":"提出了變更申請","actor":{"username":"a","displayName":"小明"},"source":"WEB",
+               "changes":{"type":[null,"新增"]},"changeRequestId":"cr1","createdAt":"2026-10-27T08:53:13.111Z"},
+              {"type":"change","action":"建立了任務","actor":{"username":"a","displayName":"小明"},"source":"WEB",
+               "changes":{"title":[null,"報表頁面"],"status":[null,"未開始"]},"createdAt":"2026-10-27T08:53:13.094Z"},
+              {"type":"change","action":"修改了任務","actor":{"username":"a","displayName":"小明"},"source":"WEB",
+               "changes":{"type":["一般","測試"]},"createdAt":"2026-10-27T08:00:00Z"},
+              {"type":"change","action":"自動暫停了計時","actor":null,"source":"SYSTEM",
+               "changes":{"stopReason":[null,"BREAK"],"durationSeconds":[null,12600]},"createdAt":"2026-10-27T07:00:00Z"},
+              {"type":"change","action":"","actor":{"username":"a","displayName":"小明"},"changes":null,
+               "summary":"小明 做了某件事","createdAt":"2026-10-27T06:00:00Z"},
+              {"type":"comment","body":"好","actor":{"username":"a","displayName":"小明"},"createdAt":"2026-10-27T05:00:00Z"}
+            ],"nextCursor":null}"#));
+        assert_eq!(items[0].text, "修改了任務：狀態 客戶驗證中 → 已完成、實際結束 2026-10-29");
+        assert_eq!((items[0].change_request.as_deref(), items[0].request_step.as_ref()), (None, None));
+        assert_eq!(items[1].text, "暫停了計時（2 小時 53 分）（透過 MCP）");
+        assert_eq!(items[2].text, "核准了任務（經 小明 申請）：核准狀態 待核准 → 已核准");
+        assert_eq!(
+            (items[2].change_request.as_deref(), items[2].request_step.as_ref()),
+            (Some("cr1"), Some(&RequestStep::Approve))
+        );
+        assert_eq!(items[3].text, "提出了變更申請（新增）");
+        assert_eq!(items[3].request_step, Some(RequestStep::Submit("新增".into())));
+        assert_eq!(items[4].text, "建立了任務「報表頁面」");
+        assert_eq!(items[5].text, "修改了任務：類型 一般 → 測試");
+        assert_eq!((items[6].text.as_str(), items[6].actor.as_str()), ("休息時間自動暫停（3 小時 30 分）", "系統"));
+        assert_eq!(items[7].text, "做了某件事");
+        assert!(items[8].comment && !items[0].comment);
+    }
+
+    #[test]
+    fn 異動紀錄_舊代碼的變更申請也認得步驟() {
+        let items = HayakuApi::parse_task_activity(&j(r#"
+            {"items":[
+              {"type":"change","action":"change_request.reject","createdAt":"2026-10-27T09:00:00Z"},
+              {"type":"change","action":"change_request.create","changes":{"type":[null,"UPDATE"]},"createdAt":"2026-10-27T08:00:00Z"}
+            ]}"#));
+        assert_eq!(items[0].request_step, Some(RequestStep::Reject));
+        assert_eq!(items[1].request_step, Some(RequestStep::Submit("修改".into())));
+        assert_eq!(RequestStep::Reject.state_text(), "已拒絕");
     }
 
     #[test]
@@ -506,6 +669,12 @@ mod tests {
             vec!["F2P-15", "F2P-16", "F2P-17", "F2P-101"]
         );
         assert_eq!(rows.iter().map(|r| r.depth).collect::<Vec<_>>(), vec![1, 1, 2, 1]);
+        let more = HayakuApi::parse_task_tree(&j(r#"
+            {"children":[{"task":"F2P-6","title":"a","priority":"高","plannedStart":"2026-09-28","plannedEnd":"2026-10-07","children":[]}]}"#));
+        assert_eq!(
+            (more[0].priority.as_deref(), more[0].planned_end, rows[0].planned_end),
+            (Some("高"), chrono::NaiveDate::from_ymd_opt(2026, 10, 7), None)
+        );
         assert_eq!(rows[2].assignees.len(), 1);
         assert_eq!(
             (

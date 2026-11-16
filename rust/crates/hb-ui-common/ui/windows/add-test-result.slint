@@ -15,6 +15,7 @@ export component AddTestResultWindow inherits Window {
     in-out property <int> severity: 2;
     in-out property <string> assignee;
     in property <[string]> members;
+    callback pick-assignee();
     in-out property <string> related;
     /// 「＋ 加入同一層的任務…」＋同一層的任務；空的時不顯示
     in property <[string]> siblings;
@@ -121,11 +122,27 @@ export component AddTestResultWindow inherits Window {
                 FieldLabel {
                     text: "要誰修（不選是未指派）";
                 }
-                ComboField {
-                    height: 42px;
-                    text <=> root.assignee;
-                    items: root.members;
-                    enabled: !root.busy;
+                HorizontalLayout {
+                    spacing: 8px;
+                    ComboField {
+                        height: 42px;
+                        horizontal-stretch: 1;
+                        text <=> root.assignee;
+                        items: root.members;
+                        enabled: !root.busy;
+                    }
+                    // 跟上 Hayaku 1.5.5 的選人方式：名字、帳號都能搜
+                    Button {
+                        height: 42px;
+                        text: "選人…";
+                        kind: ButtonKind.secondary;
+                        font-size: Theme.fs-sm;
+                        horizontal-padding: 12px;
+                        enabled: !root.busy && root.members.length > 0;
+                        clicked => {
+                            root.pick-assignee();
+                        }
+                    }
                 }
             }
         }

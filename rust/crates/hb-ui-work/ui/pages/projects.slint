@@ -54,6 +54,7 @@ export global ProjectsPageData {
     in-out property <bool> batch-visible;
     in-out property <string> batch-text;
     in-out property <[string]> batch-statuses;
+    in-out property <[int]> batch-status-dots;
     in-out property <int> batch-status-index: -1;
     in-out property <[string]> priorities;
     in-out property <int> batch-priority-index: -1;
@@ -77,6 +78,8 @@ export global ProjectsPageData {
     callback apply-priority();
     callback apply-type();
     callback apply-template();
+    /// 〔更多欄位…〕：批次修改預計日期、預估工時、里程碑、自訂欄位…（跟上 Hayaku 1.5.5）
+    callback batch-edit();
     callback clear-selection();
 
     // ---- 右鍵選單（跟 hb-ui-common TaskMenuState 一樣的欄位，給 wire_task_menu!）----
@@ -178,7 +181,17 @@ component TaskRow inherits Rectangle {
     in property <int> index;
     height: 32px;
     border-radius: 10px;
-    background: menu.hovered ? Theme.hover : transparent;
+    // 勾選的列：暖灰底＋左邊墨條（跟上 Hayaku 1.5.5，跟滑過的淡底分得開）
+    background: root.data.checked ? (Theme.dark ? #2B2825 : #F0ECE6) : menu.hovered ? Theme.hover : transparent;
+    animate background { duration: 150ms; }
+    if root.data.checked: Rectangle {
+        x: 0px;
+        y: 5px;
+        width: 3px;
+        height: parent.height - 10px;
+        border-radius: 1.5px;
+        background: Theme.ink;
+    }
     menu := ProjectsMenuArea {
         key: root.data.key;
         width: root.width;
@@ -440,6 +453,7 @@ export component ProjectsPage inherits Rectangle {
                         width: 140px;
                         height: 34px;
                         items: ProjectsPageData.batch-statuses;
+                        dots: ProjectsPageData.batch-status-dots;
                         current <=> ProjectsPageData.batch-status-index;
                     }
                     W2Button {
@@ -474,6 +488,11 @@ export component ProjectsPage inherits Rectangle {
                             clicked => { ProjectsPageData.apply-type(); }
                         }
                         W2Button {
+                            text: "更多欄位…";
+                            tip: "一次改預計日期（設成同一天，或往前、往後移幾個工作日）、預估工時、里程碑、自訂欄位";
+                            clicked => { ProjectsPageData.batch-edit(); }
+                        }
+                        W2Button {
                             text: "套用範本…";
                             tip: "把子任務範本套到勾選的任務底下（先預覽會建哪些）";
                             clicked => { ProjectsPageData.apply-template(); }
@@ -502,6 +521,11 @@ export component ProjectsPage inherits Rectangle {
                         tip: "測試結果只能放在測試任務底下；測試任務底下有測試結果不能改成別的類型";
                         enabled: ProjectsPageData.busy-button == "";
                         clicked => { ProjectsPageData.apply-type(); }
+                    }
+                    W2Button {
+                        text: "更多欄位…";
+                        tip: "一次改預計日期（設成同一天，或往前、往後移幾個工作日）、預估工時、里程碑、自訂欄位";
+                        clicked => { ProjectsPageData.batch-edit(); }
                     }
                     W2Button {
                         text: "套用範本…";

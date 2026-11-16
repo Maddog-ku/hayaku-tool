@@ -64,6 +64,33 @@ pub fn open(
     }
     let id = window_util::keep(&ui, Some(tag), ());
     let members: Rc<RefCell<Vec<PersonRef>>> = Rc::default();
+    {
+        let (weak, members) = (ui.as_weak(), members.clone());
+        let test_task = test_task.to_owned();
+        ui.on_pick_assignee(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let who = ui.get_assignee().trim().to_owned();
+            let list = members.borrow().clone();
+            let selected = list
+                .iter()
+                .filter(|m| !who.is_empty() && (m.display_name == who || m.username.eq_ignore_ascii_case(&who)))
+                .map(|m| m.username.clone())
+                .collect();
+            let pick = crate::people_picker::PeoplePick {
+                heading: format!("要誰修 · {test_task}"),
+                hint: "點一下就選好".to_owned(),
+                members: list.clone(),
+                selected,
+                multi: false,
+            };
+            let weak = weak.clone();
+            crate::people_picker::open(pick, Some(format!("people:test-result:{test_task}")), move |chosen| {
+                let (Some(ui), Some(u)) = (weak.upgrade(), chosen.first()) else { return };
+                let name = list.iter().find(|m| m.username == *u).map_or_else(|| u.clone(), |m| m.display_name.clone());
+                ui.set_assignee(name.into());
+            });
+        });
+    }
 
     {
         let weak = ui.as_weak();

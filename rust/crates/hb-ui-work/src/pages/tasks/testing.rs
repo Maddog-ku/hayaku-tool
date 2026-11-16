@@ -92,6 +92,47 @@ pub(super) fn filter_children(
     list
 }
 
+/// 子任務清單的一列（跟上 Hayaku 1.5.5）：子任務樹讀到了才有優先級、預計完成日、執行者；
+/// 工時是展開「子任務的工時」讀到的；執行者的帳號換成專案成員的顯示名稱。
+pub(super) fn child_row(
+    c: (String, String, String),
+    is_test: bool,
+    info: Option<&hb_api::TaskTreeRow>,
+    minutes: f64,
+    members: &[hb_api::PersonRef],
+    today: chrono::NaiveDate,
+) -> TkChild {
+    let done = info.is_some_and(|r| matches!(r.status_category.as_deref(), Some("DONE" | "CANCELLED")));
+    let due = info.and_then(|r| r.planned_end);
+    let people: Vec<String> = info
+        .map(|r| {
+            r.assignees
+                .iter()
+                .map(|a| {
+                    members.iter().find(|m| m.username == *a).map_or_else(|| a.clone(), |m| m.display_name.clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    TkChild {
+        key: c.0.into(),
+        title: if is_test { format!("🐞 {}", c.1) } else { c.1 }.into(),
+        status: format!("· {}", c.2).into(),
+        info: info.is_some(),
+        priority: info.and_then(|r| r.priority.clone()).filter(|p| !p.is_empty()).unwrap_or_else(|| "無".to_owned()).into(),
+        due: due.map_or_else(|| "未定".to_owned(), |d| d.format("%m/%d").to_string()).into(),
+        due_int: hb_ui_common::date_range::to_int(due),
+        due_tone: match due {
+            None => 2,
+            Some(e) if e < today && !done => 1,
+            _ => 0,
+        },
+        people: if people.is_empty() { "未指派".to_owned() } else { people.join("、") }.into(),
+        hours: if minutes > 0.0 { hb_api::WorkMath::hours_minutes(minutes) } else { String::new() }.into(),
+        done,
+    }
+}
+
 /// 測試結果的按鈕（C# RenderResultPanel）：(按鈕, 都沒有按鈕時的說明)。
 pub(super) fn result_actions(engine: &TimerEngine, d: &TaskDetail) -> (Vec<TkAction>, String) {
     let info = &d.test;
@@ -378,7 +419,7 @@ impl Page {
         hb_ui_common::add_test_result::open(self.engine(), &d.key, &d.title, parent.as_deref(), &siblings, Some(added));
     }
 
-    fn rerender_children(&self) {
+    pub(super) fn rerender_children(&self) {
         if let Some(d) = self.st.borrow().detail.clone() {
             self.render_children(&d);
         }
@@ -391,14 +432,18 @@ impl Page {
             let st = self.st.borrow();
             (st.result_filter.clone(), st.result_bucket.clone())
         };
-        let rows: Vec<TkChild> = filter_children(&d.children, is_test, &q, &bucket)
-            .into_iter()
-            .map(|c| TkChild {
-                key: c.0.into(),
-                title: if is_test { format!("🐞 {}", c.1) } else { c.1 }.into(),
-                status: format!("· {}", c.2).into(),
-            })
-            .collect();
+        let today = chrono::Local::now().date_naive();
+        let rows: Vec<TkChild> = {
+            let st = self.st.borrow();
+            filter_children(&d.children, is_test, &q, &bucket)
+                .into_iter()
+                .map(|c| {
+                    let info = st.child_info.get(&c.0);
+                    let minutes = st.child_minutes.get(&c.0).copied().unwrap_or(0.0);
+                    child_row(c, is_test, info, minutes, &st.members, today)
+                })
+                .collect()
+        };
         self.with_data(|x| {
             x.set_d_children(vec_model(rows));
             x.set_d_children_visible(!d.children.is_empty());

@@ -284,6 +284,23 @@ impl Page {
             let owner = p.ctx.window();
             hb_ui_common::poll::show(p.engine(), Some(&id), owner.as_ref().map(|w| w.window()));
         });
+        on!(d, self, on_d_child_priority, |p, key, priority| {
+            let fields = json!({ "priority": priority.as_str() });
+            shared::spawn("改子任務優先級", async move { p.update_child(key.to_string(), fields, "優先級").await });
+        });
+        on!(d, self, on_d_child_due, |p, key, day| {
+            let Some(due) = from_int(day) else { return };
+            // 預計開始比新的完成日晚時一起改成同一天（避免開始晚於完成）
+            let start = p.st.borrow().child_info.get(key.as_str()).and_then(|r| r.planned_start);
+            let mut fields = json!({ "plannedEnd": inputs::date_text(Some(due)) });
+            if start.is_some_and(|s| s > due) {
+                fields["plannedStart"] = json!(inputs::date_text(Some(due)));
+            }
+            shared::spawn("改子任務預計完成日", async move { p.update_child(key.to_string(), fields, "預計完成日").await });
+        });
+        on!(d, self, on_d_assignees_edit, |p| p.pick_assignees(None));
+        on!(d, self, on_d_child_assignees, |p, key| p.pick_assignees(Some(key.to_string())));
+        self.wire_overview(d);
         self.wire_testing(d);
         self.wire_extras(d);
         self.wire_note(d);
@@ -338,6 +355,7 @@ impl Page {
     pub(super) fn show_detail(&self, d: TaskDetail, project: &ProjectDetail) {
         self.st.borrow_mut().loading_detail = true;
         let reset_child_hours = self.st.borrow().child_hours_for.as_deref() != Some(d.key.as_str());
+        let reset_child_info = self.st.borrow().child_info_for.as_deref() != Some(d.key.as_str());
         let reset_tree = self.st.borrow().tree_for.as_deref() != Some(d.key.as_str());
         let reset_hours = HOURS.with(|h| {
             let mut h = h.borrow_mut();
@@ -352,6 +370,14 @@ impl Page {
             statuses.insert(0, d.status.clone());
         }
         let status_index = statuses.iter().position(|s| *s == d.status).map_or(-1, |i| i as i32);
+        // 顏色點照狀態分類；不在專案狀態清單的（插在最前面的目前狀態）用任務自己的分類
+        let status_dots: Vec<i32> = statuses
+            .iter()
+            .map(|name| match project.statuses.iter().find(|s| s.name == *name) {
+                Some(s) => hb_ui_common::status_dot(&s.category),
+                None => hb_ui_common::status_dot(&d.status_category),
+            })
+            .collect();
         let (logged, over, tip) = vm::logged_text(d.logged_minutes, &d.logged_text, d.estimated_hours, d.is_category);
         let path = if d.path.is_empty() {
             project.name.clone()
@@ -379,6 +405,7 @@ impl Page {
             x.set_d_title(d.title.as_str().into());
             x.set_d_approval(approval.into());
             x.set_d_status_items(string_model(&statuses));
+            x.set_d_status_dots(slint::ModelRc::new(slint::VecModel::from(status_dots)));
             x.set_d_status_index(status_index);
             x.set_d_priority_index(PRIORITIES.iter().position(|p| *p == d.priority).map_or(-1, |i| i as i32));
             x.set_d_plan_start(to_int(d.planned_start));
@@ -420,9 +447,22 @@ impl Page {
             if reset_tree {
                 st.tree_for = None;
             }
+            if reset_child_info {
+                st.child_info_for = None;
+                st.child_info.clear();
+                st.child_minutes.clear();
+            }
+            st.members = project.members.clone();
             st.detail = Some(d.clone());
         }
+        self.reset_overview(&d);
         self.render_testing(&d);
+        if reset_child_info
+            && !d.children.is_empty()
+            && let Some(p) = self.rc()
+        {
+            shared::spawn("讀取子任務", async move { p.load_child_info().await });
+        }
         self.reset_note_append(&d);
         self.reset_extras(&d);
         self.render_timer_button();
@@ -780,10 +820,97 @@ impl Page {
         if groups.iter().all(|g| g.2.is_empty()) {
             lines.push(line(2, "子任務都還沒有工時"));
         }
+        // 子任務清單也顯示各自的工時
+        self.st.borrow_mut().child_minutes =
+            groups.iter().map(|(k, _, e)| (k.clone(), e.iter().map(|t| entry_minutes(t, &now)).sum())).collect();
+        self.rerender_children();
         self.with_data(|d| {
             d.set_d_ch_header(header.into());
             d.set_d_ch_lines(vec_model(lines));
         });
+    }
+
+    /// 改執行者（跟上 Hayaku 1.5.5 的選人視窗）：child 是 None 時改這個任務，否則改那個子任務；
+    /// 全不選＝未指派（送空陣列）。
+    fn pick_assignees(&self, child: Option<String>) {
+        let (key, current, members) = {
+            let st = self.st.borrow();
+            let Some(d) = st.detail.as_ref() else { return };
+            let (key, current) = match &child {
+                None => (d.key.clone(), d.assignees.iter().map(|a| a.username.clone()).collect::<Vec<_>>()),
+                Some(c) => (c.clone(), st.child_info.get(c).map(|r| r.assignees.clone()).unwrap_or_default()),
+            };
+            (key, current, st.members.clone())
+        };
+        let pick = hb_ui_common::people_picker::PeoplePick {
+            heading: format!("選擇執行者 · {key}"),
+            hint: "全不選就是未指派。你在這個專案是執行者時，改了要等管理者核准。".to_owned(),
+            members,
+            selected: current.clone(),
+            multi: true,
+        };
+        let weak = self.me.clone();
+        hb_ui_common::people_picker::open(pick, Some(format!("people:assignees:{key}")), move |chosen| {
+            let same = chosen.len() == current.len() && chosen.iter().all(|c| current.iter().any(|u| u.eq_ignore_ascii_case(c)));
+            let Some(p) = weak.upgrade() else { return };
+            if same {
+                return;
+            }
+            let fields = json!({ "assignees": chosen });
+            match child.clone() {
+                None => p.spawn_update(fields, "執行者".to_owned()),
+                Some(c) => shared::spawn("改子任務執行者", async move { p.update_child(c, fields, "執行者").await }),
+            }
+        });
+    }
+
+    /// 子任務清單的優先級、預計日期、執行者（跟上 Hayaku 1.5.5）：get_task_tree 一層。
+    pub(super) async fn load_child_info(self: Rc<Self>) {
+        let Some(key) = self.st.borrow().detail.as_ref().map(|d| d.key.clone()) else { return };
+        if self.st.borrow().child_info_for.as_deref() == Some(key.as_str()) {
+            return;
+        }
+        self.st.borrow_mut().child_info_for = Some(key.clone());
+        let result = self.engine().api().task_tree(&key, 1).await;
+        if self.st.borrow().detail.as_ref().is_none_or(|d| d.key != key) {
+            return;
+        }
+        match result {
+            Ok((rows, _)) => {
+                self.st.borrow_mut().child_info = rows.into_iter().map(|r| (r.key.clone(), r)).collect();
+                self.rerender_children();
+            }
+            Err(e) => {
+                log::error!("讀取 {key} 的子任務失敗: {}", e.0);
+                self.st.borrow_mut().child_info_for = None;
+            }
+        }
+    }
+
+    /// 在子任務清單直接改一個子任務（優先級、預計完成日、執行者）；改完重讀子任務那一層。
+    pub(super) async fn update_child(self: Rc<Self>, child: String, fields: Value, what: &str) {
+        let fields = fields.as_object().cloned().unwrap_or_default();
+        let message: Rc<RefCell<Option<String>>> = Rc::default();
+        let api = self.engine().api();
+        let (m, k) = (message.clone(), child.clone());
+        let ok = inputs::run(
+            |_| {},
+            |msg| self.show_msg(msg),
+            move || async move {
+                *m.borrow_mut() = api.update_task(&k, fields).await.map_err(ActionError::from)?;
+                Ok(())
+            },
+            None,
+        )
+        .await;
+        if ok {
+            let text =
+                message.borrow().clone().filter(|m| !m.is_empty()).unwrap_or_else(|| format!("已更新 {child} 的{what}"));
+            self.show_msg(Some(StatusMessage::ok(text)));
+            self.engine().after_external_change().await;
+        }
+        self.st.borrow_mut().child_info_for = None;
+        self.clone().load_child_info().await;
     }
 
     /// 〔套用範本…〕（跟上 Hayaku 1.5.4，C# 版只有右鍵選單）：套到這個任務底下，套了就重讀詳細（同右鍵選單）。

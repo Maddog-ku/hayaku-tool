@@ -2,7 +2,7 @@
 // 匯入：`import { SmallButton, MiniSelect, ... } from "../shared/index.slint";`（從 ui/pages/*.slint）。
 // 外觀沿用 hb-ui-kit 的 Theme 與彈簧緩動；Windows「顯示動畫」關掉時 Motion 自動改成不回彈。
 import { Theme, Motion, Icon, Icons, Tip, Checkbox } from "@hb/index.slint";
-import { ProjectIcon } from "@hbc/index.slint";
+import { ProjectIcon, StatusDot } from "@hbc/index.slint";
 import { ListReveal, Appear, SlideSwitch, FadeText, Collapse, CardShadow } from "anim.slint";
 
 export { ListReveal, Appear, SlideSwitch, FadeText, Collapse, CardShadow }
@@ -252,11 +252,86 @@ export struct IconItem {
     has-icon: bool,
 }
 
+/// 沒有資料時的畫面（跟上 Hayaku 1.5.5）：插圖、一句說明、下一步的按鈕；篩選或搜尋沒有結果時〔清除篩選〕。
+/// glyph 是空字串時（讀取中…）只有一行字。
+export component EmptyState {
+    in property <string> glyph;
+    in property <string> text;
+    in property <string> hint;
+    in property <string> action-text;
+    in property <string> clear-text;
+    callback action();
+    callback clear();
+    property <float> t: 0;
+    init => {
+        t = 1;
+    }
+    animate t {
+        duration: Theme.reduce-motion ? 0ms : 260ms;
+        easing: Motion.out;
+    }
+    opacity: root.t;
+    VerticalLayout {
+        alignment: center;
+        spacing: 8px;
+        if root.glyph != "": HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 76px;
+                height: 76px;
+                border-radius: 38px;
+                background: Theme.fill;
+                Text {
+                    text: root.glyph;
+                    font-size: 34px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        Text {
+            text: root.text;
+            color: root.glyph != "" ? Theme.ink : Theme.muted;
+            font-size: root.glyph != "" ? Theme.fs-base : Theme.fs-md;
+            font-weight: root.glyph != "" ? 600 : 400;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            color: Theme.muted;
+            font-size: Theme.fs-sm;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        if root.action-text != "" || root.clear-text != "": HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+            padding-top: 4px;
+            if root.action-text != "": SmallButton {
+                text: root.action-text;
+                kind: 0;
+                clicked => {
+                    root.action();
+                }
+            }
+            if root.clear-text != "": SmallButton {
+                text: root.clear-text;
+                clicked => {
+                    root.clear();
+                }
+            }
+        }
+    }
+}
+
 /// 緊湊的下拉選單（高 34）：清單可以捲動；icons 跟 items 同順序時每項前面畫專案圖示（C# ProjectIcons.Badge）。
 /// active：有套用條件時亮起來（強調色框＋淡橘底）。
 export component MiniSelect {
     in property <[string]> items;
     in property <[IconItem]> icons;
+    /// 每個選項前的狀態顏色點（StatusDot 的 kind；跟上 Hayaku 1.5.5）；沒給不畫
+    in property <[int]> dots;
     in-out property <int> current: 0;
     in property <string> placeholder;
     in property <bool> enabled: true;
@@ -267,6 +342,8 @@ export component MiniSelect {
     callback selected(index: int);
     height: 34px;
     min-width: 80px;
+    // 寬度照選的內容（呼叫端只給 min-width 時會跟著變寬，名稱不被截掉；跟上 Hayaku 1.5.5）
+    preferred-width: mini-row.preferred-width;
     opacity: enabled ? 1 : 0.5;
     accessible-role: combobox;
     accessible-value: current >= 0 && current < items.length ? items[current] : "";
@@ -278,10 +355,14 @@ export component MiniSelect {
         border-width: 1.5px;
         border-color: root.active ? Theme.accent : root.open ? Theme.ink : transparent;
         animate background, border-color { duration: 260ms; }
-        HorizontalLayout {
+        mini-row := HorizontalLayout {
             padding-left: 12px;
             padding-right: 10px;
             spacing: 7px;
+            if root.has-current && root.current < root.dots.length && root.dots[root.current] > 0: StatusDot {
+                y: (parent.height - self.height) / 2;
+                kind: root.dots[root.current];
+            }
             if root.has-current && root.current < root.icons.length && root.icons[root.current].has-icon: ProjectIcon {
                 y: (parent.height - self.height) / 2;
                 glyph: root.icons[root.current].glyph;
@@ -370,6 +451,10 @@ export component MiniSelect {
                         padding-left: 10px;
                         padding-right: 10px;
                         spacing: 7px;
+                        if i < root.dots.length && root.dots[i] > 0: StatusDot {
+                            y: (parent.height - self.height) / 2;
+                            kind: root.dots[i];
+                        }
                         if i < root.icons.length && root.icons[i].has-icon: ProjectIcon {
                             y: (parent.height - self.height) / 2;
                             glyph: root.icons[i].glyph;

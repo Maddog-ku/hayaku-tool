@@ -444,6 +444,10 @@ pub fn init(ctx: &WorkCtx) {
         let Some(t) = usize::try_from(i).ok().and_then(|i| BATCH_TYPES.get(i)) else { return };
         spawn("批次改類型", batch(page, "type", (*t).to_owned(), format!("類型改成「{t}」")));
     });
+    g.on_batch_edit(|| {
+        let Some(page) = current() else { return };
+        spawn("批次修改", batch_edit(page));
+    });
     g.on_apply_template(|| {
         let Some(page) = current() else { return };
         let Some(key) = page.selected_project() else { return };
@@ -592,6 +596,7 @@ async fn load(page: Rc<Page>, fresh: bool) {
         g.set_view_index(index as i32);
         *page.view_options.borrow_mut() = options;
         g.set_batch_statuses(strings(detail.statuses.iter().map(|s| s.name.clone())));
+        g.set_batch_status_dots(hb_ui_common::status_dots(&detail.statuses));
         g.set_batch_status_index(-1);
         *page.detail.borrow_mut() = Some(detail);
         Ok(())
@@ -711,6 +716,57 @@ fn render(page: &Page) {
     g.set_rows(model(slint_rows));
     *page.rows.borrow_mut() = rows;
     page.update_batch();
+}
+
+/// 〔更多欄位…〕（跟上 Hayaku 1.5.5）：開批次修改視窗；改完跟其他批次按鈕一樣顯示結果、重讀。
+async fn batch_edit(page: Rc<Page>) {
+    let Some(project) = page.selected_project() else { return };
+    let tasks: Vec<hb_ui_common::batch_edit::BatchTask> = {
+        let selected = page.selected.borrow();
+        let all = page.tasks.borrow();
+        selected
+            .iter()
+            .map(|k| {
+                let t = all.iter().find(|t| eq(&t.key, k));
+                hb_ui_common::batch_edit::BatchTask {
+                    key: k.clone(),
+                    start: t.and_then(|t| t.planned_start),
+                    end: t.and_then(|t| t.planned_end),
+                }
+            })
+            .collect()
+    };
+    if tasks.is_empty() {
+        return;
+    }
+    let detail = match page.ctx.engine.get_project(&project).await {
+        Ok(d) => d,
+        Err(e) => {
+            page.show(Some(StatusMessage::error(format!("讀不到專案設定：{}", e.message()))));
+            return;
+        }
+    };
+    let weak = Rc::downgrade(&page);
+    hb_ui_common::batch_edit::open(
+        &page.ctx.engine,
+        detail,
+        tasks,
+        BATCH_TYPES.map(str::to_owned).to_vec(),
+        Rc::new(move |results, what, skipped| {
+            let Some(page) = weak.upgrade() else { return };
+            let (mut text, error) = batch_message(&results, &what);
+            if !skipped.is_empty() {
+                text.push_str(&format!("；略過 {} 個：{}", skipped.len(), skipped.iter().take(5).cloned().collect::<Vec<_>>().join("、")));
+            }
+            log::info!("批次修改 {project}：{text}");
+            spawn("重新整理專案", async move {
+                page.selected.borrow_mut().clear();
+                page.ctx.engine.after_external_change().await;
+                load(page.clone(), true).await;
+                page.show(Some(StatusMessage { text, error }));
+            });
+        }),
+    );
 }
 
 /// 批次修改（C# `BatchAsync`）：最多 100 個，逐筆成功或失敗。

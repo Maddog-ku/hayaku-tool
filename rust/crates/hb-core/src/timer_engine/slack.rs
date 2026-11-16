@@ -86,7 +86,7 @@ impl TimerEngine {
         Ok(())
     }
 
-    /// 核准或駁回；待審清單裡找不到就重抓一次，還是沒有表示已經處理過或被撤回了。
+    /// 核准或拒絕；待審清單裡找不到就重抓一次，還是沒有表示已經處理過或被撤回了。
     pub async fn review_from_slack(
         &self,
         id: &str,
@@ -106,7 +106,7 @@ impl TimerEngine {
         self.0.api.review_change_request(&c.id, approve, watch, note, reject_action).await?;
         log::info!(
             "已從 Slack {}變更申請 {}（{} {} {}）",
-            if approve { "核准" } else { "駁回" },
+            if approve { "核准" } else { "拒絕" },
             c.id,
             c.type_text(),
             c.task_key.as_deref().unwrap_or(""),

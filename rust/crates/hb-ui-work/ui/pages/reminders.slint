@@ -5,6 +5,7 @@ import { Theme, Motion, ScrollView, Segmented, TipArea, Icon, Icons } from "@hb/
 import { FieldLabel, SelectField, StatusLine, LinkButton } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Confirm, W2Title } from "w2-common.slint";
 import { Appear, SlideSwitch, CardShadow } from "../shared/anim.slint";
+import { EmptyState } from "../shared/index.slint";
 
 /// 快速時間的一個選項（Hayaku 1.5.4 起照上班時段即時算；C# 版只有三個固定的）。tip：算出來的時間。
 export struct RemindersQuick {
@@ -552,15 +553,12 @@ export component RemindersPage inherits Rectangle {
                 }
             }
             // 空白／錯誤訊息：寬度跟著清單，長的換行置中
-            if RemindersPageData.empty-visible: Text {
+            if RemindersPageData.empty-visible: EmptyState {
                 x: 16px;
                 width: parent.width - 32px;
                 height: parent.height;
-                wrap: word-wrap;
                 text: RemindersPageData.empty-text;
-                color: Theme.muted;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                glyph: RemindersPageData.empty-text == "讀取中…" ? "" : "⏰";
             }
         }
     }

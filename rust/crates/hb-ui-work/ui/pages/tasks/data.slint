@@ -69,6 +69,9 @@ export struct TkCheckItem {
     text: string,
     checked: bool,
     enabled: bool,
+    /// 狀態顏色點（StatusDot 的 kind；跟上 Hayaku 1.5.5）、縮排在狀態類別底下
+    dot: int,
+    indent: bool,
 }
 
 /// 日曆的一格。index：從第一格起第幾天。
@@ -145,11 +148,28 @@ export struct TkAction {
     primary: bool,
 }
 
-/// 子任務、測試結果。
+/// 子任務、測試結果。跟上 Hayaku 1.5.5：看得到優先級、預計完成日、工時與執行者，點一下就能改
+/// （info：子任務樹讀到了才顯示這幾格；due-int 是 yyyymmdd，0 未定；due-tone 0 一般、1 逾期、2 未定；
+/// assignees 是帳號，給選人視窗用）。
 export struct TkChild {
     key: string,
     title: string,
     status: string,
+    info: bool,
+    priority: string,
+    due: string,
+    due-int: int,
+    due-tone: int,
+    people: string,
+    hours: string,
+    done: bool,
+}
+
+/// 概況的長條（每週趨勢、各人投入）：ratio 0–1，最大的是 1。
+export struct TkOvBar {
+    label: string,
+    value: string,
+    ratio: float,
 }
 
 /// 展開區塊裡的一行。kind：0 小標題、1 一般、2 淡色說明、3 錯誤、4 任務連結列、5 粗體標題列。
@@ -256,6 +276,13 @@ export global TasksPageData {
     in-out property <bool> hide-done;
     in property <string> collapse-text: "⊟ 全部收合";
     in property <string> list-message;
+    /// 沒有任務時的插圖、說明、下一步按鈕、清除篩選按鈕（跟上 Hayaku 1.5.5）
+    in property <string> list-empty-glyph;
+    in property <string> list-empty-hint;
+    in property <string> list-empty-action;
+    in property <string> list-empty-clear;
+    callback list-empty-act();
+    callback list-empty-clear-clicked();
 
     callback reload();
     callback new-task();
@@ -358,6 +385,7 @@ export global TasksPageData {
     in-out property <string> d-title;
     in property <string> d-approval;
     in property <[string]> d-status-items;
+    in property <[int]> d-status-dots;
     in-out property <int> d-status-index;
     in-out property <int> d-priority-index: -1;
     in-out property <int> d-plan-start;
@@ -404,12 +432,32 @@ export global TasksPageData {
     in property <[string]> d-bucket-labels;
     in-out property <int> d-bucket-index;
     in property <[TkChild]> d-children;
+    callback d-child-priority(string, string);
+    callback d-child-due(string, int);
+    callback d-child-assignees(string);
+    /// 點了執行者：開選人視窗（跟上 Hayaku 1.5.5）
+    callback d-assignees-edit();
     in-out property <bool> d-ch-expanded;
     in property <string> d-ch-header: "子任務的工時";
     in property <[TkLine]> d-ch-lines;
     in-out property <bool> d-tree-expanded;
     in property <string> d-tree-header: "整棵子任務樹";
     in property <[TkLine]> d-tree-lines;
+    // 概況（跟上 Hayaku 1.5.5）：子任務進度、逾期、工時、會不會延誤、每週趨勢、各人投入；展開才讀
+    in-out property <bool> d-ov-expanded;
+    /// 讀取中…、讀取失敗、只算了一部分；空字串不顯示
+    in property <string> d-ov-message;
+    in property <bool> d-ov-error;
+    in property <string> d-ov-risk;
+    /// 0 正常、1 注意、2 已逾期、3 無法判斷
+    in property <int> d-ov-risk-tone;
+    in property <[TkStat]> d-ov-stats;
+    in property <float> d-ov-progress;
+    in property <string> d-ov-progress-text;
+    in property <[TkOvBar]> d-ov-weeks;
+    in property <[TkOvBar]> d-ov-people;
+    in property <[TkLine]> d-ov-overdue;
+    callback d-ov-toggled(bool);
     // 這個任務的工時記錄（跟上 Hayaku 1.5.3：合計、本週、本月、每個人；按天分組，較早的按週、按月收起來；展開才讀）
     in-out property <bool> d-hours-expanded;
     in property <string> d-hours-header: "工時記錄";
@@ -447,8 +495,12 @@ export global TasksPageData {
     in property <[TkDoc]> d-docs;
     in property <[TkLine]> d-docs-lines;
     in-out property <bool> d-history-expanded;
+    /// kind：1 一則、4 日期標題、5 變更申請卡的標題（meta 是狀態，depth 是色調 0 待審核 1 已核准 2 已拒絕 3 已撤回）、
+    /// 6 變更申請卡裡的一則、2 說明、3 錯誤
     in property <[TkLine]> d-history;
     in property <bool> d-history-more;
+    /// 0 全部、1 留言、2 變更
+    in-out property <int> d-history-filter;
     // 聊天
     in property <[TkChat]> d-chat;
     in property <string> d-chat-empty;
@@ -494,6 +546,7 @@ export global TasksPageData {
     callback d-docs-toggled(bool);
     callback d-history-toggled(bool);
     callback d-history-load-more();
+    callback d-history-filter-changed(int);
     callback d-chat-send();
     callback d-poll(string);
 
@@ -510,6 +563,7 @@ export global TasksPageData {
     in property <string> c-parent-text;
     in-out property <string> c-new-title;
     in property <[string]> c-status-items;
+    in property <[int]> c-status-dots;
     in-out property <int> c-status-index: -1;
     in-out property <int> c-priority-index: 0;
     in-out property <int> c-start;

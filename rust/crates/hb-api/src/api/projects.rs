@@ -155,6 +155,7 @@ impl HayakuApi {
                 review_note: string(c, "reviewNote"),
                 logged_minutes: prop(c, "loggedSeconds").and_then(as_i32).map_or(0, |s| s / 60),
                 descendant_count: prop(c, "descendantCount").and_then(as_i32).unwrap_or(0),
+                type_label: string(c, "typeLabel"),
             });
         }
         list
@@ -394,6 +395,10 @@ mod tests {
         assert_eq!(c.changes, vec!["狀態：有變更", "預計結束：2026-11-05", "預計工時：1.5 小時", "備註：清空"]);
         assert_eq!((c.logged_minutes, c.descendant_count, c.reason.as_deref()), (214, 2, Some("客戶要求延後")));
         assert!(list[1].changes.is_empty());
+        // 沒有 typeLabel（Hayaku 1.5.5 以前）用代碼對照；有就用伺服器的
+        assert_eq!((list[0].type_text(), list[1].type_text()), ("修改", "新增"));
+        let labeled = HayakuApi::parse_change_requests(&j(r#"{"items":[{"id":"c","type":"DELETE","typeLabel":"刪除申請"}]}"#));
+        assert_eq!(labeled[0].type_text(), "刪除申請");
     }
 
     #[test]

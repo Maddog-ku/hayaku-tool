@@ -625,11 +625,25 @@ export component ProjectBadge {
     }
 }
 
+/// 狀態的顏色點（跟上 Hayaku 1.5.5：狀態下拉的選項都是顏色點加名稱）。MCP 沒給狀態顏色，照分類上色：
+/// kind 1 未開始（淡灰）、2 進行中（橘）、3 完成（綠）、4 不處理（灰）；0 不畫。
+export component StatusDot {
+    in property <int> kind;
+    width: 8px;
+    height: 8px;
+    Rectangle {
+        border-radius: 4px;
+        background: root.kind == 1 ? Theme.faint : root.kind == 2 ? Theme.accent : root.kind == 3 ? Theme.run : Theme.muted;
+    }
+}
+
 /// 下拉選單（跟 hb-ui-kit Dropdown 同樣的外觀與動畫），清單超過 max-rows 時可以捲動（專案、狀態、範本可能很多）。
 /// 按下時底色往內縮一點；清單往下滑開＋淡入，選了之後勾勾彈出、往上收起再關；箭頭以彈簧翻成朝上。
 /// 選項文字太長被截掉時，滑過那一項會顯示完整文字。
 export component SelectField {
     in property <[string]> items;
+    /// 每個選項前的狀態顏色點（StatusDot 的 kind）；沒給不畫
+    in property <[int]> dots;
     in-out property <int> current: 0;
     in property <string> placeholder;
     in property <bool> enabled: true;
@@ -666,10 +680,16 @@ export component SelectField {
         border-color: root.open ? Theme.ink : transparent;
         animate background, border-color { duration: Motion.fast + 60ms; }
     }
-    HorizontalLayout {
+    // 寬度照選的內容（呼叫端沒指定寬度時），名稱不被截掉
+    preferred-width: field-row.preferred-width;
+    field-row := HorizontalLayout {
         padding-left: 14px;
         padding-right: 12px;
         spacing: 8px;
+        if root.current >= 0 && root.current < root.dots.length && root.dots[root.current] > 0: StatusDot {
+            y: (parent.height - self.height) / 2;
+            kind: root.dots[root.current];
+        }
         label := Text {
             horizontal-stretch: 1;
             text: root.shown-text;
@@ -767,6 +787,10 @@ export component SelectField {
                             padding-left: 10px;
                             padding-right: 10px;
                             spacing: 6px;
+                            if i < root.dots.length && root.dots[i] > 0: StatusDot {
+                                y: (parent.height - self.height) / 2;
+                                kind: root.dots[i];
+                            }
                             item-text := Text {
                                 horizontal-stretch: 1;
                                 text: item;

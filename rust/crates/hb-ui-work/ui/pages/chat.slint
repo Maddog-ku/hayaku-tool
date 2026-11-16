@@ -6,6 +6,7 @@ import { Theme, ScrollView, TextField } from "@hb/index.slint";
 import { FieldLabel, StatusLine, PageTitle, LinkButton } from "@hbc/index.slint";
 import { W3Row, PageButton, SmallButton, RowList, MdArea, Reader, CenterNote } from "w3-common.slint";
 import { Appear } from "../shared/anim.slint";
+import { EmptyState } from "../shared/index.slint";
 
 /// 一則訊息（C# ChatRowVm）；poll-id 不是空的才有「看投票結果」。
 export struct ChatMsg {
@@ -234,12 +235,13 @@ export component ChatPage inherits Rectangle {
                                 }
                             }
                         }
-                        if ChatPageData.message-empty != "": CenterNote {
+                        if ChatPageData.message-empty != "": EmptyState {
                             // 寬度跟著外框，長的訊息換行置中
                             x: 16px;
                             width: parent.width - 32px;
                             height: parent.height;
                             text: ChatPageData.message-empty;
+                            glyph: ChatPageData.message-empty == "讀取中…" ? "" : "💬";
                         }
                     }
                     Rectangle {

@@ -56,14 +56,20 @@ pub struct ChangeRequest {
     pub review_note: Option<String>,
     pub logged_minutes: i32,
     pub descendant_count: i32,
+    /// 伺服器給的中文類型（Hayaku 1.5.5 起：修改／新增／刪除）。
+    pub type_label: Option<String>,
 }
 
 impl ChangeRequest {
+    /// 類型（用詞跟 Hayaku 1.5.5 統一：修改、新增、刪除）；有伺服器給的 typeLabel 就用它。
     pub fn type_text(&self) -> &str {
+        if let Some(label) = self.type_label.as_deref().filter(|l| !l.is_empty()) {
+            return label;
+        }
         match self.r#type.as_str() {
-            "CREATE" => "新增任務",
-            "UPDATE" => "修改任務",
-            "DELETE" => "刪除任務",
+            "CREATE" => "新增",
+            "UPDATE" => "修改",
+            "DELETE" => "刪除",
             other => other,
         }
     }

@@ -353,6 +353,7 @@ mod tests {
             review_note: None,
             logged_minutes: 0,
             descendant_count: 0,
+            type_label: None,
         }
     }
 

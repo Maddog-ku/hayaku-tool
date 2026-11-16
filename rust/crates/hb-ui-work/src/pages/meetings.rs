@@ -32,6 +32,10 @@ struct State {
     past: bool,
     version: u64,
     items: Vec<MeetingItem>,
+    /// 進行中的會議的參加者狀態（會議 key → 會議中、還沒加入、請假的名字；跟上 Hayaku 1.5.5）
+    people: std::collections::HashMap<String, MeetingPeople>,
+    /// 「今天已結束」那一區展開了
+    ended_open: bool,
     /// 新增表單的專案清單（C# ProjectBox.ItemsSource；null＝還沒讀）
     projects: Option<Vec<ProjectInfo>>,
     /// 新增表單參加者的帳號（跟 attendees 模型同順序）
@@ -84,8 +88,25 @@ pub fn init(ctx: &WorkCtx) {
     });
     bind!(g.on_create, page, || spawn(async move { page.create().await }));
     bind!(g.on_project_selected, page, |i| spawn(async move { page.project_selected(i).await }));
+    bind!(g.on_ended_toggled, page, || {
+        let open = !page.st.borrow().ended_open;
+        page.st.borrow_mut().ended_open = open;
+        page.render_rows();
+    });
     bind!(g.on_attendee_toggled, page, |i, c| {
         page.with(|g| set_check(&g.get_attendees(), i, c));
+    });
+    bind!(g.on_pick_attendees, page, || {
+        let Some(items) = page.with(|g| g.get_attendees()) else { return };
+        let weak = Rc::downgrade(&page);
+        pick_checks(items, "選擇參加者", "people:meeting-new", move |next| {
+            if let Some(page) = weak.upgrade() {
+                page.with(|g| {
+                    g.set_attendees_text(checks_text(&next).into());
+                    g.set_attendees(next);
+                });
+            }
+        });
     });
     bind!(g.on_join, page, |i| spawn(async move { page.join(i, true).await }));
     bind!(g.on_leave, page, |i| spawn(async move { page.join(i, false).await }));
@@ -120,6 +141,44 @@ pub fn init(ctx: &WorkCtx) {
 pub async fn activate(_ctx: WorkCtx, arg: Option<PageArg>) {
     let Some(page) = PAGE.with(|p| p.borrow().clone()) else { return };
     page.activate(arg).await;
+}
+
+/// 已選的人（顯示在選人欄位）：四個以內全列，多了寫「甲、乙、丙 等 5 人」。
+pub(crate) fn checks_text(items: &slint::ModelRc<W3Check>) -> String {
+    let names: Vec<String> = items.iter().filter(|c| c.checked).map(|c| c.text.to_string()).collect();
+    match names.len() {
+        0 => String::new(),
+        n if n <= 4 => names.join("、"),
+        n => format!("{} 等 {n} 人", names[..3].join("、")),
+    }
+}
+
+/// 用選人視窗改勾選（跟上 Hayaku 1.5.5）：可以選的是模型裡的人，選好換掉勾選（順序不變）後交給 done。
+pub(crate) fn pick_checks(
+    items: slint::ModelRc<W3Check>,
+    heading: &str,
+    tag: &str,
+    done: impl Fn(slint::ModelRc<W3Check>) + 'static,
+) {
+    let members = items.iter().map(|c| hb_api::PersonRef::new(c.id.to_string(), c.text.to_string())).collect();
+    let selected = items.iter().filter(|c| c.checked).map(|c| c.id.to_string()).collect();
+    let pick = hb_ui_common::people_picker::PeoplePick {
+        heading: heading.to_owned(),
+        hint: String::new(),
+        members,
+        selected,
+        multi: true,
+    };
+    hb_ui_common::people_picker::open(pick, Some(tag.to_owned()), move |chosen| {
+        let next: Vec<W3Check> = items
+            .iter()
+            .map(|mut c| {
+                c.checked = chosen.iter().any(|u| u.eq_ignore_ascii_case(&c.id));
+                c
+            })
+            .collect();
+        done(model(next));
+    });
 }
 
 /// 勾選項目改勾或取消。
@@ -179,14 +238,61 @@ impl Page {
         self.show_list(None);
         let past = self.st.borrow().past;
         let api = self.ctx.engine.api();
-        let result = if past { api.past_meetings().await } else { api.upcoming_meetings().await };
+        let now = Local::now().fixed_offset();
+        let result = if past {
+            api.past_meetings().await
+        } else {
+            // 接下來的＋今天已經開過的（跟上 Hayaku 1.5.5：開過的灰掉、收成一區）
+            let today = now.with_timezone(&Local).date_naive();
+            match api.upcoming_meetings().await {
+                Ok(mut items) => {
+                    match api.list_meetings(today, today, true).await {
+                        Ok(todays) => {
+                            for m in todays {
+                                if !items.iter().any(|x| x.key == m.key) {
+                                    items.push(m);
+                                }
+                            }
+                        }
+                        Err(e) => log::error!("讀取今天的會議失敗: {e}"),
+                    }
+                    Ok(arrange(items, &now))
+                }
+                Err(e) => Err(e),
+            }
+        };
         if version != self.st.borrow().version {
             return;
         }
         self.with(|g| g.set_loading(false));
         match result {
             Ok(items) => {
-                self.st.borrow_mut().items = items;
+                // 進行中的會議讀參加者狀態（最多 3 場；沒有進行中的會議時不多打請求）
+                let ongoing: Vec<String> = if past {
+                    Vec::new()
+                } else {
+                    items.iter().filter(|m| now >= m.start_at && now < m.end_at).take(3).map(|m| m.key.clone()).collect()
+                };
+                let mut people = std::collections::HashMap::new();
+                for key in ongoing {
+                    match api.get_meeting(&key).await {
+                        Ok(d) => {
+                            people.insert(key, MeetingPeople::from(&d));
+                        }
+                        Err(e) => log::error!("讀取 {key} 的參加者失敗: {e}"),
+                    }
+                }
+                if version != self.st.borrow().version {
+                    return;
+                }
+                // 整個清單是空的時由空白畫面說明，不另外顯示「今天沒有會議」
+                let today_empty = !past && !items.is_empty() && !items.iter().any(|m| is_today(m, &now));
+                {
+                    let mut st = self.st.borrow_mut();
+                    st.items = items;
+                    st.people = people;
+                }
+                self.with(|g| g.set_today_empty(today_empty));
                 self.render_rows();
                 let empty = self.st.borrow().items.is_empty();
                 let text = if !empty {
@@ -211,7 +317,7 @@ impl Page {
         let st = self.st.borrow();
         let now = Local::now().fixed_offset();
         let engine = &self.ctx.engine;
-        let rows: Vec<MeetingRow> = st
+        let mut rows: Vec<MeetingRow> = st
             .items
             .iter()
             .map(|m| {
@@ -224,6 +330,9 @@ impl Page {
                 )
             })
             .collect();
+        if !st.past {
+            decorate(&mut rows, &st.items, &st.people, st.ended_open, &now);
+        }
         drop(st);
         self.with(|g| g.set_rows(model(rows)));
     }
@@ -374,7 +483,11 @@ impl Page {
                     })
                     .collect();
                 self.st.borrow_mut().attendee_users = detail.members.iter().map(|m| m.username.clone()).collect();
-                self.with(|g| g.set_attendees(model(checks)));
+                let checks = model(checks);
+                self.with(|g| {
+                    g.set_attendees_text(checks_text(&checks).into());
+                    g.set_attendees(checks);
+                });
             }
             Err(e) => self.show_form_status(Some(StatusMessage::error(format!("讀不到專案成員：{}", e.message())))),
         }
@@ -468,6 +581,102 @@ pub(crate) fn pin_tip(pinned: bool) -> &'static str {
     }
 }
 
+/// 進行中的會議的參加者：會議中、還沒加入、請假的名字（用頓號接起來）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct MeetingPeople {
+    pub inside: String,
+    pub waiting: String,
+    pub leave: String,
+}
+
+impl MeetingPeople {
+    fn from(d: &MeetingDetail) -> Self {
+        let names = |f: &dyn Fn(&str) -> bool| {
+            d.attendees.iter().filter(|a| f(&a.state)).map(|a| a.name.clone()).collect::<Vec<_>>().join("、")
+        };
+        Self {
+            inside: names(&|s| s == "會議中"),
+            waiting: names(&|s| s.contains("還沒") || s.contains("未加入")),
+            leave: names(&|s| s.contains("請假")),
+        }
+    }
+}
+
+fn is_today(m: &MeetingItem, now: &DateTimeOffset) -> bool {
+    let today = now.with_timezone(&Local).date_naive();
+    m.start_at.with_timezone(&Local).date_naive() <= today && m.end_at.with_timezone(&Local).date_naive() >= today
+}
+
+/// 「接下來」的排法（跟上 Hayaku 1.5.5）：今天還沒結束的（照開始時間）→ 今天已結束的 → 之後幾天的。
+pub(crate) fn arrange(items: Vec<MeetingItem>, now: &DateTimeOffset) -> Vec<MeetingItem> {
+    let (mut today, mut later): (Vec<MeetingItem>, Vec<MeetingItem>) = items.into_iter().partition(|m| is_today(m, now));
+    today.sort_by_key(|m| (m.end_at <= *now, m.start_at));
+    later.sort_by_key(|m| m.start_at);
+    today.extend(later);
+    today
+}
+
+/// 加上分組標題、「現在」線、放大進行中的、灰掉並收起已結束的（rows 與 items 同順序，已經用 arrange 排過）。
+pub(crate) fn decorate(
+    rows: &mut [MeetingRow],
+    items: &[MeetingItem],
+    people: &std::collections::HashMap<String, MeetingPeople>,
+    ended_open: bool,
+    now: &DateTimeOffset,
+) {
+    let today = now.with_timezone(&Local).date_naive();
+    let now_text = format!("現在 {}", now.with_timezone(&Local).format("%H:%M"));
+    let ended_count = items.iter().filter(|m| is_today(m, now) && m.end_at <= *now).count();
+    let mut last_day = None;
+    let mut ended_seen = false;
+    let mut now_placed = false;
+    for (i, (row, m)) in rows.iter_mut().zip(items).enumerate() {
+        let todays = is_today(m, now);
+        let ended = todays && m.end_at <= *now;
+        let ongoing = *now >= m.start_at && *now < m.end_at;
+        if todays && !ended {
+            if last_day != Some(today) {
+                row.head = format!("今天 {}", crate::pages::hours::w2_common::md_weekday(today)).into();
+                last_day = Some(today);
+            }
+            if !now_placed && m.start_at > *now {
+                row.now_before = true;
+                row.now_text = now_text.as_str().into();
+                now_placed = true;
+            }
+            let next_active = items.get(i + 1).is_some_and(|n| is_today(n, now) && n.end_at > *now);
+            if !now_placed && !next_active {
+                row.now_after = true;
+                row.now_text = now_text.as_str().into();
+                now_placed = true;
+            }
+        } else if ended {
+            if !ended_seen {
+                row.head = format!("今天已結束（{ended_count}）").into();
+                row.head_toggle = true;
+                ended_seen = true;
+                last_day = Some(today);
+            }
+            row.dim = true;
+            row.hidden = !ended_open;
+        } else {
+            let day = m.start_at.with_timezone(&Local).date_naive();
+            if last_day != Some(day) {
+                row.head = crate::pages::hours::w2_common::md_weekday(day).into();
+                last_day = Some(day);
+            }
+        }
+        if ongoing {
+            row.big = true;
+            if let Some(p) = people.get(&m.key) {
+                row.people_in = p.inside.as_str().into();
+                row.people_wait = p.waiting.as_str().into();
+                row.people_leave = p.leave.as_str().into();
+            }
+        }
+    }
+}
+
 /// C# `MeetingListVm`：清單上一場會議要顯示的東西。
 pub(crate) fn meeting_row(
     m: &MeetingItem,
@@ -504,6 +713,7 @@ pub(crate) fn meeting_row(
         pin_tip: pin_tip(pinned).into(),
         selected,
         busy: false,
+        ..Default::default()
     }
 }
 
@@ -573,6 +783,53 @@ mod tests {
             location: Some("  ".into()),
             my_status: status.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn 會議列表_今天排在現在線上下_已結束收起_之後的照天分組() {
+        // 本地時區不一定是 +8：用本地時間建 now，會議也用同一天的本地時間
+        let local = |d: u32, h: u32, m: u32| Local.with_ymd_and_hms(2026, 11, d, h, m, 0).unwrap().fixed_offset();
+        let now = local(12, 14, 30);
+        let mk = |key: &str, d: u32, s: (u32, u32), e: (u32, u32)| MeetingItem {
+            key: key.into(),
+            start_at: local(d, s.0, s.1),
+            end_at: local(d, e.0, e.1),
+            ..meeting(None)
+        };
+        let items = arrange(
+            vec![
+                mk("later", 13, (9, 0), (10, 0)),
+                mk("future", 12, (16, 0), (17, 0)),
+                mk("ended", 12, (9, 0), (10, 0)),
+                mk("ongoing", 12, (14, 0), (15, 0)),
+            ],
+            &now,
+        );
+        assert_eq!(items.iter().map(|m| m.key.as_str()).collect::<Vec<_>>(), vec!["ongoing", "future", "ended", "later"]);
+        let mut rows: Vec<MeetingRow> = items.iter().map(|m| meeting_row(m, false, false, false, &now)).collect();
+        let mut people = std::collections::HashMap::new();
+        people.insert("ongoing".to_owned(), MeetingPeople { inside: "小明".into(), waiting: "小華".into(), leave: String::new() });
+        decorate(&mut rows, &items, &people, false, &now);
+        assert!(rows[0].head.starts_with("今天 11/12"));
+        assert!(rows[0].big && rows[0].people_in == "小明" && rows[0].people_wait == "小華");
+        assert!(rows[1].now_before && rows[1].now_text == "現在 14:30" && !rows[0].now_before);
+        assert_eq!((rows[2].head.as_str(), rows[2].head_toggle, rows[2].dim, rows[2].hidden), ("今天已結束（1）", true, true, true));
+        assert!(rows[3].head.starts_with("11/13") && !rows[3].dim);
+        // 今天的都已經開始了：現在線畫在最後一場進行中的下面
+        let items = arrange(vec![mk("ongoing", 12, (14, 0), (15, 0))], &now);
+        let mut rows: Vec<MeetingRow> = items.iter().map(|m| meeting_row(m, false, false, false, &now)).collect();
+        decorate(&mut rows, &items, &people, true, &now);
+        assert!(rows[0].now_after && !rows[0].now_before);
+    }
+
+    #[test]
+    fn 已選的人_多了寫等幾人() {
+        let c = |n: &str, on: bool| W3Check { id: n.into(), text: n.into(), checked: on };
+        let few = model(vec![c("甲", true), c("乙", false), c("丙", true)]);
+        assert_eq!(checks_text(&few), "甲、丙");
+        let many = model(["甲", "乙", "丙", "丁", "戊"].iter().map(|n| c(n, true)).collect());
+        assert_eq!(checks_text(&many), "甲、乙、丙 等 5 人");
+        assert_eq!(checks_text(&model(vec![c("甲", false)])), "");
     }
 
     #[test]

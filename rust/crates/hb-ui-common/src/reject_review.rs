@@ -1,5 +1,5 @@
-//! 對應 C# `UI/RejectReviewWindow.cs`：從審核提示按「駁回」開的小視窗。
-//! 可以填給申請人的說明；駁回新增任務的申請會刪掉那個任務，先講清楚再送出。
+//! 對應 C# `UI/RejectReviewWindow.cs`：從審核提示按「拒絕」開的小視窗。
+//! 可以填給申請人的說明；拒絕新增任務的申請會刪掉那個任務，先講清楚再送出。
 
 use hb_api::{ChangeRequest, WorkMath};
 use hb_core::TimerEngine;
@@ -22,7 +22,7 @@ pub fn details(request: &ChangeRequest) -> String {
     details.join("\n")
 }
 
-/// 駁回新增任務的申請時的紅字；其他類型是空字串。
+/// 拒絕新增任務的申請時的紅字；其他類型是空字串。
 pub fn warning(request: &ChangeRequest) -> String {
     if request.r#type != "CREATE" {
         return String::new();
@@ -32,17 +32,17 @@ pub fn warning(request: &ChangeRequest) -> String {
     } else {
         String::new()
     };
-    format!("駁回會刪除這個任務{logged}。")
+    format!("拒絕會刪除這個任務{logged}。")
 }
 
-/// 開駁回小視窗（同一筆申請只開一個）。demo：截圖、檢查外觀用，按「駁回」不會真的送出。
+/// 開拒絕小視窗（同一筆申請只開一個）。demo：截圖、檢查外觀用，按「拒絕」不會真的送出。
 /// 結果（成功或失敗）由引擎用提示告知，這裡送出後就關掉。
 pub fn open(engine: &TimerEngine, request: &ChangeRequest, demo: bool) {
     let tag = format!("reject:{}", request.id);
     if window_util::activate_tag(&tag) {
         return;
     }
-    let Some(ui) = dialog::create("駁回申請", RejectReviewWindow::new) else { return };
+    let Some(ui) = dialog::create("拒絕申請", RejectReviewWindow::new) else { return };
     ui.set_heading(
         format!("{}・{} {}", request.type_text(), request.task_key.as_deref().unwrap_or(""), request.task_title)
             .trim_end()
@@ -50,7 +50,7 @@ pub fn open(engine: &TimerEngine, request: &ChangeRequest, demo: bool) {
     );
     ui.set_details(details(request).into());
     ui.set_warning(warning(request).into());
-    ui.set_button_text(if request.r#type == "CREATE" { "駁回並刪除任務" } else { "駁回" }.into());
+    ui.set_button_text(if request.r#type == "CREATE" { "拒絕並刪除任務" } else { "拒絕" }.into());
     let id = window_util::keep(&ui, Some(tag), ());
     {
         let weak = ui.as_weak();

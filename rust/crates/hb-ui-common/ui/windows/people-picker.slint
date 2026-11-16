@@ -1,0 +1,202 @@
+// 選人（跟上 Hayaku 1.5.5 全站新的選人方式；C# 版沒有）：名字、帳號都能搜，字首圓頭像；
+// 多選時〔本專案成員〕一次加入、〔全不選〕。任務執行者、子任務執行者、會議參加者、測試結果執行者都用這個。
+// 邏輯在 src/people_picker.rs。
+import { Theme, Button, ButtonKind, TextField, ScrollView, Icons, Avatar, AvatarTone } from "@hb/index.slint";
+import { MutedText, StatusLine } from "../common.slint";
+import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
+
+/// 一個人：initial 是頭像上的字；detail 是帳號（不在專案成員裡的另外註明）；shown 是符合搜尋。
+export struct PersonRow {
+    username: string,
+    name: string,
+    initial: string,
+    detail: string,
+    checked: bool,
+    shown: bool,
+}
+
+export component PeoplePickerWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> heading;
+    in property <string> hint;
+    in property <bool> multi: true;
+    in-out property <string> search;
+    in property <[PersonRow]> rows;
+    /// 已選幾人（多選時顯示在按鈕列右邊）
+    in property <string> summary;
+    in property <bool> busy;
+    in property <string> error;
+    callback search-edited(text: string);
+    callback toggled(index: int);
+    callback select-members();
+    callback clear-all();
+    callback accept();
+    callback cancel();
+    title: "選擇人員";
+    width: 420px;
+    height: 560px;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    forward-focus: search-box;
+    DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        Section {
+            index: 0;
+            VerticalLayout {
+                spacing: 4px;
+                DialogTitle {
+                    text: root.heading;
+                }
+                if root.hint != "": MutedText {
+                    text: root.hint;
+                }
+            }
+        }
+        Section {
+            index: 1;
+            search-box := TextField {
+                height: 40px;
+                icon: Icons.search;
+                placeholder: "名字或帳號";
+                font-size: Theme.fs-md;
+                text <=> root.search;
+                edited(t) => {
+                    root.search-edited(t);
+                }
+            }
+        }
+        if root.multi: Section {
+            index: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: "本專案成員";
+                    kind: ButtonKind.secondary;
+                    font-size: Theme.fs-sm;
+                    horizontal-padding: 12px;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.select-members();
+                    }
+                }
+                Button {
+                    text: "全不選";
+                    kind: ButtonKind.ghost;
+                    font-size: Theme.fs-sm;
+                    horizontal-padding: 12px;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.clear-all();
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.summary;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+        Section {
+            index: 2;
+            vertical-stretch: 1;
+            Rectangle {
+                vertical-stretch: 1;
+                min-height: 200px;
+                border-radius: Theme.radius-input;
+                background: Theme.fill;
+                ScrollView {
+                    x: 6px;
+                    y: 6px;
+                    width: parent.width - 12px;
+                    height: parent.height - 12px;
+                    content-height: list.preferred-height;
+                    list := VerticalLayout {
+                        width: parent.visible-width;
+                        alignment: start;
+                        for r[i] in root.rows: Rectangle {
+                            visible: r.shown;
+                            height: r.shown ? 44px : 0px;
+                            border-radius: 12px;
+                            background: r.checked ? Theme.card : ta.has-hover ? Theme.hover : transparent;
+                            animate background { duration: 150ms; }
+                            ta := TouchArea {
+                                mouse-cursor: pointer;
+                                enabled: !root.busy;
+                                clicked => {
+                                    root.toggled(i);
+                                }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 12px;
+                                spacing: 10px;
+                                Avatar {
+                                    y: (parent.height - self.height) / 2;
+                                    size: 30px;
+                                    text: r.initial;
+                                    tone: r.checked ? AvatarTone.ink : AvatarTone.outline;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 1px;
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        text: r.name;
+                                        color: Theme.ink;
+                                        font-size: Theme.fs-md;
+                                        font-weight: r.checked ? 600 : 400;
+                                        overflow: elide;
+                                    }
+                                    if r.detail != "": Text {
+                                        text: r.detail;
+                                        color: Theme.muted;
+                                        font-size: Theme.fs-xs;
+                                        overflow: elide;
+                                    }
+                                }
+                                Text {
+                                    text: r.checked ? "✓" : "";
+                                    color: Theme.accent-ink;
+                                    font-size: Theme.fs-lg;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        StatusLine {
+            text: root.error;
+        }
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                if root.multi: Button {
+                    text: root.busy ? "處理中…" : "確定";
+                    enabled: !root.busy;
+                    clicked => {
+                        root.accept();
+                    }
+                }
+            }
+        }
+    }
+}

@@ -115,6 +115,7 @@ export component QuickCreateWindow inherits Window {
     in property <string> parent-text;
     in-out property <string> new-title;
     in property <[string]> statuses;
+    in property <[int]> status-dots;
     in-out property <int> status: -1;
     in-out property <int> plan-start;
     in-out property <int> plan-end;
@@ -395,6 +396,7 @@ export component QuickCreateWindow inherits Window {
                                     SelectField {
                                         height: 42px;
                                         items: root.statuses;
+                                        dots: root.status-dots;
                                         current <=> root.status;
                                         enabled: !root.busy;
                                     }

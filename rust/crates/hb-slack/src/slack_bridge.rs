@@ -493,8 +493,8 @@ impl SlackBridge {
             M::REJECT => {
                 engine.review_from_slack(&request()?, false, false, reason).await?;
                 Ok(match reason {
-                    Some(r) => format!("✕ 已駁回：{r}"),
-                    None => "✕ 已駁回".to_owned(),
+                    Some(r) => format!("✕ 已拒絕：{r}"),
+                    None => "✕ 已拒絕".to_owned(),
                 })
             }
             M::PASS => {

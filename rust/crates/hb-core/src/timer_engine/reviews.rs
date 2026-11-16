@@ -1,4 +1,4 @@
-//! 對應 C# `Core/TimerEngine.Reviews.cs`：審核提示。有新的變更申請等我審核時，從工作列旁跳提示，可以直接核准或駁回。
+//! 對應 C# `Core/TimerEngine.Reviews.cs`：審核提示。有新的變更申請等我審核時，從工作列旁跳提示，可以直接核准或拒絕。
 
 use hb_api::ChangeRequest;
 
@@ -78,10 +78,10 @@ impl TimerEngine {
             })
         };
         let reject = if demo {
-            ToastAction::new("駁回", demo_notice(self.clone()))
+            ToastAction::new("拒絕", demo_notice(self.clone()))
         } else {
             let (e, c) = (self.clone(), c.clone());
-            ToastAction::new("駁回", move || {
+            ToastAction::new("拒絕", move || {
                 e.raise_later(|ev| &ev.reject_requested, c.clone());
                 async {}
             })
@@ -108,11 +108,11 @@ impl TimerEngine {
         self.request_workspace("reviews", None);
     }
 
-    /// 從審核提示核准或駁回（跟審核頁一樣：駁回新增任務的申請會刪掉那個任務）。
+    /// 從審核提示核准或拒絕（跟審核頁一樣：拒絕新增任務的申請會刪掉那個任務）。
     /// 結果用提示告知；成功後把這個任務「有新的變更申請」的通知標為已讀、重抓待審清單。
     pub async fn review(&self, c: &ChangeRequest, approve: bool, note: Option<&str>) {
         let what = format!("{} {}", c.task_key.as_deref().unwrap_or(""), c.task_title).trim().to_owned();
-        let verb = if approve { "核准" } else { "駁回" };
+        let verb = if approve { "核准" } else { "拒絕" };
         let reject_action = if !approve && c.r#type == "CREATE" { Some("delete") } else { None };
         if let Err(err) = self.0.api.review_change_request(&c.id, approve, false, note, reject_action).await {
             log::error!("{verb}變更申請 {}（{what}）失敗: {err}", c.id);

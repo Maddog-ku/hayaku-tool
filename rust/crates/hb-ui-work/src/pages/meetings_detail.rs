@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 use slint::{ComponentHandle, Model};
 
 use super::w3_common::{model, spawn, status_parts};
-use super::{Page, attendee_changes, field_text, file_size, set_check};
+use super::{Page, attendee_changes, checks_text, field_text, file_size, pick_checks, set_check};
 use crate::{MeetAttendee, MeetBlock, MeetInfo, MeetPreview, MeetSection, MeetingsPageData, W3Check};
 
 /// 可展開區塊的標題（順序就是畫面上的順序）。
@@ -54,6 +54,18 @@ pub(super) fn bind(page: &Rc<Page>, g: &MeetingsPageData<'_>) {
     });
     bind!(g.on_edit_person_toggled, page, |i, c| {
         page.with(|g| set_check(&g.get_edit_people(), i, c));
+    });
+    bind!(g.on_pick_edit_people, page, || {
+        let Some(items) = page.with(|g| g.get_edit_people()) else { return };
+        let weak = Rc::downgrade(&page);
+        pick_checks(items, "選擇參加者", "people:meeting-edit", move |next| {
+            if let Some(page) = weak.upgrade() {
+                page.with(|g| {
+                    g.set_edit_people_text(checks_text(&next).into());
+                    g.set_edit_people(next);
+                });
+            }
+        });
     });
     bind!(g.on_edit_save, page, || spawn(async move { page.save_edit().await }));
     bind!(g.on_section_toggled, page, |i, open| page.section_toggled(i as usize, open));
@@ -261,6 +273,7 @@ impl Page {
             g.set_edit_location(d.location.clone().unwrap_or_default().into());
             g.set_edit_note(d.note.clone().unwrap_or_default().into());
             g.set_edit_people(model(Vec::new()));
+            g.set_edit_people_text("".into());
             g.set_edit_people_message("讀取專案成員…".into());
             g.set_edit_people_error(false);
             g.set_edit_recurring(d.recurring);
@@ -295,8 +308,10 @@ impl Page {
                     })
                     .collect();
                 self.st.borrow_mut().edit_users = people.into_iter().map(|(u, _)| u).collect();
+                let checks = model(checks);
                 self.with(|g| {
-                    g.set_edit_people(model(checks));
+                    g.set_edit_people_text(checks_text(&checks).into());
+                    g.set_edit_people(checks);
                     g.set_edit_people_message("".into());
                 });
             }

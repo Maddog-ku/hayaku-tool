@@ -733,7 +733,7 @@ impl TimerEngine {
             let started_at = self.s().started_at;
             let mut fresh: Vec<NotificationItem> = Vec::new();
             for n in self.notifications().iter() {
-                // 「有新的變更申請」由審核提示（可以直接核准、駁回）取代
+                // 「有新的變更申請」由審核提示（可以直接核准、拒絕）取代
                 if n.unread
                     && n.created_at > started_at
                     && !(n.r#type == "CHANGE_REQUESTED" && can_review)

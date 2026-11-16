@@ -216,6 +216,10 @@ export component DateRangePicker {
     /// 今天（yyyymmdd）；hb_ui_common::date_range::today_int()
     in property <int> today;
     in property <bool> enabled: true;
+    /// 精簡：只是一段可以點的字（清單的一格，例如子任務的預計完成日；跟上 Hayaku 1.5.5）；字與顏色由呼叫端給，日曆對齊右邊
+    in property <bool> compact: false;
+    in property <string> compact-text;
+    in property <color> compact-color: Theme.ink;
     /// 按了「套用日期」或「清除」（值有沒有變由呼叫端比較）
     callback applied();
 
@@ -296,8 +300,8 @@ export component DateRangePicker {
         }
     }
 
-    height: 44px;
-    min-width: 200px;
+    height: compact ? 24px : 44px;
+    min-width: compact ? 0px : 200px;
     opacity: enabled ? 1 : 0.5;
     accessible-role: combobox;
     accessible-value: start > 0 ? DateMath.iso(start) : "";
@@ -322,13 +326,28 @@ export component DateRangePicker {
         y: root.inset;
         width: root.width - 2 * root.inset;
         height: root.height - 2 * root.inset;
-        border-radius: Theme.radius-input;
-        background: root.open || fs.has-focus ? Theme.card : field-ta.has-hover && root.enabled ? Theme.hover : Theme.fill;
-        border-width: 1.5px;
+        border-radius: root.compact ? 8px : Theme.radius-input;
+        background: root.compact
+            ? (root.open || (field-ta.has-hover && root.enabled) ? Theme.hover : transparent)
+            : root.open || fs.has-focus ? Theme.card : field-ta.has-hover && root.enabled ? Theme.hover : Theme.fill;
+        border-width: root.compact ? 0px : 1.5px;
         border-color: root.open || fs.has-focus ? Theme.ink : transparent;
         animate background, border-color { duration: Motion.fast + 60ms; }
     }
+    if root.compact: Text {
+        x: 6px;
+        width: root.width - 12px;
+        height: root.height;
+        text: root.compact-text;
+        color: root.compact-color;
+        font-size: Theme.fs-sm;
+        font-family: Theme.font-num;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
     Rectangle {
+        visible: !root.compact;
         HorizontalLayout {
             padding-left: 14px;
             padding-right: 12px;
@@ -382,8 +401,8 @@ export component DateRangePicker {
     }
 
     popup := PopupWindow {
-        // 四周多留 14px 給陰影
-        x: -14px;
+        // 四周多留 14px 給陰影；精簡時對齊右邊（通常在清單的右側）
+        x: root.compact ? root.width - self.width + 14px : -14px;
         y: root.height + 6px - 14px;
         width: frame.width + 28px;
         height: frame.height + 28px;

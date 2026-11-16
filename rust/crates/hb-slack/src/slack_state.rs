@@ -25,7 +25,7 @@ pub struct SlackPost {
     pub notification_ids: Vec<String>,
     pub change_request_id: Option<String>,
 
-    /// 駁回新增任務的申請會刪掉那個任務，表單上要先講。
+    /// 拒絕新增任務的申請會刪掉那個任務，表單上要先講。
     pub reject_warning: Option<String>,
 
     /// 可以「核准並關注」（刪除任務的申請不行）。
@@ -195,7 +195,7 @@ mod tests {
             "      \"url\": \"https://hayaku/projects/F2P?task=F2P-2\",",
             "      \"notificationIds\": [],",
             "      \"changeRequestId\": \"a\",",
-            "      \"rejectWarning\": \"駁回會刪除 F2P-2 做登入\",",
+            "      \"rejectWarning\": \"拒絕會刪除 F2P-2 做登入\",",
             "      \"canWatch\": true,",
             "      \"taskKey\": \"F2P-2\",",
             "      \"toastTag\": \"cr:a\",",
@@ -245,7 +245,7 @@ mod tests {
             (review.key.as_str(), review.kind.as_str(), review.channel.as_str(), review.ts.as_str())
         );
         assert_eq!(Some("a"), review.change_request_id.as_deref());
-        assert_eq!(Some("駁回會刪除 F2P-2 做登入"), review.reject_warning.as_deref());
+        assert_eq!(Some("拒絕會刪除 F2P-2 做登入"), review.reject_warning.as_deref());
         assert!(review.can_watch);
         assert_eq!(t, review.posted_at);
         assert_eq!(None, review.done);

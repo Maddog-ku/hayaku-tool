@@ -92,7 +92,7 @@ pub struct EngineEvents {
     pub new_work_ready: Event<NewWorkSuggestion>,
     /// 使用者按了「選既有任務」：開任務選擇視窗。
     pub pick_task_requested: Event<NewWorkSuggestion>,
-    /// 使用者在審核提示按了「駁回」：開填說明的小視窗。
+    /// 使用者在審核提示按了「拒絕」：開填說明的小視窗。
     pub reject_requested: Event<ChangeRequest>,
     /// 要開小視窗處理測試結果（開始修填預估工時、退回填說明、加入測試結果）。
     pub test_action_requested: Event<TestActionRequest>,

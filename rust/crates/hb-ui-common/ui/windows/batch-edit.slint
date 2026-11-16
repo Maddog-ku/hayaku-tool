@@ -1,0 +1,323 @@
+// 批次修改（跟上 Hayaku 1.5.5；C# 版沒有）：專案頁勾選的任務一次改一個欄位——狀態、優先級、類型、
+// 預計日期（設成同一天，或往前、往後移幾個工作日）、預估工時、里程碑（加入或移除）、自訂欄位。
+// 按鈕直接寫要套用到幾項；只有改成完成、清空欄位、移動日期時先提醒一次。邏輯在 src/batch_edit.rs。
+import { Theme, Button, ButtonKind, TextField } from "@hb/index.slint";
+import { FieldLabel, MutedText, StatusLine, RadioDot, SelectField } from "../common.slint";
+import { DateRangePicker } from "../date-range-picker.slint";
+import { DialogBody, DialogButtons, DialogTitle, Section } from "dialog.slint";
+
+export component BatchEditWindow inherits Window {
+    icon: @image-url("../../../hayakubar/assets/app.ico");
+    in property <string> heading;
+    in property <[string]> fields: ["狀態", "優先級", "類型", "預計日期", "預估工時", "里程碑", "自訂欄位"];
+    in-out property <int> field: 0;
+    in property <[string]> statuses;
+    in property <[int]> status-dots;
+    in-out property <int> status-index: 0;
+    in property <[string]> priorities;
+    in-out property <int> priority-index: 0;
+    in property <[string]> types;
+    in-out property <int> type-index: 0;
+    /// 0 設成同一天、1 往後移、2 往前移
+    in-out property <int> date-mode: 0;
+    in-out property <int> date-day;
+    in property <int> today;
+    in-out property <string> days-text: "1";
+    /// 0 開始和完成、1 只改開始、2 只改完成
+    in-out property <int> date-target: 0;
+    in-out property <string> hours-text;
+    /// 0 加入、1 移除
+    in-out property <int> milestone-mode: 0;
+    in-out property <string> milestone-text;
+    in property <[string]> custom-fields;
+    in-out property <int> custom-index: 0;
+    /// 選到的自訂欄位是下拉時的選項（第一個是「（清空）」）；空的時自由輸入
+    in property <[string]> custom-options;
+    in-out property <int> custom-option-index: 0;
+    in-out property <string> custom-text;
+    in property <string> apply-text;
+    /// 套用前的提醒（紅字）；空字串不顯示
+    in property <string> warning;
+    in property <bool> busy;
+    in property <string> error;
+    callback changed();
+    callback custom-selected(index: int);
+    callback apply();
+    callback cancel();
+    title: "批次修改";
+    width: 460px;
+    min-height: body.content-height;
+    max-height: body.content-height;
+    background: Theme.card;
+    default-font-family: Theme.font-ui;
+    default-font-size: 13px;
+    always-on-top: true;
+    body := DialogBody {
+        cancel => {
+            root.cancel();
+        }
+        Section {
+            index: 0;
+            DialogTitle {
+                text: root.heading;
+            }
+        }
+        Section {
+            index: 1;
+            VerticalLayout {
+                spacing: 6px;
+                FieldLabel {
+                    text: "要改的欄位";
+                }
+                SelectField {
+                    height: 40px;
+                    items: root.fields;
+                    current <=> root.field;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.changed();
+                    }
+                }
+            }
+        }
+        Section {
+            index: 2;
+            VerticalLayout {
+                spacing: 8px;
+                if root.field == 0: SelectField {
+                    height: 40px;
+                    items: root.statuses;
+                    dots: root.status-dots;
+                    current <=> root.status-index;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.changed();
+                    }
+                }
+                if root.field == 1: SelectField {
+                    height: 40px;
+                    items: root.priorities;
+                    current <=> root.priority-index;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.changed();
+                    }
+                }
+                if root.field == 2: SelectField {
+                    height: 40px;
+                    items: root.types;
+                    current <=> root.type-index;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.changed();
+                    }
+                }
+                if root.field == 2: MutedText {
+                    text: "改類型時狀態照類別對應；測試結果只能放在測試任務底下，測試任務底下有測試結果不能改成別的類型。";
+                }
+                if root.field == 3: HorizontalLayout {
+                    spacing: 16px;
+                    alignment: start;
+                    RadioDot {
+                        text: "設成同一天";
+                        on: root.date-mode == 0;
+                        clicked => {
+                            root.date-mode = 0;
+                            root.changed();
+                        }
+                    }
+                    RadioDot {
+                        text: "往後移";
+                        on: root.date-mode == 1;
+                        clicked => {
+                            root.date-mode = 1;
+                            root.changed();
+                        }
+                    }
+                    RadioDot {
+                        text: "往前移";
+                        on: root.date-mode == 2;
+                        clicked => {
+                            root.date-mode = 2;
+                            root.changed();
+                        }
+                    }
+                }
+                if root.field == 3 && root.date-mode == 0: DateRangePicker {
+                    single: true;
+                    start <=> root.date-day;
+                    end: root.date-day;
+                    today: root.today;
+                    enabled: !root.busy;
+                    applied => {
+                        root.changed();
+                    }
+                }
+                if root.field == 3 && root.date-mode == 0: MutedText {
+                    text: "預計開始和預計完成都設成這一天；不選日期就是清空預計日期。";
+                }
+                if root.field == 3 && root.date-mode != 0: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    TextField {
+                        width: 90px;
+                        height: 40px;
+                        text <=> root.days-text;
+                        input-type: InputType.number;
+                        enabled: !root.busy;
+                        edited(t) => {
+                            root.changed();
+                        }
+                    }
+                    Text {
+                        text: "個工作日";
+                        color: Theme.ink;
+                        font-size: Theme.fs-md;
+                        vertical-alignment: center;
+                    }
+                }
+                if root.field == 3 && root.date-mode != 0: HorizontalLayout {
+                    spacing: 16px;
+                    alignment: start;
+                    RadioDot {
+                        text: "開始和完成";
+                        on: root.date-target == 0;
+                        clicked => {
+                            root.date-target = 0;
+                            root.changed();
+                        }
+                    }
+                    RadioDot {
+                        text: "只改開始";
+                        on: root.date-target == 1;
+                        clicked => {
+                            root.date-target = 1;
+                            root.changed();
+                        }
+                    }
+                    RadioDot {
+                        text: "只改完成";
+                        on: root.date-target == 2;
+                        clicked => {
+                            root.date-target = 2;
+                            root.changed();
+                        }
+                    }
+                }
+                if root.field == 3 && root.date-mode != 0: MutedText {
+                    text: "工作日不算週六、週日（國定假日沒有另外扣）；沒有預計日期的任務會略過。";
+                }
+                if root.field == 4: TextField {
+                    height: 40px;
+                    placeholder: "小時，例 4、1.5；空白＝清空";
+                    text <=> root.hours-text;
+                    enabled: !root.busy;
+                    edited(t) => {
+                        root.changed();
+                    }
+                }
+                if root.field == 5: HorizontalLayout {
+                    spacing: 16px;
+                    alignment: start;
+                    RadioDot {
+                        text: "加入";
+                        on: root.milestone-mode == 0;
+                        clicked => {
+                            root.milestone-mode = 0;
+                            root.changed();
+                        }
+                    }
+                    RadioDot {
+                        text: "移除";
+                        on: root.milestone-mode == 1;
+                        clicked => {
+                            root.milestone-mode = 1;
+                            root.changed();
+                        }
+                    }
+                }
+                if root.field == 5: TextField {
+                    height: 40px;
+                    placeholder: "里程碑名稱（同名的加日期，例「交付客戶 2026-11-15」）";
+                    text <=> root.milestone-text;
+                    enabled: !root.busy;
+                    edited(t) => {
+                        root.changed();
+                    }
+                }
+                if root.field == 5: MutedText {
+                    text: "會先讀每個任務目前的里程碑，再加入或移除這一個；執行者不能改里程碑。";
+                }
+                if root.field == 6 && root.custom-fields.length == 0: MutedText {
+                    text: "這個專案沒有自訂欄位。";
+                }
+                if root.field == 6 && root.custom-fields.length > 0: SelectField {
+                    height: 40px;
+                    items: root.custom-fields;
+                    current <=> root.custom-index;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.custom-selected(i);
+                        root.changed();
+                    }
+                }
+                if root.field == 6 && root.custom-fields.length > 0 && root.custom-options.length > 0: SelectField {
+                    height: 40px;
+                    items: root.custom-options;
+                    current <=> root.custom-option-index;
+                    enabled: !root.busy;
+                    selected(i) => {
+                        root.changed();
+                    }
+                }
+                if root.field == 6 && root.custom-fields.length > 0 && root.custom-options.length == 0: TextField {
+                    height: 40px;
+                    placeholder: "新的值；空白＝清空";
+                    text <=> root.custom-text;
+                    enabled: !root.busy;
+                    edited(t) => {
+                        root.changed();
+                    }
+                }
+            }
+        }
+        if root.warning != "": Rectangle {
+            height: warn.preferred-height + 16px;
+            border-radius: Theme.radius-small;
+            background: Theme.warn-soft;
+            warn := Text {
+                x: 12px;
+                width: parent.width - 24px;
+                text: root.warning;
+                color: Theme.warn;
+                font-size: Theme.fs-md;
+                font-weight: 600;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+        }
+        StatusLine {
+            text: root.error;
+        }
+        Section {
+            index: 3;
+            DialogButtons {
+                Button {
+                    text: "取消";
+                    kind: ButtonKind.secondary;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                Button {
+                    text: root.busy ? "處理中…" : root.apply-text;
+                    enabled: !root.busy;
+                    clicked => {
+                        root.apply();
+                    }
+                }
+            }
+        }
+    }
+}

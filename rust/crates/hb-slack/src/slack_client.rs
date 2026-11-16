@@ -74,7 +74,7 @@ impl SlackClient {
     pub const MANIFEST: &'static str = r#"{
   "display_information": {
     "name": "HayakuBar",
-    "description": "把 Hayaku 的通知、審核、測試結果傳到 Slack，可以直接按已讀、核准、駁回。"
+    "description": "把 Hayaku 的通知、審核、測試結果傳到 Slack，可以直接按已讀、核准、拒絕。"
   },
   "features": {
     "app_home": {
@@ -174,7 +174,7 @@ impl SlackClient {
         self.call("chat.update", bot_token, Some(body)).await.map(|_| ())
     }
 
-    /// 跳出表單（駁回、退回要填原因）；trigger_id 只有 3 秒有效。
+    /// 跳出表單（拒絕、退回要填原因）；trigger_id 只有 3 秒有效。
     pub async fn open_view(&self, bot_token: &str, trigger_id: &str, view: Value) -> Result<(), SlackError> {
         self.call("views.open", bot_token, Some(json!({ "trigger_id": trigger_id, "view": view }))).await.map(|_| ())
     }

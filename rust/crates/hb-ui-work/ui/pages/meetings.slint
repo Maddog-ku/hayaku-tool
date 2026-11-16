@@ -4,8 +4,9 @@
 // 接下來／參加過的、加入並計時、離開、釘到托盤、取消、新增會議；點一場在右邊看詳細、修改、會議紀錄、檔案、白板。
 import { Theme, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, PageTitle, PlainText, SelectField, RadioDot, TextArea } from "@hbc/index.slint";
-import { W3Check, PageButton, SmallButton, TipSegmented, ItemCard, CheckWrap, ConfirmOverlay, MdArea, SubtleBox, W3Group, CenterNote } from "w3-common.slint";
+import { W3Check, PageButton, SmallButton, TipSegmented, ItemCard, PeopleField, ConfirmOverlay, MdArea, SubtleBox, W3Group, CenterNote } from "w3-common.slint";
 import { Appear, SlideSwitch, Collapse } from "../shared/anim.slint";
+import { EmptyState } from "../shared/index.slint";
 
 /// 清單上的一場會議（C# MeetingListVm）。time-tone：0 一般、1 進行中（強調色）、2 過去（淡色）。
 export struct MeetingRow {
@@ -22,6 +23,24 @@ export struct MeetingRow {
     pin-tip: string,
     selected: bool,
     busy: bool,
+    // 跟上 Hayaku 1.5.5 的會議列表：今天的會議依時間排在「現在」線上下，進行中的放大，開過的灰掉、收成一區
+    /// 卡片上方的分組標題（今天、11/17（二）、今天已結束（2））；空字串不顯示
+    head: string,
+    /// 標題可以點（已結束那一區：展開／收起）
+    head-toggle: bool,
+    /// 「現在」線畫在卡片上方／下方
+    now-before: bool,
+    now-after: bool,
+    now-text: string,
+    /// 進行中：放大，列出誰在會議中、誰還沒加入、誰請假
+    big: bool,
+    people-in: string,
+    people-wait: string,
+    people-leave: string,
+    /// 已經開過（灰掉）
+    dim: bool,
+    /// 已結束那一區收起來時不顯示
+    hidden: bool,
 }
 
 /// 詳細的「時間、專案、地點…」一列。
@@ -70,6 +89,8 @@ export global MeetingsPageData {
     in-out property <int> tab: 0;
     in-out property <[MeetingRow]> rows;
     in-out property <string> empty-text;
+    /// 「接下來」分頁今天沒有會議：顯示插圖提示
+    in property <bool> today-empty;
     in-out property <string> list-status;
     in-out property <int> list-tone;
     // 新增
@@ -83,6 +104,8 @@ export global MeetingsPageData {
     in-out property <string> location;
     in-out property <string> note;
     in-out property <[W3Check]> attendees;
+    /// 已選的參加者（顯示用，Rust 算好）
+    in property <string> attendees-text;
     in-out property <string> form-status;
     in-out property <int> form-tone;
     in-out property <bool> creating;
@@ -111,6 +134,7 @@ export global MeetingsPageData {
     in-out property <string> edit-location;
     in-out property <string> edit-note;
     in-out property <[W3Check]> edit-people;
+    in property <string> edit-people-text;
     in-out property <string> edit-people-message;
     in-out property <bool> edit-people-error;
     in-out property <bool> edit-recurring;
@@ -122,11 +146,16 @@ export global MeetingsPageData {
     in-out property <string> confirm-text;
 
     callback tab-selected(int);
+    /// 點了「今天已結束」：展開／收起
+    callback ended-toggled();
     callback new-clicked();
     callback cancel-form();
     callback create();
     callback project-selected(int);
     callback attendee-toggled(int, bool);
+    /// 開選人視窗選參加者（跟上 Hayaku 1.5.5）
+    callback pick-attendees();
+    callback pick-edit-people();
     callback card-clicked(int);
     callback join(int);
     callback leave(int);
@@ -284,7 +313,7 @@ component MeetingCard inherits ItemCard {
                     text: root.data.title;
                     color: Theme.ink;
                     font-weight: 600;
-                    font-size: Theme.fs-base;
+                    font-size: root.data.big ? Theme.fs-lg : Theme.fs-base;
                     overflow: elide;
                 }
                 Text {
@@ -292,6 +321,25 @@ component MeetingCard inherits ItemCard {
                     color: Theme.muted;
                     font-size: Theme.fs-sm;
                     overflow: elide;
+                }
+                // 進行中：誰在會議中、誰還沒加入、誰請假
+                if root.data.big && root.data.people-in != "": Text {
+                    text: "● 會議中：" + root.data.people-in;
+                    color: Theme.run;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                if root.data.big && root.data.people-wait != "": Text {
+                    text: "○ 還沒加入：" + root.data.people-wait;
+                    color: Theme.warn;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+                if root.data.big && root.data.people-leave != "": Text {
+                    text: "請假：" + root.data.people-leave;
+                    color: Theme.muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
                 }
                 if root.compact: MeetingActions {
                     data: root.data;
@@ -302,6 +350,70 @@ component MeetingCard inherits ItemCard {
             if !root.compact: MeetingActions {
                 data: root.data;
                 index: root.index;
+            }
+        }
+    }
+}
+
+/// 「現在 14:05」線。
+component NowLine {
+    in property <string> text;
+    height: 20px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            text: root.text;
+            color: Theme.accent-ink;
+            font-size: Theme.fs-xs;
+            font-weight: 700;
+            font-family: Theme.font-num;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: 2px;
+                border-radius: 1px;
+                background: Theme.accent;
+            }
+        }
+    }
+}
+
+/// 今天沒有會議（跟上 Hayaku 1.5.5 沒有資料時的畫面）。
+component TodayEmpty inherits Rectangle {
+    border-radius: 18px;
+    background: Theme.fill;
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 12px;
+        Text {
+            text: "☕";
+            font-size: 28px;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: "今天沒有會議";
+                color: Theme.ink;
+                font-size: Theme.fs-base;
+                font-weight: 600;
+            }
+            Text {
+                text: "可以專心做事；要約人討論就新增一場。";
+                color: Theme.muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+        PageButton {
+            text: "＋ 新增會議";
+            clicked => {
+                MeetingsPageData.new-clicked();
             }
         }
     }
@@ -391,10 +503,12 @@ component NewForm inherits Rectangle {
         FieldLabel {
             text: "參加者";
         }
-        CheckWrap {
-            items: MeetingsPageData.attendees;
-            toggled(i, c) => {
-                MeetingsPageData.attendee-toggled(i, c);
+        PeopleField {
+            text: MeetingsPageData.attendees-text;
+            placeholder: MeetingsPageData.attendees.length == 0 ? "先選專案" : "沒選就只有自己";
+            enabled: MeetingsPageData.attendees.length > 0;
+            clicked => {
+                MeetingsPageData.pick-attendees();
             }
         }
         FieldLabel {
@@ -475,11 +589,10 @@ component EditForm {
             font-size: Theme.fs-sm;
             wrap: word-wrap;
         }
-        if MeetingsPageData.can-edit: CheckWrap {
-            items: MeetingsPageData.edit-people;
-            item-width: 130px;
-            toggled(i, c) => {
-                MeetingsPageData.edit-person-toggled(i, c);
+        if MeetingsPageData.can-edit && MeetingsPageData.edit-people.length > 0: PeopleField {
+            text: MeetingsPageData.edit-people-text;
+            clicked => {
+                MeetingsPageData.pick-edit-people();
             }
         }
         if MeetingsPageData.can-edit && MeetingsPageData.edit-recurring: FieldLabel {
@@ -903,28 +1016,64 @@ export component MeetingsPage inherits Rectangle {
                                 spacing: 8px;
                                 padding-right: 6px;
                                 alignment: start;
+                                if MeetingsPageData.today-empty && MeetingsPageData.tab == 0 && !MeetingsPageData.loading: TodayEmpty { }
                                 for row[i] in MeetingsPageData.rows: Appear {
                                     index: i;
                                     stagger: 35ms;
-                                    MeetingCard {
-                                        data: row;
-                                        index: i;
-                                        compact: MeetingsPageData.detail-open && root.width < 1100px;
-                                        clicked => {
-                                            keys.focus();
-                                            MeetingsPageData.card-clicked(i);
+                                    VerticalLayout {
+                                        spacing: 6px;
+                                        if row.head != "": Rectangle {
+                                            height: 26px;
+                                            Text {
+                                                x: 2px;
+                                                height: parent.height;
+                                                text: row.head-toggle ? (row.hidden ? "▸ " : "▾ ") + row.head : row.head;
+                                                color: row.head-toggle && head-ta.has-hover ? Theme.ink : Theme.muted;
+                                                font-size: Theme.fs-sm;
+                                                font-weight: 700;
+                                                vertical-alignment: bottom;
+                                            }
+                                            head-ta := TouchArea {
+                                                enabled: row.head-toggle;
+                                                mouse-cursor: row.head-toggle ? pointer : default;
+                                                clicked => {
+                                                    MeetingsPageData.ended-toggled();
+                                                }
+                                            }
+                                        }
+                                        if row.now-before: NowLine {
+                                            text: row.now-text;
+                                        }
+                                        if !row.hidden: MeetingCard {
+                                            data: row;
+                                            index: i;
+                                            opacity: row.dim ? 0.55 : 1;
+                                            compact: MeetingsPageData.detail-open && root.width < 1100px;
+                                            clicked => {
+                                                keys.focus();
+                                                MeetingsPageData.card-clicked(i);
+                                            }
+                                        }
+                                        if row.now-after: NowLine {
+                                            text: row.now-text;
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                    if MeetingsPageData.empty-text != "": CenterNote {
+                    if MeetingsPageData.empty-text != "": EmptyState {
                         // 寬度跟著外框，長的訊息換行置中
                         x: 16px;
                         width: parent.width - 32px;
                         height: parent.height;
                         text: MeetingsPageData.empty-text;
+                        glyph: MeetingsPageData.loading ? "" : MeetingsPageData.tab == 0 ? "📅" : "🗂";
+                        hint: MeetingsPageData.loading || MeetingsPageData.tab != 0 ? "" : "有人約你開會時會出現在這裡";
+                        action-text: MeetingsPageData.loading || MeetingsPageData.tab != 0 ? "" : "＋ 新增會議";
+                        action => {
+                            MeetingsPageData.new-clicked();
+                        }
                     }
                 }
                 if MeetingsPageData.detail-open: Detail {

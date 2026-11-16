@@ -150,6 +150,8 @@ pub struct TaskDetail {
     pub content_block_count: i32,
     pub test: TestInfo,
     pub created_by: Option<String>,
+    /// 里程碑（批次加入、移除時要先知道原本有哪些；跟上 Hayaku 1.5.5）
+    pub milestones: Vec<MilestoneRef>,
 }
 
 impl TaskDetail {
@@ -201,6 +203,32 @@ pub struct ProjectDetail {
     pub members: Vec<PersonRef>,
     pub statuses: Vec<StatusOption>,
     pub test_sub_statuses: Option<Vec<TestSubStatus>>,
+    /// 自訂欄位定義（批次修改用；跟上 Hayaku 1.5.5）
+    pub custom_fields: Vec<CustomFieldDef>,
+}
+
+/// 專案的自訂欄位定義：kind 是伺服器的類型代碼（照原樣，例 SELECT、MULTI_SELECT、TEXT）；
+/// options 是下拉選項名稱（不是下拉時空的）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CustomFieldDef {
+    pub name: String,
+    pub kind: String,
+    pub options: Vec<String>,
+}
+
+impl CustomFieldDef {
+    /// 多選（值要送陣列）。
+    pub fn is_multi(&self) -> bool {
+        let k = self.kind.to_ascii_uppercase();
+        k.contains("MULTI") || k.contains("CHECKBOX_LIST")
+    }
+}
+
+/// 任務的一個里程碑：有 id 就用 id 送回（同名的里程碑才不會搞混）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MilestoneRef {
+    pub id: Option<String>,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

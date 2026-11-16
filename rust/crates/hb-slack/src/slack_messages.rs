@@ -54,7 +54,7 @@ impl SlackMessages {
 
     /// 這次同步新出現（開程式後才收到、還沒看過）的未讀通知裡，要傳到 Slack 的：要動手處理的一律傳，其他的只在螢幕鎖定時傳。
     /// 看過的記在 seen，所以沒鎖定時收到的一般通知，之後鎖定也不會補傳。
-    /// 能審核時「有新的變更申請」不傳，由待我審核的訊息（可以直接核准、駁回）取代。
+    /// 能審核時「有新的變更申請」不傳，由待我審核的訊息（可以直接核准、拒絕）取代。
     pub fn select_notifications(
         notifications: &[NotificationItem],
         seen: &mut HashSet<String>,
@@ -160,7 +160,7 @@ impl SlackMessages {
             change_request_id: Some(c.id.clone()),
             can_watch: c.r#type != "DELETE",
             reject_warning: (c.r#type == "CREATE")
-                .then(|| format!("駁回會刪除 {task_key} {}{logged}", c.task_title).trim_end().to_owned()),
+                .then(|| format!("拒絕會刪除 {task_key} {}{logged}", c.task_title).trim_end().to_owned()),
             task_key: c.task_key.clone(),
             toast_tag: Some(format!("cr:{}", c.id)),
             posted_at: now,
@@ -188,7 +188,7 @@ impl SlackMessages {
         blocks
     }
 
-    /// 駁回申請、退回測試結果要填原因的表單；駁回的說明可以不填，退回一定要填。
+    /// 拒絕申請、退回測試結果要填原因的表單；拒絕的說明可以不填，退回一定要填。
     pub fn reason_modal(p: &SlackPost, action: &str) -> Value {
         let reject = action == Self::REJECT;
         let mut blocks = vec![section(&format!("*{}*\n{}", Self::escape(&p.title), Self::escape(first_line(&p.body))))];
@@ -206,8 +206,8 @@ impl SlackMessages {
             "type": "modal",
             "callback_id": Self::REASON_CALLBACK,
             "private_metadata": format!("{action}|{}", p.key),
-            "title": plain(if reject { "駁回申請" } else { "退回測試結果" }),
-            "submit": plain(if reject { "駁回" } else { "退回" }),
+            "title": plain(if reject { "拒絕申請" } else { "退回測試結果" }),
+            "submit": plain(if reject { "拒絕" } else { "退回" }),
             "close": plain("取消"),
             "blocks": blocks,
         })
@@ -264,7 +264,7 @@ fn buttons(p: &SlackPost) -> Vec<Value> {
             if p.can_watch {
                 list.push(button("核准並關注", M::APPROVE_WATCH, &p.key, None));
             }
-            list.push(button("✕ 駁回", M::REJECT, &p.key, Some("danger")));
+            list.push(button("✕ 拒絕", M::REJECT, &p.key, Some("danger")));
         }
         "retest" => {
             list.push(button("✓ 通過", M::PASS, &p.key, Some("primary")));
@@ -380,6 +380,7 @@ mod tests {
             review_note: None,
             logged_minutes: 90,
             descendant_count: 0,
+            type_label: None,
         }
     }
 
@@ -439,10 +440,10 @@ mod tests {
     }
 
     #[test]
-    fn 審核訊息_有核准駁回_新增任務的駁回要警告() {
+    fn 審核訊息_有核准拒絕_新增任務的拒絕要警告() {
         let p = SlackMessages::from_review(&cr("a", "CREATE"), "https://x/t", now());
         assert_eq!("cr:a", p.key);
-        assert!(p.reject_warning.as_deref().unwrap().contains("駁回會刪除 F2P-2 做登入"));
+        assert!(p.reject_warning.as_deref().unwrap().contains("拒絕會刪除 F2P-2 做登入"));
         let json = json_of(&SlackMessages::blocks(&p, None));
         assert!(json.contains("\"action_id\":\"approve\""));
         assert!(json.contains("\"action_id\":\"approve_watch\""));
@@ -498,12 +499,12 @@ mod tests {
     }
 
     #[test]
-    fn 表單_駁回說明可不填_退回一定要填() {
+    fn 表單_拒絕說明可不填_退回一定要填() {
         let p = SlackMessages::from_review(&cr("a", "CREATE"), "u", now());
         let reject = json_of(&SlackMessages::reason_modal(&p, SlackMessages::REJECT));
         assert!(reject.contains("\"optional\":true"));
         assert!(reject.contains("\"private_metadata\":\"reject|cr:a\""));
-        assert!(reject.contains("駁回會刪除"));
+        assert!(reject.contains("拒絕會刪除"));
         assert!(json_of(&SlackMessages::reason_modal(&p, SlackMessages::REOPEN)).contains("\"optional\":false"));
     }
 
@@ -550,10 +551,10 @@ mod tests {
     #[test]
     fn 審核訊息的內容() {
         let p = SlackMessages::from_review(&cr("a", "CREATE"), "u", now());
-        assert_eq!("待審核・新增任務", p.title);
+        assert_eq!("待審核・新增", p.title);
         assert_eq!("Amy：F2P-2 做登入\n• 狀態：待處理 → 進行中\n理由：趕時程", p.body);
-        assert_eq!(Some("駁回會刪除 F2P-2 做登入（已經記錄 1 小時 30 分 工時）"), p.reject_warning.as_deref());
-        assert_eq!("待審核・新增任務：Amy：F2P-2 做登入", SlackMessages::fallback(&p));
+        assert_eq!(Some("拒絕會刪除 F2P-2 做登入（已經記錄 1 小時 30 分 工時）"), p.reject_warning.as_deref());
+        assert_eq!("待審核・新增：Amy：F2P-2 做登入", SlackMessages::fallback(&p));
         assert_eq!(
             (Some("a"), Some("cr:a"), true),
             (p.change_request_id.as_deref(), p.toast_tag.as_deref(), p.can_watch)

@@ -6,6 +6,7 @@ import { Theme, ScrollView, TextField, Avatar, AvatarTone, Tip } from "@hb/index
 import { FieldLabel, StatusLine, PageTitle, CheckRow, DateRangePicker } from "@hbc/index.slint";
 import { PageButton, SmallButton, TipSegmented, ItemCard, ConfirmOverlay, CenterNote } from "w3-common.slint";
 import { Appear, SlideSwitch } from "../shared/anim.slint";
+import { EmptyState } from "../shared/index.slint";
 
 /// 一筆請假或出差（C# LeaveRowVm）。
 export struct LeaveRow {
@@ -340,12 +341,13 @@ component HayakuView {
                     }
                 }
             }
-            if LeavesPageData.empty-text != "": CenterNote {
+            if LeavesPageData.empty-text != "": EmptyState {
                 // 寬度跟著外框，長的訊息換行置中
                 x: 16px;
                 width: parent.width - 32px;
                 height: parent.height;
                 text: LeavesPageData.empty-text;
+                glyph: LeavesPageData.empty-text == "讀取中…" ? "" : "🌴";
             }
         }
     }

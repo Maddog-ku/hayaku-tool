@@ -177,6 +177,9 @@ row.time_color = vm.time_color.code();   // .slint：color: ColorKeys.color(row.
 | `feedback::open(engine, number)` | `FeedbackWindow` | 同一則只開一個（App.OpenWorkspace("feedback")） |
 | `file_preview::show(engine, id, name, owner, web_url: Option<&str>)` | `FilePreviewWindow.Show` | 同一個檔案已開就拉到前面；圖片 image crate 解碼、另存用 rfd；文字「繼續讀」 |
 | `reject_review::open(engine, &ChangeRequest, demo: bool)` | `RejectReviewWindow` | 同一筆申請只開一個；demo 不送出 |
+| `people_picker::open(PeoplePick, tag, done: Fn(Vec<String>))` | `PeoplePickerWindow` | 跟上 Hayaku 1.5.5（C# 版沒有）：選人；名字、帳號都能搜、字首圓頭像，多選時〔本專案成員〕〔全不選〕，按〔確定〕回傳帳號；單選點一下就回傳；取消不呼叫 done |
+| `batch_edit::open(engine, Rc<ProjectDetail>, Vec<BatchTask>, types, BatchDone)` | `BatchEditWindow` | 跟上 Hayaku 1.5.5（C# 版沒有）：專案頁勾選的任務一次改一個欄位（狀態、優先級、類型、預計日期同一天或前後移工作日、預估工時、里程碑加入／移除、自訂欄位），update_tasks 送出；改成完成、清空、移日期先提醒一次 |
+| `status_dot(category) -> i32`、`status_dots(&[StatusOption])` | `StatusDot`（`SelectField`、工作台 `MiniSelect` 的 `dots`） | 狀態分類 → 下拉選項前的顏色點（1 未開始、2 進行中、3 完成、4 不處理） |
 
 ### 5.1 QuickCreate（建立任務）
 

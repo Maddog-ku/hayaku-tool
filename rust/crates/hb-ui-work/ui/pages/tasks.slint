@@ -4,7 +4,7 @@
 // 分頁清單、搜尋、樹狀、看板、日曆、甘特（拖拉改預計日期）；點任務跳出詳細（直接改狀態、日期、工時）、新增任務。
 import { Theme, Motion } from "@hb/index.slint";
 import { PageTitle } from "@hbc/index.slint";
-import { SmallButton, GlyphButton, TipSegmented, HintBox, Modal, ConfirmDialog, SlideSwitch } from "../shared/index.slint";
+import { SmallButton, GlyphButton, TipSegmented, HintBox, Modal, ConfirmDialog, SlideSwitch, EmptyState } from "../shared/index.slint";
 import { TasksPageData } from "tasks/data.slint";
 import { ListView, TreeView, KanbanView } from "tasks/list.slint";
 import { CalendarView } from "tasks/calendar.slint";
@@ -177,25 +177,21 @@ export component TasksPage inherits Rectangle {
                             width: parent.width;
                             height: parent.height;
                         }
-                        if TasksPageData.list-message != "": Text {
-                            // 出現時淡入
-                            property <float> t: 0;
-                            init => {
-                                t = 1;
-                            }
-                            animate t {
-                                duration: Theme.reduce-motion ? 0ms : 260ms;
-                                easing: Motion.out;
-                            }
-                            opacity: self.t;
+                        if TasksPageData.list-message != "": EmptyState {
                             x: 20px;
                             width: parent.width - 40px;
+                            height: parent.height;
                             text: TasksPageData.list-message;
-                            color: Theme.muted;
-                            font-size: Theme.fs-md;
-                            wrap: word-wrap;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
+                            glyph: TasksPageData.list-empty-glyph;
+                            hint: TasksPageData.list-empty-hint;
+                            action-text: TasksPageData.list-empty-action;
+                            clear-text: TasksPageData.list-empty-clear;
+                            action => {
+                                TasksPageData.list-empty-act();
+                            }
+                            clear => {
+                                TasksPageData.list-empty-clear-clicked();
+                            }
                         }
                     }
                 }

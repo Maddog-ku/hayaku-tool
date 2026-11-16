@@ -613,6 +613,8 @@ impl Page {
                     .map(|f| W3Row {
                         title: format!("{}{}", file_icon(f), f.name).into(),
                         meta: file_meta(f).into(),
+                        // 滑過看得到星期（跟上 Hayaku 1.5.5）
+                        tip: f.at.as_ref().map(|at| format!("修改時間 {}", modified_text(at, true))).unwrap_or_default().into(),
                         ..Default::default()
                     })
                     .collect();
@@ -1259,6 +1261,21 @@ fn file_icon(f: &SpaceFile) -> &'static str {
     }
 }
 
+/// 資料夾頁的修改時間（跟上 Hayaku 1.5.5）：顯示到秒「2026/11/16 10:05:33」；with_weekday 時加星期（滑過的提示）。
+pub(crate) fn modified_text(at: &hb_api::DateTimeOffset, with_weekday: bool) -> String {
+    let local = at.with_timezone(&chrono::Local);
+    if with_weekday {
+        format!(
+            "{}（{}）{}",
+            local.format("%Y/%m/%d"),
+            inputs::weekday_short(local.date_naive()),
+            local.format("%H:%M:%S")
+        )
+    } else {
+        local.format("%Y/%m/%d %H:%M:%S").to_string()
+    }
+}
+
 pub(crate) fn file_meta(f: &SpaceFile) -> String {
     let kind = if f.is_folder {
         "資料夾"
@@ -1275,7 +1292,7 @@ pub(crate) fn file_meta(f: &SpaceFile) -> String {
         kind.to_owned(),
         size_text(f.size),
         f.uploader.clone().unwrap_or_default(),
-        f.at.as_ref().map(inputs::ago).unwrap_or_default(),
+        f.at.as_ref().map(|at| modified_text(at, false)).unwrap_or_default(),
         f.path.clone().unwrap_or_default(),
     ]
     .into_iter()
@@ -1287,6 +1304,7 @@ pub(crate) fn file_meta(f: &SpaceFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     fn n(id: &str, parent: Option<&str>, kind: Option<&str>) -> SpaceNode {
         new_node(id, &id.to_uppercase(), parent, kind, None)
@@ -1394,6 +1412,9 @@ mod tests {
             path: Some("/設計".into()),
         };
         assert_eq!("2 KB・Amy・/設計", file_meta(&f));
+        let at = chrono::Local.with_ymd_and_hms(2026, 11, 16, 10, 5, 33).unwrap().fixed_offset();
+        assert_eq!(modified_text(&at, false), "2026/11/16 10:05:33");
+        assert_eq!(modified_text(&at, true), "2026/11/16（週一）10:05:33");
         assert_eq!("📄 ", file_icon(&f));
         let board = SpaceFile { kind: Some("BOARD".into()), size: None, uploader: None, path: None, ..f };
         assert_eq!("白板", file_meta(&board));

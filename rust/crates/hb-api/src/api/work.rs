@@ -202,7 +202,37 @@ impl HayakuApi {
             content_block_count: items(r, &["contentBlocks"]).len() as i32,
             test: Self::read_test_info(r),
             created_by: first_name(r, "createdBy"),
+            milestones: items(r, &["milestones"])
+                .iter()
+                .filter_map(|m| match m {
+                    Value::String(s) => Some(MilestoneRef { id: None, name: s.clone() }),
+                    _ => Some(MilestoneRef {
+                        id: string(m, "id"),
+                        name: first_string(m, &["name", "title"]).or_else(|| string(m, "id"))?,
+                    }),
+                })
+                .collect(),
         }
+    }
+
+    /// 自訂欄位定義（get_project 的 customFields）：名稱、類型、下拉選項（字串或 { name／label／value }）。
+    pub fn parse_custom_fields(r: &Value) -> Vec<CustomFieldDef> {
+        items(r, &["customFields"])
+            .iter()
+            .filter_map(|f| {
+                Some(CustomFieldDef {
+                    name: first_string(f, &["name", "label"])?,
+                    kind: first_string(f, &["type", "kind", "fieldType"]).unwrap_or_default(),
+                    options: items(f, &["options", "choices"])
+                        .iter()
+                        .filter_map(|o| match o {
+                            Value::String(s) => Some(s.clone()),
+                            _ => first_string(o, &["name", "label", "value"]),
+                        })
+                        .collect(),
+                })
+            })
+            .collect()
     }
 
     /// 部分更新任務；fields 的值為 null 代表清空。回傳伺服器的說明文字（例如送出變更申請）。
@@ -358,6 +388,7 @@ impl HayakuApi {
             members,
             statuses,
             test_sub_statuses: Some(Self::parse_sub_statuses(&r, &["testSubStatuses"])),
+            custom_fields: Self::parse_custom_fields(&r),
         })
     }
 
@@ -690,6 +721,21 @@ mod tests {
         assert_eq!(t.path, "第一階段研究 › 機密列印");
         assert_eq!(t.planned_end, NaiveDate::from_ymd_opt(2026, 10, 23));
         assert!(t.timing);
+    }
+
+    #[test]
+    fn 自訂欄位定義與里程碑_寬鬆解析() {
+        let defs = HayakuApi::parse_custom_fields(&j(r#"
+            {"customFields":[{"name":"客戶","type":"SELECT","options":[{"name":"甲"},"乙"]},
+                             {"label":"標籤","type":"MULTI_SELECT","choices":[{"value":"x"}]},{"type":"TEXT"}]}"#));
+        assert_eq!(defs.len(), 2);
+        assert_eq!((defs[0].name.as_str(), defs[0].options.clone(), defs[0].is_multi()), ("客戶", vec!["甲".into(), "乙".into()], false));
+        assert!(defs[1].is_multi());
+        let d = HayakuApi::parse_task_detail(&j(r#"{"task":"F2P-1","milestones":["交付",{"id":"m1","name":"上線"}]}"#));
+        assert_eq!(
+            d.milestones,
+            vec![MilestoneRef { id: None, name: "交付".into() }, MilestoneRef { id: Some("m1".into()), name: "上線".into() }]
+        );
     }
 
     #[test]

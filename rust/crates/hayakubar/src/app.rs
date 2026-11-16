@@ -862,7 +862,7 @@ async fn shoot_page(a: &Rc<AppInner>, page: &str) -> Option<crate::shot::Target>
     let engine = a.engine.clone();
     match page {
         "review" => {
-            // 範例：有新的申請等我審核（可以直接核准、駁回），以及按「駁回」開的小視窗；按鈕都不會真的送出
+            // 範例：有新的申請等我審核（可以直接核准、拒絕），以及按「拒絕」開的小視窗；按鈕都不會真的送出
             let demo = ChangeRequest {
                 id: "demo".into(),
                 project: "F2P".into(),
@@ -878,6 +878,7 @@ async fn shoot_page(a: &Rc<AppInner>, page: &str) -> Option<crate::shot::Target>
                 review_note: None,
                 logged_minutes: 95,
                 descendant_count: 0,
+                type_label: None,
             };
             a.toasts.show(engine.review_toast(&demo, true));
             hb_ui_common::reject_review::open(&engine, &demo, true);

@@ -320,7 +320,7 @@ fn 審核提示_文字與按鈕() {
     let t = h.engine.review_toast(c, true);
     assert_eq!(format!("待審核・{}", c.type_text()), t.title);
     assert_eq!("小美：F2P-7 報表\n理由：做完了", t.message);
-    assert_eq!(vec!["核准", "駁回", "查看"], t.actions.iter().map(|a| a.label.as_str()).collect::<Vec<_>>());
+    assert_eq!(vec!["核准", "拒絕", "查看"], t.actions.iter().map(|a| a.label.as_str()).collect::<Vec<_>>());
     assert!(t.actions[0].primary);
     assert_eq!(Some("cr:cr1".to_owned()), t.tag);
     assert!(t.sticky && t.from_bottom);

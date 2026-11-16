@@ -172,6 +172,7 @@ impl Page {
                 });
                 self.with_data(|d| {
                     d.set_c_status_items(string_model(&statuses));
+                    d.set_c_status_dots(hb_ui_common::status_dots(&project.statuses));
                     d.set_c_status_index(default.map_or(-1, |i| i as i32));
                 });
                 {

@@ -4,8 +4,8 @@
 
 use std::rc::Rc;
 
-use chrono::{Datelike, Local};
-use hb_api::{DependencyItem, HayakuApi, KeyFinder, TaskActivityItem, TaskDetail};
+use chrono::{Datelike, Local, NaiveDate};
+use hb_api::{DependencyItem, HayakuApi, KeyFinder, RequestStep, TaskActivityItem, TaskDetail};
 use hb_ui_common::inputs::{self, ActionError, StatusMessage};
 
 use slint::ComponentHandle;
@@ -37,14 +37,111 @@ pub(super) fn attachment_meta(a: &hb_api::AttachmentItem, now: &hb_api::DateTime
     format!("  · {}", parts.join(" · "))
 }
 
-/// 異動紀錄的時間與人：「11/12 09:05  amy  」（沒有時間的空白）。
-pub(super) fn history_meta(item: &TaskActivityItem) -> String {
-    let when = if item.at.year() <= 1 {
-        String::new()
-    } else {
-        item.at.with_timezone(&Local).format("%m/%d %H:%M").to_string()
+/// 異動紀錄的時間與人：跟所在的日期標題同一天只寫「09:05  amy  」，不同天「11/12 09:05  amy  」（沒有時間的空白）。
+pub(super) fn history_meta(item: &TaskActivityItem, day: Option<NaiveDate>) -> String {
+    let when = match local_day(item) {
+        None => String::new(),
+        Some(d) if Some(d) == day => item.at.with_timezone(&Local).format("%H:%M").to_string(),
+        Some(_) => item.at.with_timezone(&Local).format("%m/%d %H:%M").to_string(),
     };
     format!("{when}  {}  ", item.actor)
+}
+
+fn local_day(item: &TaskActivityItem) -> Option<NaiveDate> {
+    (item.at.year() > 1).then(|| item.at.with_timezone(&Local).date_naive())
+}
+
+/// 日期標題：今天、昨天，其他「11/12（四）」，不是今年的加年份。
+pub(super) fn day_title(d: NaiveDate, today: NaiveDate) -> String {
+    const WEEK: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
+    let week = WEEK[d.weekday().num_days_from_monday() as usize];
+    if d == today {
+        format!("今天（{week}）")
+    } else if today.pred_opt() == Some(d) {
+        format!("昨天（{week}）")
+    } else if d.year() == today.year() {
+        format!("{}（{week}）", d.format("%m/%d"))
+    } else {
+        format!("{}（{week}）", d.format("%Y/%m/%d"))
+    }
+}
+
+/// 變更申請卡的色調：0 待審核、1 已核准、2 已拒絕、3 已撤回。
+fn request_tone(step: Option<&RequestStep>) -> i32 {
+    match step {
+        Some(RequestStep::Approve) => 1,
+        Some(RequestStep::Reject) => 2,
+        Some(RequestStep::Withdraw) => 3,
+        _ => 0,
+    }
+}
+
+/// 異動紀錄 → 畫面的列（跟上 Hayaku 1.5.5）：按天分組（kind 4 日期標題），一則一列（kind 1）；
+/// 同一張變更申請的幾則（提出、核准…）收成一張卡，放在最新那則的位置：kind 5 是卡片標題「變更申請（新增）」
+/// ＋目前狀態，底下 kind 6 是每一則。items 是新到舊。
+pub(super) fn build_history(items: &[TaskActivityItem], today: NaiveDate) -> Vec<TkLine> {
+    let mut out = Vec::new();
+    let mut day: Option<NaiveDate> = None;
+    let mut shown: Vec<&str> = Vec::new();
+    for item in items {
+        if let Some(cr) = item.change_request.as_deref() {
+            if shown.contains(&cr) {
+                continue;
+            }
+            shown.push(cr);
+        }
+        let d = local_day(item);
+        if d.is_some() && d != day {
+            day = d;
+            out.push(TkLine { kind: 4, text: day_title(d.unwrap_or(today), today).into(), ..Default::default() });
+        }
+        let Some(cr) = item.change_request.as_deref() else {
+            out.push(TkLine {
+                kind: 1,
+                text: item.text.as_str().into(),
+                meta: history_meta(item, day).into(),
+                ..Default::default()
+            });
+            continue;
+        };
+        let group: Vec<&TaskActivityItem> = items.iter().filter(|i| i.change_request.as_deref() == Some(cr)).collect();
+        let request_type = group.iter().find_map(|i| match &i.request_step {
+            Some(RequestStep::Submit(t)) if !t.is_empty() => Some(t.as_str()),
+            _ => None,
+        });
+        // 新到舊：第一個有步驟的就是目前狀態
+        let latest = group.iter().find_map(|i| i.request_step.as_ref());
+        out.push(TkLine {
+            kind: 5,
+            text: match request_type {
+                Some(t) => format!("變更申請（{t}）"),
+                None => "變更申請".to_owned(),
+            }
+            .into(),
+            meta: latest.map_or("待審核", RequestStep::state_text).into(),
+            depth: request_tone(latest),
+            ..Default::default()
+        });
+        for g in group {
+            out.push(TkLine {
+                kind: 6,
+                text: g.text.as_str().into(),
+                meta: history_meta(g, day).into(),
+                depth: request_tone(latest),
+                ..Default::default()
+            });
+        }
+    }
+    out
+}
+
+/// 篩選的索引 → get_task_activity 的 filter。
+fn history_filter_arg(i: i32) -> &'static str {
+    match i {
+        1 => "comments",
+        2 => "changes",
+        _ => "all",
+    }
 }
 
 impl Page {
@@ -96,9 +193,29 @@ impl Page {
                 {
                     let mut st = p.st.borrow_mut();
                     st.history_for = Some(key.clone());
+                    st.history_version += 1;
                     st.history_cursor = None;
+                    st.history_items.clear();
                     st.history_lines.clear();
                 }
+                shared::spawn("讀取異動紀錄", async move { p.load_history(key).await });
+            }
+        });
+        on!(d, self, on_d_history_filter_changed, |p, i| {
+            let key = {
+                let mut st = p.st.borrow_mut();
+                if st.history_filter == i {
+                    return;
+                }
+                st.history_filter = i;
+                st.history_version += 1;
+                st.history_cursor = None;
+                st.history_items.clear();
+                st.history_lines.clear();
+                st.history_for.clone()
+            };
+            if let Some(key) = key {
+                p.with_data(|d| d.set_d_history_more(false));
                 shared::spawn("讀取異動紀錄", async move { p.load_history(key).await });
             }
         });
@@ -136,7 +253,10 @@ impl Page {
         st.docs_for = None;
         st.history_for = None;
         st.history_cursor = None;
+        st.history_items.clear();
         st.history_lines.clear();
+        st.history_filter = 0;
+        st.history_version += 1;
         st.deps_rows.clear();
         drop(st);
         self.with_data(|x| {
@@ -152,6 +272,7 @@ impl Page {
             x.set_d_docs_lines(vec_model(Vec::new()));
             x.set_d_history(vec_model(Vec::new()));
             x.set_d_history_more(false);
+            x.set_d_history_filter(0);
         });
     }
 
@@ -429,13 +550,13 @@ impl Page {
 
     /// 讀一頁（50 筆）接在後面；還有更多時最後放「載入更多」。
     async fn load_history(self: Rc<Self>, key: String) {
-        let cursor = {
+        let (cursor, filter, version) = {
             let mut st = self.st.borrow_mut();
             st.history_lines.push(line(2, "讀取中…"));
-            st.history_cursor.clone()
+            (st.history_cursor.clone(), st.history_filter, st.history_version)
         };
         self.show_history();
-        let result = self.engine().api().task_activity(&key, cursor.as_deref()).await;
+        let result = self.engine().api().task_activity(&key, history_filter_arg(filter), cursor.as_deref()).await;
         let drop_loading = |p: &Page| {
             let mut st = p.st.borrow_mut();
             if st.history_lines.last().is_some_and(|l| l.kind == 2 && l.text == "讀取中…") {
@@ -456,23 +577,24 @@ impl Page {
                 return;
             }
         };
-        if self.st.borrow().detail.as_ref().is_none_or(|d| d.key != key) {
+        // 換了任務或篩選：這次的結果不要了
+        if self.st.borrow().detail.as_ref().is_none_or(|d| d.key != key) || self.st.borrow().history_version != version {
             return;
         }
         drop_loading(&self);
         {
             let mut st = self.st.borrow_mut();
             if items.is_empty() && cursor.is_none() {
-                st.history_lines.push(line(2, "沒有異動紀錄"));
+                st.history_lines.push(line(
+                    2,
+                    match filter {
+                        1 => "沒有留言",
+                        2 => "沒有變更",
+                        _ => "沒有異動紀錄",
+                    },
+                ));
             }
-            for item in &items {
-                st.history_lines.push(TkLine {
-                    kind: 1,
-                    text: item.text.as_str().into(),
-                    meta: history_meta(item).into(),
-                    ..Default::default()
-                });
-            }
+            st.history_items.extend(items);
             st.history_cursor = next.clone();
         }
         self.show_history();
@@ -480,7 +602,12 @@ impl Page {
     }
 
     fn show_history(&self) {
-        let lines = self.st.borrow().history_lines.clone();
+        let lines = {
+            let st = self.st.borrow();
+            let mut lines = build_history(&st.history_items, Local::now().date_naive());
+            lines.extend(st.history_lines.iter().cloned());
+            lines
+        };
         self.with_data(|d| d.set_d_history(vec_model(lines)));
     }
 }
@@ -525,9 +652,67 @@ mod tests {
         assert_eq!("  · ", attachment_meta(&empty, &now));
     }
 
+    fn act(at: &str, text: &str, cr: Option<&str>, step: Option<RequestStep>) -> TaskActivityItem {
+        TaskActivityItem {
+            at: chrono::DateTime::parse_from_rfc3339(at).unwrap(),
+            actor: "amy".into(),
+            text: text.into(),
+            comment: false,
+            change_request: cr.map(str::to_owned),
+            request_step: step,
+        }
+    }
+
     #[test]
     fn 異動紀錄沒有時間的空白() {
-        let item = TaskActivityItem { at: hb_api::json::min_value(), actor: "amy".into(), text: "改了狀態".into() };
-        assert_eq!("  amy  ", history_meta(&item));
+        let mut item = act("2026-11-12T09:05:00+08:00", "改了狀態", None, None);
+        item.at = hb_api::json::min_value();
+        assert_eq!("  amy  ", history_meta(&item, None));
+    }
+
+    #[test]
+    fn 日期標題() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        assert_eq!("今天（一）", day_title(today, today));
+        assert_eq!("昨天（日）", day_title(NaiveDate::from_ymd_opt(2026, 11, 15).unwrap(), today));
+        assert_eq!("11/12（四）", day_title(NaiveDate::from_ymd_opt(2026, 11, 12).unwrap(), today));
+        assert_eq!("2025/12/31（三）", day_title(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap(), today));
+    }
+
+    #[test]
+    fn 異動紀錄_按天分組_變更申請收成一張卡() {
+        // 時間用本地時區寫，日期分組才不會因為執行的電腦時區不同而變
+        let local = |d: u32, h: u32| {
+            chrono::Local
+                .with_ymd_and_hms(2026, 11, d, h, 5, 0)
+                .unwrap()
+                .fixed_offset()
+                .to_rfc3339()
+        };
+        use chrono::TimeZone;
+        let items = vec![
+            act(&local(12, 15), "修改了任務：狀態 處理中 → 已完成", None, None),
+            act(&local(12, 10), "核准了任務（經 amy 申請）", Some("cr1"), Some(RequestStep::Approve)),
+            act(&local(11, 16), "開始了計時", None, None),
+            act(&local(11, 9), "提出了變更申請（新增）", Some("cr1"), Some(RequestStep::Submit("新增".into()))),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        let lines = build_history(&items, today);
+        let view: Vec<(i32, String, String)> =
+            lines.iter().map(|l| (l.kind, l.text.to_string(), l.meta.to_string())).collect();
+        assert_eq!(
+            view,
+            vec![
+                (4, "11/12（四）".into(), "".into()),
+                (1, "修改了任務：狀態 處理中 → 已完成".into(), "15:05  amy  ".into()),
+                (5, "變更申請（新增）".into(), "已核准".into()),
+                (6, "核准了任務（經 amy 申請）".into(), "10:05  amy  ".into()),
+                (6, "提出了變更申請（新增）".into(), "11/11 09:05  amy  ".into()),
+                (4, "11/11（三）".into(), "".into()),
+                (1, "開始了計時".into(), "16:05  amy  ".into()),
+            ]
+        );
+        assert_eq!(lines[2].depth, 1);
+        assert_eq!(history_filter_arg(2), "changes");
     }
 }

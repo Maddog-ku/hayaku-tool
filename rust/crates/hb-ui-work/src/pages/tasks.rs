@@ -15,6 +15,7 @@ mod detail;
 mod extras;
 mod gantt;
 mod note;
+mod overview;
 mod schedule;
 mod testing;
 mod vm;
@@ -90,7 +91,81 @@ enum FilterAction {
     None,
     Category(String),
     Status(String),
+    /// 跟上 Hayaku 1.5.5：多選的篩選都有〔全選〕〔反選〕〔全不選〕
+    All,
+    Invert,
     Clear,
+}
+
+/// 我的任務沒有東西時的畫面（跟上 Hayaku 1.5.5）：(插圖, 說明, 下一步按鈕, 清除篩選按鈕)；讀取中、搜尋中只有字。
+pub(crate) fn empty_state(
+    message: &str,
+    tab: &str,
+    filtered: bool,
+    leaf_only: bool,
+) -> (&'static str, &'static str, &'static str, &'static str) {
+    if message.is_empty() || message.ends_with('…') {
+        return ("", "", "", "");
+    }
+    if tab == SEARCH_TAB {
+        return ("🔍", "換個關鍵字，或直接輸入任務編號（例 F2P-97）", "", "");
+    }
+    if filtered {
+        return ("🔎", "可能被狀態篩選擋住了", "", "清除篩選");
+    }
+    if leaf_only && message.contains("沒有子任務") {
+        return ("🔎", "", "", "看全部任務");
+    }
+    match tab {
+        "overdue" => ("🎉", "都跟上進度了", "", ""),
+        "should_start" => ("👍", "該開始的都開始了", "", ""),
+        "test" => ("🧪", "有人指派測試給你時會出現在這裡", "", ""),
+        DONE_TAB => ("🗂", "換個期間看看", "", ""),
+        _ => ("📋", "新任務指派給你時會出現在這裡；也可以自己新增一個", "＋ 新增任務", ""),
+    }
+}
+
+/// 點了一個狀態：它的類別整個勾著時（畫面上這個狀態也是勾著），改成拿掉類別、勾同類別的其他狀態；
+/// 否則照常勾或取消這個狀態。
+pub(crate) fn toggle_status(f: &mut StatusFilter, status: &str, statuses: &[(String, String)]) {
+    let category = statuses.iter().find(|(s, _)| s == status).map(|(_, c)| c.as_str()).unwrap_or_default();
+    if !category.is_empty() && f.categories.contains(category) {
+        f.categories.remove(category);
+        for (s, c) in statuses {
+            if c.eq_ignore_ascii_case(category) && s != status {
+                f.statuses.insert(s.clone());
+            }
+        }
+        return;
+    }
+    if !f.statuses.shift_remove(status) {
+        f.statuses.insert(status.to_owned());
+    }
+}
+
+/// 〔反選〕：原本看得到的狀態（勾了類別就是那類的全部狀態）換成沒勾的；整類都勾了就勾類別。
+/// statuses：(狀態, 類別)。原本什麼都沒勾（＝全部）時反選是全部勾起來。
+pub(crate) fn invert_filter(f: &StatusFilter, categories: &[&str], statuses: &[(String, String)]) -> StatusFilter {
+    let mut next = StatusFilter::new();
+    if f.is_empty() {
+        for c in categories {
+            next.categories.insert((*c).to_owned());
+        }
+        return next;
+    }
+    let shown = |(s, c): &(String, String)| f.categories.contains(c) || f.statuses.contains(s);
+    for c in categories {
+        let mine: Vec<&(String, String)> = statuses.iter().filter(|(_, sc)| sc.eq_ignore_ascii_case(c)).collect();
+        let flipped: Vec<&(String, String)> = mine.iter().copied().filter(|x| !shown(x)).collect();
+        if !mine.is_empty() && flipped.len() == mine.len() {
+            next.categories.insert((*c).to_owned());
+        } else {
+            for (s, _) in flipped {
+                next.statuses.insert(s.clone());
+            }
+        }
+    }
+    next
 }
 
 /// 頁面狀態（C# TasksPage 的欄位）。
@@ -117,6 +192,8 @@ struct State {
     status_filter: StatusFilter,
     category_options: Vec<(&'static str, &'static str, usize)>,
     status_options: Vec<(String, usize)>,
+    /// 各狀態的類別（篩選選單把狀態縮排在類別底下、反選用）
+    status_categories: Vec<(String, String)>,
     status_total: usize,
     filter_actions: Vec<FilterAction>,
     search_hits: Vec<SearchHit>,
@@ -133,6 +210,13 @@ struct State {
     loading_detail: bool,
     child_hours_for: Option<String>,
     tree_for: Option<String>,
+    /// 子任務清單的優先級、預計日期、執行者（get_task_tree 一層，打開有子任務的任務時讀；跟上 Hayaku 1.5.5）
+    child_info_for: Option<String>,
+    child_info: HashMap<String, hb_api::TaskTreeRow>,
+    /// 子任務的工時（分鐘；展開「子任務的工時」讀到的，順便顯示在子任務清單）
+    child_minutes: HashMap<String, f64>,
+    /// 打開的任務所在專案的成員（帳號換顯示名稱、選執行者用）
+    members: Vec<hb_api::PersonRef>,
     /// 上層任務 → 它的子任務（打開任務時順手記下，同一層移動不用多打請求）
     children_of: HashMap<String, Vec<(String, String, String)>>,
     result_filter: String,
@@ -149,7 +233,14 @@ struct State {
     docs_for: Option<String>,
     history_for: Option<String>,
     history_cursor: Option<String>,
+    /// 讀到的異動紀錄（新到舊）；畫面由 build_history 組成
+    history_items: Vec<hb_api::TaskActivityItem>,
+    /// 接在紀錄後面的狀態列（讀取中、失敗、沒有紀錄）
     history_lines: Vec<crate::TkLine>,
+    /// 異動紀錄篩選：0 全部、1 留言、2 變更（跟上 Hayaku 1.5.5）
+    history_filter: i32,
+    /// 換任務或篩選就加一，讀回來的版本不同就丟掉
+    history_version: u64,
     /// 測試結果的批次子狀態（〔⇢ 已更新到測試機〕用）
     test_batch: Option<hb_api::TestSubStatus>,
 
@@ -228,6 +319,7 @@ impl Page {
             status_filter: StatusFilter::new(),
             category_options: Vec::new(),
             status_options: Vec::new(),
+            status_categories: Vec::new(),
             status_total: 0,
             filter_actions: Vec::new(),
             search_hits: Vec::new(),
@@ -242,6 +334,10 @@ impl Page {
             loading_detail: false,
             child_hours_for: None,
             tree_for: None,
+            child_info_for: None,
+            child_info: HashMap::new(),
+            child_minutes: HashMap::new(),
+            members: Vec::new(),
             children_of: HashMap::new(),
             result_filter: String::new(),
             result_filter_for: None,
@@ -257,7 +353,10 @@ impl Page {
             docs_for: None,
             history_for: None,
             history_cursor: None,
+            history_items: Vec::new(),
             history_lines: Vec::new(),
+            history_filter: 0,
+            history_version: 0,
             test_batch: None,
             creating_child_of: None,
             picked_parent: None,
@@ -366,6 +465,17 @@ impl Page {
         on!(d, self, on_status_filter_toggle, |p, i| p.toggle_filter(i as usize));
         on!(d, self, on_project_selected, |p, i| p.select_project(i as usize));
         on!(d, self, on_done_days_selected, |p, i| p.select_done_days(i as usize));
+        on!(d, self, on_list_empty_act, |p| p.show_create(None));
+        on!(d, self, on_list_empty_clear_clicked, |p| {
+            let filtered = !p.st.borrow().status_filter.is_empty();
+            if filtered {
+                p.st.borrow_mut().status_filter.clear();
+            } else {
+                p.save_config(|c| c.task_leaf_only = false);
+                p.with_data(|d| d.set_leaf_only(false));
+            }
+            p.render_list(true);
+        });
         on!(d, self, on_leaf_only_toggled, |p, v| {
             p.save_config(|c| c.task_leaf_only = v);
             p.render_list(true);
@@ -698,6 +808,12 @@ impl Page {
         if view.is_some() && !shown.is_empty() {
             message.clear();
         }
+        let (glyph, hint, action, clear) =
+            empty_state(&message, &st.tab, !st.status_filter.is_empty(), self.engine().config().task_leaf_only);
+        d.set_list_empty_glyph(glyph.into());
+        d.set_list_empty_hint(hint.into());
+        d.set_list_empty_action(action.into());
+        d.set_list_empty_clear(clear.into());
         d.set_list_message(message.into());
         self.update_filter_highlights(&st, &d);
         drop(st);
@@ -787,6 +903,14 @@ impl Page {
     fn render_status_filters(st: &mut State, d: &TasksPageData, tasks: &[TaskSummary]) {
         st.category_options = TaskOrder::categories(tasks.iter());
         st.status_options = TaskOrder::statuses(tasks.iter());
+        st.status_categories = st
+            .status_options
+            .iter()
+            .map(|(s, _)| {
+                let c = tasks.iter().find(|t| t.status == *s).map(|t| t.status_category.clone()).unwrap_or_default();
+                (s.clone(), c)
+            })
+            .collect();
         st.status_total = tasks.len();
         let categories: Vec<&str> = st.category_options.iter().map(|c| c.0).collect();
         let statuses: Vec<String> = st.status_options.iter().map(|s| s.0.clone()).collect();
@@ -811,26 +935,43 @@ impl Page {
             text: text.into(),
             checked,
             enabled,
+            ..Default::default()
         };
-        items.push(item(0, format!("狀態類別（共 {} 個任務）", st.status_total), false, false));
+        // 跟上 Hayaku 1.5.5：狀態類別前有顏色點，各專案的狀態縮排在類別底下；最後是〔全選〕〔反選〕〔全不選〕
+        items.push(item(0, format!("狀態（共 {} 個任務）", st.status_total), false, false));
         actions.push(FilterAction::None);
+        let mut listed: Vec<&str> = Vec::new();
         for (category, label, count) in &st.category_options {
-            items.push(item(1, format!("{label}　{count}"), st.status_filter.categories.contains(category), true));
+            items.push(TkCheckItem {
+                dot: hb_ui_common::status_dot(category),
+                ..item(1, format!("{label}　{count}"), st.status_filter.categories.contains(category), true)
+            });
             actions.push(FilterAction::Category((*category).to_owned()));
-        }
-        if !st.status_options.is_empty() {
-            items.push(item(2, String::new(), false, false));
-            actions.push(FilterAction::None);
-            items.push(item(0, "各專案的狀態".to_owned(), false, false));
-            actions.push(FilterAction::None);
             for (status, count) in &st.status_options {
-                items.push(item(1, format!("{status}　{count}"), st.status_filter.statuses.contains(status), true));
+                let in_category = st
+                    .status_categories
+                    .iter()
+                    .any(|(s, c)| s == status && c.eq_ignore_ascii_case(category));
+                if !in_category {
+                    continue;
+                }
+                listed.push(status.as_str());
+                let checked = st.status_filter.categories.contains(category) || st.status_filter.statuses.contains(status);
+                items.push(TkCheckItem { indent: true, ..item(1, format!("{status}　{count}"), checked, true) });
                 actions.push(FilterAction::Status(status.clone()));
             }
         }
+        for (status, count) in st.status_options.iter().filter(|(s, _)| !listed.contains(&s.as_str())) {
+            items.push(item(1, format!("{status}　{count}"), st.status_filter.statuses.contains(status), true));
+            actions.push(FilterAction::Status(status.clone()));
+        }
         items.push(item(2, String::new(), false, false));
         actions.push(FilterAction::None);
-        items.push(item(3, "清除篩選（全部狀態）".to_owned(), false, !st.status_filter.is_empty()));
+        items.push(item(3, "全選".to_owned(), false, !st.category_options.is_empty()));
+        actions.push(FilterAction::All);
+        items.push(item(3, "反選".to_owned(), false, !st.category_options.is_empty()));
+        actions.push(FilterAction::Invert);
+        items.push(item(3, "全不選（全部狀態）".to_owned(), false, !st.status_filter.is_empty()));
         actions.push(FilterAction::Clear);
         st.filter_actions = actions;
         drop(st);
@@ -841,6 +982,8 @@ impl Page {
         {
             let mut st = self.st.borrow_mut();
             let Some(action) = st.filter_actions.get(index).cloned() else { return };
+            let categories = st.category_options.clone();
+            let status_categories = st.status_categories.clone();
             let f = &mut st.status_filter;
             match action {
                 FilterAction::Category(c) => {
@@ -848,12 +991,18 @@ impl Page {
                         f.categories.insert(c);
                     }
                 }
-                FilterAction::Status(s) => {
-                    if !f.statuses.shift_remove(&s) {
-                        f.statuses.insert(s);
+                FilterAction::Status(s) => toggle_status(f, &s, &status_categories),
+                FilterAction::Clear => f.clear(),
+                FilterAction::All => {
+                    f.clear();
+                    for (c, _, _) in &categories {
+                        f.categories.insert((*c).to_owned());
                     }
                 }
-                FilterAction::Clear => f.clear(),
+                FilterAction::Invert => {
+                    let cats: Vec<&str> = categories.iter().map(|c| c.0).collect();
+                    *f = invert_filter(f, &cats, &status_categories);
+                }
                 FilterAction::None => return,
             }
         }
@@ -1252,5 +1401,58 @@ fn tk_tree_row(item: &TreeItem, today: NaiveDate) -> TkTreeRow {
             row: row.as_ref().map(|r| tk_row(r, today, false)).unwrap_or_default(),
             ..Default::default()
         },
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    #[test]
+    fn 沒有任務的畫面() {
+        assert_eq!(empty_state("讀取中…", "all", false, false), ("", "", "", ""));
+        assert_eq!(empty_state("沒有符合狀態篩選的任務", "all", true, false).3, "清除篩選");
+        assert_eq!(empty_state("這裡沒有任務", "all", false, false).2, "＋ 新增任務");
+        assert_eq!(empty_state("找不到符合的任務", SEARCH_TAB, false, false).0, "🔍");
+        assert_eq!(empty_state("沒有「沒有子任務」的任務（取消勾選看上層任務）", "all", false, true).3, "看全部任務");
+    }
+
+    #[test]
+    fn 反選_看得到的換成沒勾的_整類都勾就勾類別() {
+        let statuses = vec![
+            ("未開始".to_owned(), "TODO".to_owned()),
+            ("處理中".to_owned(), "IN_PROGRESS".to_owned()),
+            ("追蹤中".to_owned(), "IN_PROGRESS".to_owned()),
+            ("已完成".to_owned(), "DONE".to_owned()),
+        ];
+        let cats = ["TODO", "IN_PROGRESS", "DONE"];
+        // 什麼都沒勾（＝全部）：反選是全部勾起來
+        let all = invert_filter(&StatusFilter::new(), &cats, &statuses);
+        assert_eq!(all.categories.len(), 3);
+        // 勾了「未開始」類別和「處理中」：反選是「追蹤中」＋整個完成類別
+        let mut f = StatusFilter::new();
+        f.categories.insert("TODO".to_owned());
+        f.statuses.insert("處理中".to_owned());
+        let inv = invert_filter(&f, &cats, &statuses);
+        assert!(inv.categories.contains("DONE") && !inv.categories.contains("TODO") && !inv.categories.contains("IN_PROGRESS"));
+        assert_eq!(inv.statuses.iter().cloned().collect::<Vec<_>>(), vec!["追蹤中".to_owned()]);
+    }
+
+    #[test]
+    fn 類別勾著時點底下的狀態_取消那一個() {
+        let statuses = vec![
+            ("處理中".to_owned(), "IN_PROGRESS".to_owned()),
+            ("追蹤中".to_owned(), "IN_PROGRESS".to_owned()),
+            ("已完成".to_owned(), "DONE".to_owned()),
+        ];
+        let mut f = StatusFilter::new();
+        f.categories.insert("IN_PROGRESS".to_owned());
+        toggle_status(&mut f, "處理中", &statuses);
+        assert!(!f.categories.contains("IN_PROGRESS"));
+        assert_eq!(f.statuses.iter().cloned().collect::<Vec<_>>(), vec!["追蹤中".to_owned()]);
+        toggle_status(&mut f, "追蹤中", &statuses);
+        assert!(f.is_empty());
+        toggle_status(&mut f, "已完成", &statuses);
+        assert_eq!(f.statuses.iter().cloned().collect::<Vec<_>>(), vec!["已完成".to_owned()]);
     }
 }

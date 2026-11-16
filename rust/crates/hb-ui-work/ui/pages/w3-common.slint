@@ -391,6 +391,49 @@ export component ItemCard inherits Rectangle {
     }
 }
 
+/// 選了誰（跟上 Hayaku 1.5.5 的選人方式）：顯示已選的人，點一下開選人視窗（名字、帳號都能搜，〔本專案成員〕一次加入）。
+export component PeopleField {
+    in property <string> text;
+    in property <string> placeholder: "還沒選人";
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 40px;
+    horizontal-stretch: 1;
+    opacity: root.enabled ? 1 : 0.5;
+    Rectangle {
+        border-radius: Theme.radius-input;
+        background: ta.has-hover && root.enabled ? Theme.hover : Theme.fill;
+        animate background { duration: 150ms; }
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 12px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.text != "" ? root.text : root.placeholder;
+                color: root.text != "" ? Theme.ink : Theme.muted;
+                font-size: Theme.fs-md;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: "選擇…";
+                color: Theme.accent-ink;
+                font-size: Theme.fs-sm;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 /// 勾選項目自動換行排列（C# WrapPanel 裡的 CheckBox）：固定欄寬 item-width。
 export component CheckWrap {
     in-out property <[W3Check]> items;

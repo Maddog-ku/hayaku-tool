@@ -16,6 +16,7 @@ pub mod task_menu;
 pub mod task_text;
 pub mod theme;
 pub mod view_models;
+
 pub mod window_util;
 
 mod dialog;
@@ -24,10 +25,12 @@ pub mod add_test_result;
 pub mod advance_tests;
 pub mod apply_template;
 pub mod batch_create;
+pub mod batch_edit;
 pub mod delete_task;
 pub mod feedback;
 pub mod file_preview;
 pub mod move_task;
+pub mod people_picker;
 pub mod poll;
 pub mod quick_create;
 pub mod reject_review;
@@ -105,6 +108,8 @@ impl_themed!(
     ui::AddTestResultWindow,
     ui::MoveTaskWindow,
     ui::TaskPickerWindow,
+    ui::PeoplePickerWindow,
+    ui::BatchEditWindow,
     ui::PollWindow,
     ui::FeedbackWindow,
     ui::FilePreviewWindow,
@@ -116,9 +121,33 @@ pub(crate) fn apply_theme<T: Themed>(ui: &T, dark: bool, reduce_motion: bool) {
     ui.apply_theme(dark, reduce_motion);
 }
 
+/// 狀態分類 → 下拉選項前顏色點的種類（StatusDot：1 未開始、2 進行中、3 完成、4 不處理；認不得當進行中）。
+pub fn status_dot(category: &str) -> i32 {
+    match category.to_ascii_uppercase().as_str() {
+        "" => 0,
+        "TODO" => 1,
+        "DONE" => 3,
+        "CANCELLED" | "CANCELED" => 4,
+        _ => 2,
+    }
+}
+
+/// 一個專案的狀態清單 → 顏色點（照順序）。
+pub fn status_dots(statuses: &[hb_api::StatusOption]) -> slint::ModelRc<i32> {
+    slint::ModelRc::new(slint::VecModel::from(statuses.iter().map(|s| status_dot(&s.category)).collect::<Vec<_>>()))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ui::{DayTimelineModel, TaskMenuState};
+
+    #[test]
+    fn 狀態分類對到顏色點() {
+        assert_eq!(
+            ["TODO", "in_progress", "DONE", "CANCELLED", "", "TESTING"].map(crate::status_dot),
+            [1, 2, 3, 4, 0, 2]
+        );
+    }
 
     /// day_timeline_model! 能轉成本 crate 編譯出的 DayTimelineModel（其他 crate 同理）。
     #[test]

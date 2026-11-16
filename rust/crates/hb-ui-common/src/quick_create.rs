@@ -523,6 +523,7 @@ impl QuickCreate {
             Ok((tasks, project)) => {
                 let names: Vec<SharedString> = project.statuses.iter().map(|s| s.name.as_str().into()).collect();
                 inner.ui.set_statuses(ModelRc::new(VecModel::from(names)));
+                inner.ui.set_status_dots(crate::status_dots(&project.statuses));
                 // Claude 已經在改程式了，預設「進行中」類的狀態
                 let pick = project
                     .statuses
