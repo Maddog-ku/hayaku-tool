@@ -132,9 +132,27 @@ component ListRow {
                 }
                 if c.key == "status" && root.item.status != "": VerticalLayout {
                     alignment: start;
-                    SoftPill {
-                        height: 26px;
-                        text: root.item.status;
+                    // 點一下直接改狀態（跟上 Hayaku 1.5.6）
+                    HorizontalLayout {
+                        alignment: start;
+                        Rectangle {
+                            height: 26px;
+                            // 欄位不夠寬時跟原本一樣縮短（文字省略），不蓋到旁邊的欄位
+                            min-width: list-pill.min-width;
+                            preferred-width: list-pill.preferred-width;
+                            horizontal-stretch: 0;
+                            list-pill := SoftPill {
+                                width: parent.width;
+                                height: 26px;
+                                text: root.item.status;
+                            }
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    menu.open-status-at({ x: self.absolute-position.x, y: self.absolute-position.y + self.height });
+                                }
+                            }
+                        }
                     }
                 }
                 if c.key == "priority": Text {
@@ -484,8 +502,21 @@ export component TreeView {
                                 if r.row.status != "": HorizontalLayout {
                                     alignment: end;
                                     height: 26px;
-                                    SoftPill {
-                                        text: r.row.status;
+                                    Rectangle {
+                                        // 欄位不夠寬時跟原本一樣縮短（文字省略），不蓋到旁邊的欄位
+                                        min-width: tree-pill.min-width;
+                                        preferred-width: tree-pill.preferred-width;
+                                        horizontal-stretch: 0;
+                                        tree-pill := SoftPill {
+                                            width: parent.width;
+                                            text: r.row.status;
+                                        }
+                                        TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                menu.open-status-at({ x: self.absolute-position.x, y: self.absolute-position.y + self.height });
+                                            }
+                                        }
                                     }
                                 }
                                 Text {
@@ -613,12 +644,25 @@ component KanbanCard {
         HorizontalLayout {
             padding-top: 4px;
             spacing: 6px;
-            if root.card.status != "": SoftPill {
-                y: (parent.height - self.height) / 2;
-                text: root.card.status;
-                bg: root.card.category == 1 ? Theme.status-doing : root.card.category == 2 ? Theme.status-done : Theme.status-todo;
-                fg: root.card.category == 1 ? Theme.status-doing-ink : root.card.category == 2 ? Theme.status-done-ink : Theme.ink;
-                font-size: 10.5px;
+            if root.card.status != "": Rectangle {
+                // 欄位不夠寬時跟原本一樣縮短（文字省略），不蓋到旁邊的欄位
+                min-width: card-pill.min-width;
+                preferred-width: card-pill.preferred-width;
+                horizontal-stretch: 0;
+                card-pill := SoftPill {
+                    width: parent.width;
+                    y: (parent.height - self.height) / 2;
+                    text: root.card.status;
+                    bg: root.card.category == 1 ? Theme.status-doing : root.card.category == 2 ? Theme.status-done : Theme.status-todo;
+                    fg: root.card.category == 1 ? Theme.status-doing-ink : root.card.category == 2 ? Theme.status-done-ink : Theme.ink;
+                    font-size: 10.5px;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        menu.open-status-at({ x: self.absolute-position.x, y: self.absolute-position.y + self.height });
+                    }
+                }
             }
             Rectangle {
                 horizontal-stretch: 1;

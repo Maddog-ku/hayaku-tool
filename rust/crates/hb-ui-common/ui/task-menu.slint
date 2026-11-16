@@ -34,11 +34,17 @@ export component TaskMenuArea {
     in property <bool> enabled: true;
     property <Point> pos;
     property <bool> waiting;
+    /// 這次只開狀態清單（左鍵點狀態）
+    property <bool> status-only;
     property <int> serial: TaskMenuState.show-serial;
     changed serial => {
         if root.waiting && TaskMenuState.key == root.key {
             root.waiting = false;
-            cma.show(root.pos);
+            if root.status-only {
+                status-cma.show(root.pos);
+            } else {
+                cma.show(root.pos);
+            }
         }
     }
     /// 從列自己的 TouchArea 打開（abs：視窗座標）
@@ -46,6 +52,18 @@ export component TaskMenuArea {
         if !root.enabled {
             return;
         }
+        root.status-only = false;
+        root.pos = { x: abs.x - root.absolute-position.x, y: abs.y - root.absolute-position.y };
+        root.waiting = true;
+        TaskMenuState.opening(root.key);
+    }
+    /// 左鍵點狀態：直接跳出狀態清單（跟上 Hayaku 1.5.6「我的任務」列表直接點狀態修改）；
+    /// 內容、讀取、送出跟右鍵的「改狀態」同一套
+    public function open-status-at(abs: Point) {
+        if !root.enabled {
+            return;
+        }
+        root.status-only = true;
         root.pos = { x: abs.x - root.absolute-position.x, y: abs.y - root.absolute-position.y };
         root.waiting = true;
         TaskMenuState.opening(root.key);
@@ -58,6 +76,21 @@ export component TaskMenuArea {
         }
     }
     @children
+    status-cma := ContextMenuArea {
+        enabled: false;
+        Menu {
+            if !TaskMenuState.status-ready: MenuItem {
+                title: TaskMenuState.status-note;
+                enabled: false;
+            }
+            for s[i] in TaskMenuState.status-items: MenuItem {
+                title: s;
+                activated => {
+                    TaskMenuState.pick-status(root.key, i);
+                }
+            }
+        }
+    }
     cma := ContextMenuArea {
         enabled: false;
         Menu {
