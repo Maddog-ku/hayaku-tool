@@ -369,3 +369,31 @@ fn 按了暫停或開始_還在等_hayaku_時先照按下的結果顯示() {
     apply_pending(&CiSet::new(), &start, &mut list, now);
     assert_eq!(1, list.iter().filter(|e| e.task == "F2P-3").count());
 }
+
+#[test]
+fn 同步一輪還沒做完_按暫停或開始也馬上送出請求() {
+    use std::task::{Context, Waker};
+    let h = Harness::new();
+    h.fake.on("pause_timer", j("{}"));
+    h.fake.on("start_timer", j("{}"));
+    // 模擬同步一輪還在跑（佔著 gate）
+    let permit = h.engine.0.gate.try_acquire().unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut pause = std::pin::pin!(h.engine.pause_task("F2P-1"));
+    let mut start = std::pin::pin!(h.engine.start_task("f2p-2"));
+    for _ in 0..100 {
+        assert!(pause.as_mut().poll(&mut cx).is_pending());
+        assert!(start.as_mut().poll(&mut cx).is_pending());
+    }
+    // 請求已經送出，後續同步才在排隊
+    assert_eq!(vec!["pause_timer", "start_timer"], h.fake.tools());
+    assert_eq!(Some("F2P-1"), h.fake.calls()[0].1["task"].as_str());
+    assert_eq!(Some("F2P-2"), h.fake.calls()[1].1["task"].as_str());
+    // 等待期間畫面照按下的結果
+    assert!(h.engine.running_keys().contains("F2P-2"));
+    drop(permit);
+    block_on(pause);
+    block_on(start);
+    assert_eq!(1, h.fake.tools().iter().filter(|t| *t == "pause_timer").count());
+    assert_eq!(1, h.fake.tools().iter().filter(|t| *t == "start_timer").count());
+}

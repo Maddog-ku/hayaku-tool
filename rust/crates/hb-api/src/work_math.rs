@@ -194,6 +194,13 @@ impl WorkMath {
         format!("{}h", format_trimmed(round_away(minutes.floor() / 60.0, 2), 2))
     }
 
+    /// 今天的總工時（跟 Hayaku 網頁「今天的工時」一樣：聯集的秒數四捨五入到分，再換成小時到小數點後兩位）：
+    /// 8 分 56 秒 → 9 分 → "0.15h"；8 分 29 秒 → 8 分 → "0.13h"。各任務的時數網頁是捨去，用 [`Self::hours_text`]。
+    pub fn total_hours_text(minutes: f64) -> String {
+        let seconds = (minutes.max(0.0) * 60.0).round();
+        format!("{}h", format_trimmed(round_away((seconds / 60.0).round() / 60.0, 2), 2))
+    }
+
     /// 小時數只顯示到小數點後一位（計算時保留原本的精確度）：2.13 → "2.1"、4 → "4"。
     pub fn hours_number(hours: f64) -> String {
         format_trimmed(round_away(hours, 1), 1)
@@ -356,6 +363,21 @@ mod tests {
             [(480.0, "8h"), (208.0, "3.47h"), (364.8, "6.07h"), (41.6, "0.68h"), (366.0, "6.1h"), (0.0, "0h")]
         {
             assert_eq!(WorkMath::hours_text(minutes), expected, "{minutes}");
+        }
+    }
+
+    #[test]
+    fn total_hours_text_四捨五入到分() {
+        for (minutes, expected) in [
+            (8.0 + 56.0 / 60.0, "0.15h"),
+            (8.0 + 29.0 / 60.0, "0.13h"),
+            (8.5, "0.15h"),
+            (479.6, "8h"),
+            (41.6, "0.7h"),
+            (0.4, "0h"),
+            (0.0, "0h"),
+        ] {
+            assert_eq!(WorkMath::total_hours_text(minutes), expected, "{minutes}");
         }
     }
 

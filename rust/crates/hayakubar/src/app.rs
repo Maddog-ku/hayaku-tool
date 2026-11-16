@@ -108,7 +108,7 @@ pub fn widget_content(engine: &TimerEngine) -> (WidgetContent, String) {
     let expected = engine.schedule().map_or(0, |s| s.expected_minutes) as f64;
     let running = engine.running_keys().len() as i32;
     let content = WidgetContent {
-        total: WorkMath::hours_text(worked),
+        total: WorkMath::total_hours_text(worked),
         expected: if expected > 0.0 { format!("/ {}", WorkMath::hours_text(expected)) } else { String::new() },
         progress: if expected > 0.0 { worked / expected } else { 0.0 },
         running,
@@ -124,7 +124,7 @@ pub fn widget_content(engine: &TimerEngine) -> (WidgetContent, String) {
     };
     let tooltip = format!(
         "HayakuBar · 今天 {} / {} · 計時中 {running}",
-        WorkMath::hours_text(worked),
+        WorkMath::total_hours_text(worked),
         WorkMath::hours_text(expected)
     );
     (content, tooltip)

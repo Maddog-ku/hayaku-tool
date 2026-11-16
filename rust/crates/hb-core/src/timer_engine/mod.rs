@@ -744,15 +744,18 @@ impl TimerEngine {
         }
     }
 
+    /// 開始／暫停的請求按下就送，不排在 gate 後面：同步一輪（含 Claude 計時）要好幾秒到幾十秒，
+    /// 等它做完才送，Hayaku 記下的開始／結束時間會比按下的晚，工時就跟面板對不上。
+    /// 送完才排隊進 gate 做後續同步；這段期間別的流程讀回來的舊狀態由 pending 蓋掉（見 apply_pending）。
     pub async fn start_task(&self, key: &str) {
         let key = key.trim().to_uppercase();
         self.begin_pending(&key, true);
-        let ok = Cell::new(false);
+        let sent = self.0.api.start_timer(&key).await;
+        let ok = sent.is_ok();
         self.guarded(
             async {
                 let key = key.clone();
-                self.0.api.start_timer(&key).await?;
-                ok.set(true);
+                sent?;
                 self.s_mut().suppressed.remove(&key);
                 self.remove_claude_owned(&key); // 使用者手動開始的，不再標成 Claude 的
                 self.add_known_project(&key);
@@ -761,23 +764,24 @@ impl TimerEngine {
             true,
         )
         .await;
-        self.end_pending(&key, !ok.get()).await;
+        self.end_pending(&key, !ok).await;
     }
 
     pub async fn pause_task(&self, key: &str) {
         self.begin_pending(key, false);
-        let ok = Cell::new(false);
+        {
+            // 送出前就標好：請求在 gate 外送，同時在跑的同步一輪不能把它當成外部停掉的、Claude 也不能馬上又開始
+            let mut s = self.s_mut();
+            s.self_paused.insert(key);
+            if s.claude_desired.contains(key) {
+                s.suppressed.insert(key); // Claude 還在動也不要馬上又開始，等它停下來一陣子再說
+            }
+        }
+        let sent = self.0.api.pause_timer(Some(key)).await;
+        let ok = sent.is_ok();
         self.guarded(
             async {
-                self.s_mut().self_paused.insert(key);
-                self.0.api.pause_timer(Some(key)).await?;
-                ok.set(true);
-                {
-                    let mut s = self.s_mut();
-                    if s.claude_desired.contains(key) {
-                        s.suppressed.insert(key); // Claude 還在動也不要馬上又開始，等它停下來一陣子再說
-                    }
-                }
+                sent?;
                 self.remove_claude_owned(key);
                 self.refresh_core(false).await?;
                 self.check_meeting_left().await // 在面板上停掉會議的計時：恢復加入會議時暫停的
@@ -785,7 +789,7 @@ impl TimerEngine {
             true,
         )
         .await;
-        self.end_pending(key, !ok.get()).await;
+        self.end_pending(key, !ok).await;
     }
 
     /// 可恢復的任務：上次記下的那組；沒有的話用今天被午休自動暫停（BREAK）的。

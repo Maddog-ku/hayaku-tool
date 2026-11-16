@@ -836,7 +836,7 @@ impl PanelInner {
         let schedule = engine.schedule();
         let worked = WorkMath::union_minutes(entries.iter(), day, now);
         let expected = schedule.as_ref().map_or(0, |s| s.expected_minutes) as f64;
-        self.ui.set_total_text(WorkMath::hours_text(worked).into());
+        self.ui.set_total_text(WorkMath::total_hours_text(worked).into());
         self.ui.set_expected_text(
             if expected > 0.0 { format!(" / {}", WorkMath::hours_text(expected)) } else { String::new() }.into(),
         );

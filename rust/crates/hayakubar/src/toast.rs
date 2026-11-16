@@ -242,6 +242,7 @@ impl Toast {
             return; // 正在滑出去：留在原地
         }
         self.align_left.set(align_left);
+        self.fit_native_size(target);
         let reduce = ThemeManager::reduce_motion();
         if !self.shown.get() {
             let p = if reduce { 1.0 } else { 0.0 };
@@ -251,6 +252,18 @@ impl Toast {
         } else {
             self.slide.glide_to(target, if reduce { Duration::ZERO } else { GLIDE_DURATION });
         }
+    }
+
+    /// 原生視窗跟內容的大小不一樣時（長文字顯示後才換行變高，視窗 min／max-height 雖然綁內容高度，原生視窗不一定跟著長高）
+    /// 直接設成內容的大小：位置是照內容高度排的，視窗沒長高的話下半部（按鈕）就被切掉。差 1 像素以內是縮放進位，不動。
+    fn fit_native_size(&self, target: hb_win::Rect) {
+        let Some((w, h)) = popup::outer_size(self.ui.window()) else { return };
+        let (tw, th) = (target.width(), target.height());
+        if (w - tw).abs() <= 1 && (h - th).abs() <= 1 {
+            return;
+        }
+        log::info!("提示視窗 {w}x{h} 跟內容 {tw}x{th} 不同，改成內容的大小");
+        self.ui.window().set_size(slint::PhysicalSize::new(tw.max(1) as u32, th.max(1) as u32));
     }
 
     /// 大小（實體像素）：寬度固定，高度就是內容的高度（視窗 min／max-height 都綁它）。
