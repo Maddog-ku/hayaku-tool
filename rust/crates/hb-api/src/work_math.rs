@@ -104,7 +104,9 @@ impl WorkMath {
             if end > day_end {
                 end = day_end;
             }
-            if end > now {
+            // 進行中算到 now；已停的照 Hayaku 記的結束時間。Hayaku 記的是整分鐘，剛按暫停時結束時間會比現在晚
+            // 不到一分鐘，若裁到 now 秒數就會繼續跑到整分才停；晚超過一分鐘的（還沒到的時段）才裁掉。
+            if end > now && (e.running || end - now > TimeDelta::minutes(1)) {
                 end = now;
             }
             if end > s {
@@ -333,6 +335,20 @@ mod tests {
         let entries: Vec<TimeEntry> =
             (0..6).map(|i| entry(&format!("F2P-{i}"), hours(d, 8.0) + TimeDelta::minutes(30), None, true)).collect();
         assert_close(90.0, WorkMath::union_minutes(&entries, d, now));
+    }
+
+    #[test]
+    fn union_minutes_剛暫停的整分結束時間不裁到現在() {
+        let d = day(2026, 11, 17);
+        let now = hours(d, 14.5) + TimeDelta::seconds(37); // 14:30:37 按暫停，Hayaku 記成 14:31
+        let stopped = [entry("A", hours(d, 10.0), Some(hours(d, 14.5) + TimeDelta::minutes(1)), false)];
+        assert_close(271.0, WorkMath::union_minutes(&stopped, d, now));
+        // 還沒到的時段照樣裁到現在
+        let future = [entry("B", hours(d, 14.0), Some(hours(d, 16.0)), false)];
+        assert_close(30.0 + 37.0 / 60.0, WorkMath::union_minutes(&future, d, now));
+        // 進行中的算到現在
+        let running = [entry("C", hours(d, 14.0), None, true)];
+        assert_close(30.0 + 37.0 / 60.0, WorkMath::union_minutes(&running, d, now));
     }
 
     #[test]
