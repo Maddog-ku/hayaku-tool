@@ -83,6 +83,8 @@ impl WorkMath {
     ) -> Vec<(NaiveDateTime, NaiveDateTime)> {
         let day_start = day.date().and_time(NaiveTime::MIN);
         let day_end = day_start + TimeDelta::days(1);
+        let entries: Vec<&TimeEntry> = entries.into_iter().collect();
+        let running: Vec<String> = entries.iter().filter(|e| e.running).map(|e| e.task.to_uppercase()).collect();
         let mut list = Vec::new();
         for e in entries {
             let Some(started) = e.started_at else { continue };
@@ -106,7 +108,10 @@ impl WorkMath {
             }
             // 進行中算到 now；已停的照 Hayaku 記的結束時間。Hayaku 記的是整分鐘，剛按暫停時結束時間會比現在晚
             // 不到一分鐘，若裁到 now 秒數就會繼續跑到整分才停；晚超過一分鐘的（還沒到的時段）才裁掉。
-            if end > now && (e.running || end - now > TimeDelta::minutes(1)) {
+            // 同一個任務又在計時了（同一分鐘內暫停又開始）也裁掉：新的那段同樣從整分算，不裁的話兩段重疊，要等到整分才看得出在跑。
+            if end > now
+                && (e.running || end - now > TimeDelta::minutes(1) || running.contains(&e.task.to_uppercase()))
+            {
                 end = now;
             }
             if end > s {
@@ -349,6 +354,21 @@ mod tests {
         // 進行中的算到現在
         let running = [entry("C", hours(d, 14.0), None, true)];
         assert_close(30.0 + 37.0 / 60.0, WorkMath::union_minutes(&running, d, now));
+    }
+
+    #[test]
+    fn task_minutes_同一分鐘內暫停又開始馬上接著跑() {
+        let d = day(2026, 11, 17);
+        let now = hours(d, 14.5) + TimeDelta::seconds(50); // 14:30:37 暫停（記成 14:31），14:30:50 又開始
+        let paused = entry("A", hours(d, 10.0), Some(hours(d, 14.5) + TimeDelta::minutes(1)), false);
+        // 新的那段不管 Hayaku 記成 14:30 還是 14:31 開始，都要算到現在、跟著秒數跑
+        for start in [hours(d, 14.5), hours(d, 14.5) + TimeDelta::minutes(1), now] {
+            let entries = [paused.clone(), entry("A", start, None, true)];
+            assert_close(270.0 + 50.0 / 60.0, WorkMath::task_minutes(&entries, "A", d, now));
+        }
+        // 別的任務在跑不影響：A 照 Hayaku 記的停在 14:31
+        let entries = [paused.clone(), entry("B", hours(d, 14.5), None, true)];
+        assert_close(271.0, WorkMath::task_minutes(&entries, "A", d, now));
     }
 
     #[test]
