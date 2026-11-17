@@ -125,6 +125,23 @@ impl WorkspaceArg {
 // 通知要即時提示，2 分鐘；會議、提醒的到點提示用已抓的時間在本機判斷，10 分鐘就夠
 const NOTIFICATIONS_INTERVAL: TimeDelta = TimeDelta::minutes(2);
 const MEETINGS_INTERVAL: TimeDelta = TimeDelta::minutes(10);
+/// 「接下來的會議」看到幾天後（Hayaku 首頁：7 天內）。
+const UPCOMING_MEETING_DAYS: i64 = 7;
+
+/// 讀到的會議分成「今天開始的」與「之後幾天、我是參加者的」（設定成所有專案的會議都提醒時，會讀到我不是參加者的）。
+pub(super) fn split_meetings(all: &[MeetingItem], today: NaiveDate) -> (Vec<MeetingItem>, Vec<MeetingItem>) {
+    let mut today_list = Vec::new();
+    let mut upcoming = Vec::new();
+    for m in all {
+        let day = time::local(&m.start_at).date();
+        if day <= today {
+            today_list.push(m.clone());
+        } else if !m.not_attendee() {
+            upcoming.push(m.clone());
+        }
+    }
+    (today_list, upcoming)
+}
 
 /// 只在面板、工作台看得到的資料（待辦、我的任務分頁、團隊）：不在背景抓，打開時才抓，太久沒抓才重抓。
 const PANEL_DATA_INTERVAL: TimeDelta = TimeDelta::minutes(2);
@@ -149,8 +166,14 @@ pub(super) async fn try_load<T>(
 }
 
 impl TimerEngine {
+    /// 今天的會議（提醒、徽章、托盤、提醒綁會議用）。
     pub fn meetings(&self) -> Rc<Vec<MeetingItem>> {
         self.s().meetings.clone()
+    }
+
+    /// 明天起 7 天內、我參加的會議（面板「接下來的會議」）。
+    pub fn upcoming_meetings(&self) -> Rc<Vec<MeetingItem>> {
+        self.s().upcoming_meetings.clone()
     }
 
     pub fn todos(&self) -> Rc<Vec<TodoItem>> {
@@ -299,8 +322,19 @@ impl TimerEngine {
         if now - self.s().meetings_fetched >= MEETINGS_INTERVAL {
             self.s_mut().meetings_fetched = now;
             let mine = !self.0.config.borrow().meeting_alerts_all_projects;
-            let meetings = try_load(self.0.api.list_meetings(today, today, mine), self.meetings(), "會議").await?;
-            self.s_mut().meetings = meetings;
+            // 跟上 Hayaku 1.5.8「接下來的會議」：同一次讀到 7 天後（請求數不變），今天的照舊給提醒、徽章用
+            let fallback = Rc::new(self.meetings().iter().chain(self.upcoming_meetings().iter()).cloned().collect());
+            let all = try_load(
+                self.0.api.list_meetings(today, today + TimeDelta::days(UPCOMING_MEETING_DAYS), mine),
+                fallback,
+                "會議",
+            )
+            .await?;
+            let (today_list, upcoming) = split_meetings(&all, today);
+            let mut s = self.s_mut();
+            s.meetings = Rc::new(today_list);
+            s.upcoming_meetings = Rc::new(upcoming);
+            drop(s);
             let reminders = try_load(self.0.api.list_reminders(), self.reminders(), "提醒").await?;
             self.s_mut().reminders = reminders;
         }

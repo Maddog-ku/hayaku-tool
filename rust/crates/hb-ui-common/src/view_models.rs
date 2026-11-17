@@ -221,6 +221,21 @@ impl MeetingRowVm {
             join_visible: !m.in_meeting() && can_join,
         }
     }
+
+    /// 面板「接下來的會議」（之後幾天）：時間前面加日期，明天寫「明天」。
+    pub fn upcoming(m: &MeetingItem, now: &DateTimeOffset) -> Self {
+        let mut vm = Self::from(m, now);
+        let start = m.start_at.with_timezone(&Local);
+        let day = start.date_naive();
+        let today = now.with_timezone(&Local).date_naive();
+        let date = if today.succ_opt() == Some(day) {
+            "明天".to_owned()
+        } else {
+            format!("{} {}", day.format("%-m/%-d"), crate::inputs::weekday_short(day))
+        };
+        vm.time = format!("{date} {}", start.format("%H:%M"));
+        vm
+    }
 }
 
 /// 待辦一列。
@@ -384,6 +399,34 @@ mod tests {
         assert!(vm.meta().starts_with("羅瑞騰、吳景涵"));
         // 收件匣照舊只顯示任務
         assert_eq!("TEST-11 42", NotificationRowVm::new(n, false).text());
+    }
+
+    #[test]
+    fn 接下來的會議_時間前面加日期() {
+        let at = |s: &str| chrono::DateTime::parse_from_rfc3339(s).unwrap();
+        let meeting = |start: &str| MeetingItem {
+            key: "M".into(),
+            id: "m".into(),
+            title: "週會".into(),
+            project: "REVIVAL".into(),
+            start_at: at(start),
+            end_at: at(start) + chrono::TimeDelta::hours(1),
+            location: None,
+            my_status: Some("還沒加入".into()),
+        };
+        let now = at("2026-11-17T10:00:00+08:00");
+        let local = |s: &str| at(s).with_timezone(&Local).format("%H:%M").to_string();
+        let tomorrow = MeetingRowVm::upcoming(&meeting("2026-11-18T14:30:00+08:00"), &now);
+        // 測試機時區不一定是台灣：只在本地日期剛好是明天時檢查「明天」
+        if at("2026-11-18T14:30:00+08:00").with_timezone(&Local).date_naive()
+            == now.with_timezone(&Local).date_naive().succ_opt().unwrap()
+        {
+            assert_eq!(format!("明天 {}", local("2026-11-18T14:30:00+08:00")), tomorrow.time);
+        }
+        let later = MeetingRowVm::upcoming(&meeting("2026-11-20T04:00:00+00:00"), &now);
+        assert_eq!(format!("11/20 週五 {}", local("2026-11-20T04:00:00+00:00")), later.time);
+        assert_eq!("REVIVAL · 還沒加入", later.detail);
+        assert!(!later.join_visible);
     }
 
     #[test]

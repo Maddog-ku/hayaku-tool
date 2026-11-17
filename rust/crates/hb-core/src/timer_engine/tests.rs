@@ -19,6 +19,37 @@ fn keys(list: &[&str]) -> CiSet {
     list.iter().copied().collect()
 }
 
+// ───────────── 接下來的會議（Hayaku 1.5.8） ─────────────
+
+#[test]
+fn 會議分成今天與之後幾天_之後的只留我參加的() {
+    let today = chrono::NaiveDate::from_ymd_opt(2026, 11, 17).unwrap();
+    let at = |d: u32, h: u32, status: Option<&str>| {
+        let start = crate::time::offset(chrono::NaiveDate::from_ymd_opt(2026, 11, d).unwrap().and_hms_opt(h, 0, 0).unwrap());
+        hb_api::MeetingItem {
+            key: format!("M-{d}-{h}"),
+            id: format!("m{d}{h}"),
+            title: "會議".into(),
+            project: "REVIVAL".into(),
+            start_at: start,
+            end_at: start + chrono::TimeDelta::hours(1),
+            location: None,
+            my_status: status.map(str::to_owned),
+        }
+    };
+    let all = vec![
+        at(17, 9, Some("不是參加者")),
+        at(17, 14, None),
+        at(18, 10, None),
+        at(19, 10, Some("不是參加者")),
+        at(24, 23, Some("還沒加入")),
+    ];
+    let (today_list, upcoming) = super::extras::split_meetings(&all, today);
+    // 今天的照舊全部留著（設定成所有專案的會議都提醒時，不是參加者的也要提醒）
+    assert_eq!(vec!["M-17-9", "M-17-14"], today_list.iter().map(|m| m.key.as_str()).collect::<Vec<_>>());
+    assert_eq!(vec!["M-18-10", "M-24-23"], upcoming.iter().map(|m| m.key.as_str()).collect::<Vec<_>>());
+}
+
 // ───────────── MeetingPauseTests ─────────────
 
 #[test]

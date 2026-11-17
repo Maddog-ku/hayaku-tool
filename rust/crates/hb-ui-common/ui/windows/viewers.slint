@@ -1,5 +1,5 @@
 // 唯讀的檢視視窗：投票（C# UI/PollWindow.cs）、問題回報全文（C# UI/FeedbackWindow.cs）、檔案預覽（C# UI/FilePreviewWindow.cs）。
-import { Theme, Motion, Button, ButtonKind, ScrollView, ProgressBar, Spinner, Card } from "@hb/index.slint";
+import { Theme, Motion, Button, ButtonKind, ScrollView, ProgressBar, Spinner, Card, TipArea } from "@hb/index.slint";
 import { MutedText, StatusLine, PlainText, LinkButton, GroupLabel } from "../common.slint";
 import { DialogBody, DialogButtons, DialogFade, DialogMotion, Section } from "dialog.slint";
 
@@ -349,6 +349,39 @@ export component FeedbackWindow inherits Window {
     }
 }
 
+/// 預覽圖下方縮放列的小按鈕；active：目前就是這個狀態（符合視窗）。
+component ZoomButton {
+    in property <string> text;
+    in property <string> tip;
+    in property <bool> active;
+    callback clicked();
+    min-width: 30px;
+    preferred-width: max(30px, label.preferred-width + 20px);
+    height: 30px;
+    TipArea {
+        text: root.tip;
+        Rectangle {
+            border-radius: 15px;
+            background: root.active ? Theme.ink : touch.pressed ? Theme.hover : touch.has-hover ? Theme.fill : transparent;
+            animate background { duration: 120ms; }
+            label := Text {
+                text: root.text;
+                color: root.active ? Theme.on-ink : Theme.ink;
+                font-family: Theme.font-num;
+                font-size: 12.5px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            touch := TouchArea {
+                clicked => {
+                    root.clicked();
+                }
+            }
+        }
+    }
+}
+
 export component FilePreviewWindow inherits Window {
     icon: @image-url("../../../hayakubar/assets/app.ico");
     in property <string> window-title;
@@ -438,21 +471,145 @@ export component FilePreviewWindow inherits Window {
                         }
                         y: (1 - self.t) * Motion.rise;
                         opacity: self.t;
-                        img-sv := ScrollView {
+                        // 跟上 Hayaku 1.5.7：滾輪縮放、拖曳移動、雙擊切換「符合視窗」與 100%，下方有縮放按鈕
+                        view := Rectangle {
                             x: 8px;
                             y: 8px;
                             width: parent.width - 16px;
                             height: parent.height - 16px;
-                            content-width: max(self.visible-width, pic.width);
-                            content-height: max(self.visible-height, pic.height);
-                            // 跟 WPF Stretch=Uniform、StretchDirection=DownOnly 在捲動區裡一樣：原尺寸，大的捲動
+                            clip: true;
+                            property <length> img-w: max(1px, root.picture.width * 1px);
+                            property <length> img-h: max(1px, root.picture.height * 1px);
+                            // 符合視窗：大圖縮到整張放得下，小圖照原尺寸（不放大，跟原本一樣）
+                            property <float> fit-scale: min(1, self.width / self.img-w, self.height / self.img-h);
+                            property <bool> fit: true;
+                            property <float> zoom: 1;
+                            property <float> scale: self.fit ? self.fit-scale : self.zoom;
+                            property <length> shown-w: self.img-w * self.scale;
+                            property <length> shown-h: self.img-h * self.scale;
+                            // 圖比可見區大時才能拖：圖中心離可見區中心最多移到圖的邊碰到可見區的邊
+                            property <length> limit-x: max(0px, (self.shown-w - self.width) / 2);
+                            property <length> limit-y: max(0px, (self.shown-h - self.height) / 2);
+                            property <bool> can-pan: self.limit-x > 0px || self.limit-y > 0px;
+                            // 圖中心離可見區中心的位移（拖曳移動）；拉小視窗時照樣夾在範圍內
+                            property <length> pan-x: 0px;
+                            property <length> pan-y: 0px;
+                            property <length> drag-x: 0px;
+                            property <length> drag-y: 0px;
+                            property <int> percent: round(self.scale * 100);
+                            // 改縮放比例；(mx, my) 那一點縮放後留在原地（滾輪、雙擊對準游標，按鈕對準中間）
+                            function zoom-to(s: float, mx: length, my: length) {
+                                let s2 = clamp(s, 0.05, 8);
+                                let old-x = (self.width - self.shown-w) / 2 + clamp(self.pan-x, -self.limit-x, self.limit-x);
+                                let old-y = (self.height - self.shown-h) / 2 + clamp(self.pan-y, -self.limit-y, self.limit-y);
+                                let new-w = self.img-w * s2;
+                                let new-h = self.img-h * s2;
+                                let new-x = mx - (mx - old-x) / self.scale * s2;
+                                let new-y = my - (my - old-y) / self.scale * s2;
+                                let lx = max(0px, (new-w - self.width) / 2);
+                                let ly = max(0px, (new-h - self.height) / 2);
+                                self.pan-x = clamp(new-x - (self.width - new-w) / 2, -lx, lx);
+                                self.pan-y = clamp(new-y - (self.height - new-h) / 2, -ly, ly);
+                                self.zoom = s2;
+                                self.fit = false;
+                            }
+                            function show-fit() {
+                                self.fit = true;
+                                self.pan-x = 0px;
+                                self.pan-y = 0px;
+                            }
                             pic := Image {
-                                x: max(0px, (img-sv.visible-width - self.width) / 2);
-                                y: max(0px, (img-sv.visible-height - self.height) / 2);
+                                width: view.shown-w;
+                                height: view.shown-h;
+                                x: (view.width - self.width) / 2 + clamp(view.pan-x, -view.limit-x, view.limit-x);
+                                y: (view.height - self.height) / 2 + clamp(view.pan-y, -view.limit-y, view.limit-y);
                                 source: root.picture;
-                                width: self.source.width * 1px;
-                                height: self.source.height * 1px;
+                                image-fit: fill;
                                 image-rendering: smooth;
+                            }
+                            pan-area := TouchArea {
+                                mouse-cursor: !view.can-pan ? MouseCursor.default : self.pressed ? MouseCursor.grabbing : MouseCursor.grab;
+                                pointer-event(e) => {
+                                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                                        view.drag-x = clamp(view.pan-x, -view.limit-x, view.limit-x);
+                                        view.drag-y = clamp(view.pan-y, -view.limit-y, view.limit-y);
+                                    }
+                                }
+                                moved => {
+                                    if self.pressed && view.can-pan {
+                                        view.pan-x = clamp(view.drag-x + self.mouse-x - self.pressed-x, -view.limit-x, view.limit-x);
+                                        view.pan-y = clamp(view.drag-y + self.mouse-y - self.pressed-y, -view.limit-y, view.limit-y);
+                                    }
+                                }
+                                double-clicked => {
+                                    if view.fit && view.fit-scale < 1 {
+                                        view.zoom-to(1, self.mouse-x, self.mouse-y);
+                                    } else if view.fit {
+                                        // 小圖「符合視窗」本來就是 100%：雙擊放大到兩倍
+                                        view.zoom-to(2, self.mouse-x, self.mouse-y);
+                                    } else {
+                                        view.show-fit();
+                                    }
+                                }
+                                // 滾輪往上放大、往下縮小（觸控板一點一點捲也平順）
+                                scroll-event(e) => {
+                                    if e.delta-y != 0px {
+                                        view.zoom-to(view.scale * pow(1.0025, e.delta-y / 1px), self.mouse-x, self.mouse-y);
+                                    }
+                                    EventResult.accept
+                                }
+                            }
+                            // 下方的縮放按鈕
+                            Rectangle {
+                                width: zoom-bar.preferred-width;
+                                height: 36px;
+                                x: (parent.width - self.width) / 2;
+                                y: parent.height - self.height - 10px;
+                                border-radius: 18px;
+                                background: Theme.card;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                drop-shadow-color: Theme.shadow;
+                                drop-shadow-blur: 12px;
+                                drop-shadow-offset-y: 2px;
+                                zoom-bar := HorizontalLayout {
+                                    padding: 3px;
+                                    spacing: 2px;
+                                    ZoomButton {
+                                        text: "－";
+                                        tip: "縮小";
+                                        clicked => {
+                                            view.zoom-to(view.scale / 1.25, view.width / 2, view.height / 2);
+                                        }
+                                    }
+                                    ZoomButton {
+                                        text: view.percent + "%";
+                                        tip: "切換「符合視窗」與 100%（也可以雙擊圖片）";
+                                        min-width: 58px;
+                                        clicked => {
+                                            if view.fit {
+                                                view.zoom-to(1, view.width / 2, view.height / 2);
+                                            } else {
+                                                view.show-fit();
+                                            }
+                                        }
+                                    }
+                                    ZoomButton {
+                                        text: "＋";
+                                        tip: "放大";
+                                        clicked => {
+                                            view.zoom-to(view.scale * 1.25, view.width / 2, view.height / 2);
+                                        }
+                                    }
+                                    ZoomButton {
+                                        text: "符合視窗";
+                                        tip: "整張放進視窗";
+                                        active: view.fit;
+                                        clicked => {
+                                            view.show-fit();
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

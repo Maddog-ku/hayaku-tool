@@ -734,6 +734,8 @@ export component PanelWindow inherits Window {
     in property <string> test-text;
     in property <string> leave-text;
     in property <[MeetingRow]> meetings;
+    /// 之後 7 天、我參加的會議（Hayaku 1.5.8 首頁「接下來的會議」）
+    in property <[MeetingRow]> upcoming-meetings;
     in property <[TodoRow]> todos;
     in property <[ReminderRow]> reminders;
     in-out property <string> capture-text;
@@ -877,6 +879,8 @@ export component PanelWindow inherits Window {
     callback new-meeting();
     callback meeting-open(int);
     callback meeting-join(int);
+    /// 「接下來的會議」點一列
+    callback upcoming-meeting-open(int);
     callback todo-done(int);
     callback new-reminder();
     callback capture();
@@ -1453,6 +1457,50 @@ export component PanelWindow inherits Window {
                             if root.todos.length == 0: Text {
                                 text: "沒有待辦";
                                 color: Theme.muted;
+                            }
+                            // 跟上 Hayaku 1.5.8：首頁「我的待辦」旁的「接下來的會議」；沒有就不佔位置
+                            if root.upcoming-meetings.length > 0: SectionHeader {
+                                text: "接下來的會議";
+                                hint: "7 天內";
+                            }
+                            for m[i] in root.upcoming-meetings: ClickRow {
+                                tip: "點一下在 Hayaku 開啟";
+                                clicked => {
+                                    root.upcoming-meeting-open(i);
+                                }
+                                Text {
+                                    text: m.time;
+                                    font-family: Theme.font-num;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    width: 6px;
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    min-width: 40px;
+                                    preferred-height: upcoming-text.preferred-height;
+                                    min-height: upcoming-text.min-height;
+                                    upcoming-text := VerticalLayout {
+                                        alignment: center;
+                                        Text {
+                                            color: Theme.ink;
+                                            text: m.title;
+                                            font-weight: 700;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: m.detail;
+                                            color: Theme.muted;
+                                            font-size: 11px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    Hint {
+                                        text: m.detail != "" ? m.title + "\n" + m.detail : m.title;
+                                    }
+                                }
                             }
                             SectionHeader {
                                 text: "即將提醒";

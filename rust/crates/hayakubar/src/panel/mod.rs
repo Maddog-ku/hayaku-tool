@@ -84,6 +84,7 @@ pub(crate) struct State {
     pub(crate) pins: Vec<PinRowVm>,
     pub(crate) my_tasks: Vec<MyTaskRowVm>,
     meetings: Vec<MeetingRowVm>,
+    upcoming_meetings: Vec<MeetingRowVm>,
     todos: Vec<TodoRowVm>,
     pub(crate) notifications: Vec<NotificationRowVm>,
 
@@ -313,6 +314,12 @@ impl PanelInner {
         // 今天
         ui.on_meeting_open(with_panel!(self.me, |p, i| {
             let item = p.s.borrow().meetings.get(i as usize).map(|m| m.item.clone());
+            if let Some(m) = item {
+                hb_win::open(&p.engine.meeting_url(&m.id));
+            }
+        }));
+        ui.on_upcoming_meeting_open(with_panel!(self.me, |p, i| {
+            let item = p.s.borrow().upcoming_meetings.get(i as usize).map(|m| m.item.clone());
             if let Some(m) = item {
                 hb_win::open(&p.engine.meeting_url(&m.id));
             }
@@ -768,20 +775,22 @@ impl PanelInner {
     fn render_today(&self) {
         let engine = &self.engine;
         let offset_now = now_offset();
+        let meeting_row = |m: &MeetingRowVm| MeetingRow {
+            time: m.time.as_str().into(),
+            time_color: m.time_color.code(),
+            title: m.title.as_str().into(),
+            detail: m.detail.as_str().into(),
+            join_visible: m.join_visible,
+            joining: false,
+        };
         let meetings: Vec<MeetingRowVm> =
             engine.meetings().iter().map(|m| MeetingRowVm::from(m, &offset_now)).collect();
-        self.ui.set_meetings(ModelRc::new(VecModel::from(
-            meetings
-                .iter()
-                .map(|m| MeetingRow {
-                    time: m.time.as_str().into(),
-                    time_color: m.time_color.code(),
-                    title: m.title.as_str().into(),
-                    detail: m.detail.as_str().into(),
-                    join_visible: m.join_visible,
-                    joining: false,
-                })
-                .collect::<Vec<_>>(),
+        self.ui.set_meetings(ModelRc::new(VecModel::from(meetings.iter().map(meeting_row).collect::<Vec<_>>())));
+        // 跟上 Hayaku 1.5.8「接下來的會議」：之後 7 天、我參加的（跟今天的會議同一次讀到）
+        let upcoming: Vec<MeetingRowVm> =
+            engine.upcoming_meetings().iter().map(|m| MeetingRowVm::upcoming(m, &offset_now)).collect();
+        self.ui.set_upcoming_meetings(ModelRc::new(VecModel::from(
+            upcoming.iter().map(meeting_row).collect::<Vec<_>>(),
         )));
         let todos: Vec<TodoRowVm> = engine.todos().iter().cloned().map(TodoRowVm::new).collect();
         self.ui.set_todos(ModelRc::new(VecModel::from(
@@ -805,6 +814,7 @@ impl PanelInner {
         self.set_tab_badge(2, badge_text(pending));
         let mut s = self.s.borrow_mut();
         s.meetings = meetings;
+        s.upcoming_meetings = upcoming;
         s.todos = todos;
     }
 
