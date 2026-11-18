@@ -118,15 +118,16 @@ component TabBar {
     in-out property <int> current;
     callback selected(index: int);
     height: 34px;
+    // 每格等寬：指示器和分頁同寬，有徽章的分頁不會把後面的字擠歪
+    property <length> slot-w: (root.width - 6px) / max(1, root.tabs.length);
     Rectangle {
         border-radius: self.height / 2;
         background: Theme.fill;
     }
     Rectangle {
-        property <length> w: (root.width - 6px) / max(1, root.tabs.length);
-        x: 3px + root.current * self.w;
+        x: 3px + root.current * root.slot-w;
         y: 3px;
-        width: self.w;
+        width: root.slot-w;
         height: root.height - 6px;
         border-radius: self.height / 2;
         background: Theme.ink;
@@ -138,6 +139,9 @@ component TabBar {
     HorizontalLayout {
         padding: 3px;
         for t[i] in root.tabs: Rectangle {
+            // 偏好寬度歸零、照 stretch 平均分：每格和指示器一樣寬（不用 width，會跟 TabBar 寬度互相依賴）
+            min-width: 0px;
+            preferred-width: 0px;
             horizontal-stretch: 1;
             HorizontalLayout {
                 alignment: center;
