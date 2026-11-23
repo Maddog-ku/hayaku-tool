@@ -14,7 +14,7 @@ use super::Page;
 use super::detail::line;
 use super::vm;
 use crate::shared::{self, string_model, vec_model};
-use crate::{TasksPageData, TkDep, TkDoc, TkLine};
+use crate::{PageArg, TasksPageData, TkDep, TkDoc, TkLine};
 
 /// 相依的一列說明（狀態、規則），接在編號與名稱後面。
 pub(super) fn dep_meta(d: &DependencyItem, with_rule: bool) -> String {
@@ -168,6 +168,18 @@ impl Page {
                 });
             }
         });
+        on!(d, self, on_d_meeting_open, |p, key| {
+            if !key.is_empty() {
+                p.ctx.show_page("meetings", Some(PageArg::Text(key.to_string())));
+            }
+        });
+        // 手動加入會議 MCP 沒有工具：到網頁任務的「會議」分頁
+        on!(d, self, on_d_meetings_web, |p| {
+            let key = p.st.borrow().detail.as_ref().map(|d| d.key.clone());
+            if let Some(key) = key {
+                hb_win::open(&p.engine().task_url(&key));
+            }
+        });
         on!(d, self, on_d_attach_toggled, |p, open| {
             if open {
                 shared::spawn("讀取附件", async move { p.load_attachments().await });
@@ -229,15 +241,20 @@ impl Page {
     }
 
     /// 換了任務：四塊收起、清空，下次展開再讀；同一個任務重畫（例如改了欄位）就保留。
+    /// 相關會議跟任務詳細一起回來，每次都照最新的畫；換了任務時有會議就先展開。
     pub(super) fn reset_extras(&self, d: &TaskDetail) {
         let docs_header = if d.content_block_count > 1 {
             format!("文件（{}）", d.content_block_count)
         } else {
             "文件".to_owned()
         };
+        let meetings_title =
+            if d.meetings.is_empty() { "會議".to_owned() } else { format!("會議（{}）", d.meetings.len()) };
         self.with_data(|x| {
             x.set_d_docs_header(docs_header.into());
             x.set_d_docs_visible(d.content_block_count > 0);
+            x.set_d_meetings_title(meetings_title.into());
+            x.set_d_meetings(vec_model(meeting_lines(&d.meetings)));
         });
         let mut st = self.st.borrow_mut();
         let key = Some(d.key.as_str());
@@ -260,6 +277,7 @@ impl Page {
         st.deps_rows.clear();
         drop(st);
         self.with_data(|x| {
+            x.set_d_meetings_expanded(!d.meetings.is_empty());
             x.set_d_deps_expanded(false);
             x.set_d_attach_expanded(false);
             x.set_d_docs_expanded(false);
@@ -610,6 +628,41 @@ impl Page {
         };
         self.with_data(|d| d.set_d_history(vec_model(lines)));
     }
+}
+
+/// 任務的相關會議（跟上 Hayaku 1.5.9）：kind 1 一場（key 是會議編號，點了打開），看不到的、沒有會議寫說明（kind 2）。
+pub(super) fn meeting_lines(meetings: &[hb_api::RelatedMeeting]) -> Vec<TkLine> {
+    if meetings.is_empty() {
+        return vec![line(2, "還沒有相關會議（會議紀錄插入這個任務，或任務內容插入會議卡片，就會列在這裡）")];
+    }
+    meetings
+        .iter()
+        .map(|m| {
+            if !m.visible {
+                return line(2, "（沒有權限看的會議）");
+            }
+            let when = m.start_at.map(|s| {
+                let s = s.with_timezone(&Local);
+                let mut t = format!("{} {}", inputs::short_date(s.date_naive()), s.format("%H:%M"));
+                if let Some(e) = m.end_at {
+                    t += &format!("–{}", e.with_timezone(&Local).format("%H:%M"));
+                }
+                t
+            });
+            let meta = [when, (!m.sources.is_empty()).then(|| m.sources.join("、"))]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("・");
+            TkLine {
+                kind: 1,
+                key: m.key.as_str().into(),
+                text: format!("📅 {}", m.title).into(),
+                meta: meta.into(),
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

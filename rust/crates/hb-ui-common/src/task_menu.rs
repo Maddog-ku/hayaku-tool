@@ -46,6 +46,8 @@ pub struct TaskMenuHooks {
     pub delete: Rc<dyn Fn(&str)>,
     /// 套用子任務範本之後（呼叫端更新畫面）。
     pub template_applied: Option<Rc<dyn Fn()>>,
+    /// 選了新狀態、送出之前（我的任務記下來：移到別的分頁的先留在原位；跟上 Hayaku 1.5.9）。
+    pub status_changed: Option<Rc<dyn Fn(&str)>>,
 }
 
 /// 按右鍵當下的選單內容。
@@ -183,6 +185,9 @@ impl TaskMenu {
         let Some(name) = usize::try_from(index).ok().and_then(|i| self.statuses.borrow().get(i).cloned()) else {
             return;
         };
+        if let Some(f) = &self.hooks.status_changed {
+            f(key);
+        }
         let engine = self.engine.clone();
         let key = key.to_owned();
         let task = async move {

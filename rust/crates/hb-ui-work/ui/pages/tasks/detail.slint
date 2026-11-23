@@ -1092,6 +1092,52 @@ export component DetailView {
             VerticalLayout {
                 padding-top: 12px;
                 spacing: 4px;
+                // 相關會議（跟上 Hayaku 1.5.9）：跟任務詳細一起回來，有的話先展開；點名稱打開那場會議
+                Expander {
+                    title: TasksPageData.d-meetings-title;
+                    expanded <=> TasksPageData.d-meetings-expanded;
+                    for m[i] in TasksPageData.d-meetings: HorizontalLayout {
+                        spacing: 8px;
+                        min-height: 26px;
+                        if m.kind == 1: Rectangle {
+                            width: min(meet-text.preferred-width, 260px);
+                            meet-text := Text {
+                                x: 0;
+                                width: parent.width;
+                                text: m.text;
+                                color: meet-ta.has-hover ? Theme.accent : Theme.accent-ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            meet-ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    TasksPageData.d-meeting-open(m.key);
+                                }
+                            }
+                        }
+                        Text {
+                            text: m.kind == 1 ? m.meta : m.text;
+                            color: Theme.muted;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-top: 4px;
+                        alignment: start;
+                        LinkButton {
+                            text: "手動加入會議到網頁 ↗";
+                            clicked => {
+                                TasksPageData.d-meetings-web();
+                            }
+                        }
+                    }
+                }
                 Expander {
                     title: "相依與關聯任務";
                     expanded <=> TasksPageData.d-deps-expanded;

@@ -152,6 +152,8 @@ pub struct TaskDetail {
     pub created_by: Option<String>,
     /// 里程碑（批次加入、移除時要先知道原本有哪些；跟上 Hayaku 1.5.5）
     pub milestones: Vec<MilestoneRef>,
+    /// 相關會議（紀錄提到、內容提到、手動加入；跟上 Hayaku 1.5.9）
+    pub meetings: Vec<super::RelatedMeeting>,
 }
 
 impl TaskDetail {

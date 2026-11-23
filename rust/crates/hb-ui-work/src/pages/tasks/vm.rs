@@ -23,6 +23,8 @@ pub struct RowVm {
     pub project: Option<ProjectInfo>,
     /// 今天計時（計時中的每秒更新）。
     pub elapsed: String,
+    /// 改了狀態移到別的分頁、先留在原位的：「已移到「已完成」」（跟上 Hayaku 1.5.9）
+    pub moved: String,
 }
 
 impl RowVm {
@@ -40,6 +42,7 @@ impl RowVm {
             project_text: String::new(),
             project: None,
             elapsed: String::new(),
+            moved: String::new(),
         }
     }
 
@@ -470,6 +473,47 @@ pub fn flatten_pick_tree(
     out
 }
 
+/// 跟上 Hayaku 1.5.9：在這個分頁改了狀態、因此不在這個分頁的任務，先留在原本的位置（變淡、標示移到哪），換分頁才移走。
+/// prev：上次畫的（不含留著的）、now：這次的；moved：(原本的位置, 任務)，新移走的加進來，改回來又出現的拿掉。
+pub fn track_moved(prev: &[TaskSummary], now: &[TaskSummary], touched: &CiSet, moved: &mut Vec<(usize, TaskSummary)>) {
+    let in_now = |k: &str| now.iter().any(|t| t.key.eq_ignore_ascii_case(k));
+    moved.retain(|(_, t)| !in_now(&t.key));
+    for (i, t) in prev.iter().enumerate() {
+        if touched.contains(&t.key)
+            && !in_now(&t.key)
+            && !moved.iter().any(|(_, m)| m.key.eq_ignore_ascii_case(&t.key))
+        {
+            moved.push((i, t.clone()));
+        }
+    }
+    moved.sort_by_key(|(i, _)| *i);
+}
+
+/// 移到哪個分頁（照狀態分的分頁優先）與它現在的樣子；不在任何未完成的分頁就是「已完成」。
+/// list：分頁代號 → 那個分頁的任務。
+pub fn moved_to(
+    key: &str,
+    current: &str,
+    list: impl Fn(&str) -> Option<std::rc::Rc<Vec<TaskSummary>>>,
+) -> (String, Option<TaskSummary>) {
+    const ORDER: [(&str, &str); 5] = [
+        ("in_progress", "進行中"),
+        ("not_started", "未開始"),
+        ("test", "測試"),
+        ("should_start", "該開始"),
+        ("overdue", "逾期"),
+    ];
+    for (tab, label) in ORDER {
+        if tab == current {
+            continue;
+        }
+        if let Some(t) = list(tab).and_then(|l| l.iter().find(|t| t.key.eq_ignore_ascii_case(key)).cloned()) {
+            return (label.to_owned(), Some(t));
+        }
+    }
+    ("已完成".to_owned(), None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +522,42 @@ mod tests {
 
     fn d(m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, m, day).unwrap()
+    }
+
+    fn plain(key: &str, category: &str) -> TaskSummary {
+        TaskSummary::new(key, key, "F2P", "", category, "", None, None, false, "")
+    }
+
+    #[test]
+    fn track_moved_改了狀態的先留在原位_改回來就拿掉() {
+        let prev = vec![plain("A", "TODO"), plain("B", "TODO"), plain("C", "TODO")];
+        let now = vec![plain("A", "TODO"), plain("C", "TODO")];
+        let mut touched = CiSet::new();
+        let mut moved = Vec::new();
+        // 沒有改過狀態的（例如別人改的、改了執行者）照舊直接拿掉
+        track_moved(&prev, &now, &touched, &mut moved);
+        assert!(moved.is_empty());
+        touched.insert("b");
+        track_moved(&prev, &now, &touched, &mut moved);
+        assert_eq!(moved.iter().map(|(i, t)| (*i, t.key.as_str())).collect::<Vec<_>>(), vec![(1, "B")]);
+        // 再畫一次（上次畫的已經不含 B）還留著
+        track_moved(&now, &now, &touched, &mut moved);
+        assert_eq!(moved.len(), 1);
+        // 改回來又出現就不留
+        track_moved(&now, &prev, &touched, &mut moved);
+        assert!(moved.is_empty());
+    }
+
+    #[test]
+    fn moved_to_照狀態分頁優先_不在未完成就是已完成() {
+        let mut lists = std::collections::HashMap::new();
+        lists.insert("in_progress".to_owned(), std::rc::Rc::new(vec![plain("A", "IN_PROGRESS")]));
+        lists.insert("not_started".to_owned(), std::rc::Rc::new(vec![plain("B", "TODO")]));
+        lists.insert("overdue".to_owned(), std::rc::Rc::new(vec![plain("B", "TODO")]));
+        let list = |tab: &str| lists.get(tab).cloned();
+        assert_eq!(moved_to("b", "in_progress", list).0, "未開始");
+        assert_eq!(moved_to("A", "not_started", list).0, "進行中");
+        assert_eq!(moved_to("Z", "in_progress", list), ("已完成".to_owned(), None));
     }
 
     fn summary(key: &str, ancestors: Option<Vec<(&str, &str)>>, child_count: Option<i32>) -> TaskSummary {

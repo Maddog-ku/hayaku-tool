@@ -28,6 +28,8 @@ export struct TkRow {
     timing: bool,
     done: bool,
     elapsed: string,
+    /// 改了狀態移到別的分頁、先留在原位的：「已移到「已完成」」（變淡；跟上 Hayaku 1.5.9）
+    moved: string,
 }
 
 /// 樹狀檢視的一列（C# MyTreeProjectVm／MyTreeTaskVm）。has-row false：上層脈絡（不在這次的清單裡）。
@@ -475,6 +477,10 @@ export global TasksPageData {
     in property <bool> d-note-append-busy;
     /// 插入表格後的游標位置（位元組位移）
     in property <int> d-note-cursor;
+    // 會議（跟上 Hayaku 1.5.9）：跟 get_task 一起回來，不多打請求；kind 1 一場（key 是會議編號，點了打開）、2 說明
+    in-out property <bool> d-meetings-expanded;
+    in property <string> d-meetings-title: "會議";
+    in property <[TkLine]> d-meetings;
     // 相依、附件、文件、異動紀錄
     in-out property <bool> d-deps-expanded;
     in property <[TkDep]> d-deps;
@@ -537,6 +543,8 @@ export global TasksPageData {
     callback d-note-append-submit();
     callback d-note-table(int, int);
     callback d-deps-toggled(bool);
+    callback d-meeting-open(string);
+    callback d-meetings-web();
     callback d-dep-remove(int);
     callback d-dep-add();
     callback d-dep-quick-selected(int);

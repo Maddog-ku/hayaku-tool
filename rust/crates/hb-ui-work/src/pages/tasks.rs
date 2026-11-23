@@ -184,6 +184,12 @@ struct State {
     running_cards: Vec<String>,
     list_rows: Vec<RowVm>,
     shown: Vec<TaskSummary>,
+    /// 跟上 Hayaku 1.5.9：清單檢視在這個分頁改了狀態的任務（右鍵、點狀態）；移到別的分頁的先留在原位變淡，換分頁才移走
+    status_touched: CiSet,
+    /// 上次畫的範圍（分頁＋篩選）與任務（不含留著的）
+    last_shown: (String, Vec<TaskSummary>),
+    /// 留著的：(原本的位置, 任務)
+    moved: Vec<(usize, TaskSummary)>,
     selected_key: Option<String>,
     tree_projects: Vec<MyTaskProject>,
     tree_items: Vec<TreeItem>,
@@ -312,6 +318,9 @@ impl Page {
             running_cards: Vec::new(),
             list_rows: Vec::new(),
             shown: Vec::new(),
+            status_touched: CiSet::new(),
+            last_shown: (String::new(), Vec::new()),
+            moved: Vec::new(),
             selected_key: None,
             tree_projects: Vec::new(),
             tree_items: Vec::new(),
@@ -500,7 +509,7 @@ impl Page {
 
         // 右鍵選單：計時、改狀態、釘選、查看、複製編號、網頁開啟、刪除（C# ShowRowMenu）
         let hooks = {
-            let (w1, w2, w3) = (self.me.clone(), self.me.clone(), self.me.clone());
+            let (w1, w2, w3, w4) = (self.me.clone(), self.me.clone(), self.me.clone(), self.me.clone());
             TaskMenuHooks {
                 open: Rc::new(move |key: &str| {
                     if let Some(p) = w1.upgrade() {
@@ -521,6 +530,11 @@ impl Page {
                     };
                     if p.st.borrow().detail.as_ref().is_some_and(|d| d.key == key) {
                         p.open_key(&key);
+                    }
+                })),
+                status_changed: Some(Rc::new(move |key: &str| {
+                    if let Some(p) = w4.upgrade() {
+                        p.st.borrow_mut().status_touched.insert(key);
                     }
                 })),
             }
@@ -707,23 +721,51 @@ impl Page {
             }
             let project_column = Self::column_visible(&st, "project");
             let list_view = st.view == "list";
-            rows = shown
-                .iter()
-                .map(|t| RowVm {
-                    key: t.key.clone(),
-                    title: TaskText::title_of(t),
-                    context: vm::context_text(t, list_view && project_column),
-                    status: t.status.clone(),
-                    planned_start: t.planned_start,
-                    planned_end: t.planned_end,
-                    timing: running.contains(&t.key) || t.timing,
-                    done: vm::is_done_category(&t.status_category),
-                    priority: t.priority.clone(),
-                    project_text: vm::project_text(code_only, &t.project, &t.key),
-                    project: self.project_info(&t.project, &t.key),
-                    elapsed: String::new(),
-                })
-                .collect();
+            let to_row = |t: &TaskSummary| RowVm {
+                key: t.key.clone(),
+                title: TaskText::title_of(t),
+                context: vm::context_text(t, list_view && project_column),
+                status: t.status.clone(),
+                planned_start: t.planned_start,
+                planned_end: t.planned_end,
+                timing: running.contains(&t.key) || t.timing,
+                done: vm::is_done_category(&t.status_category),
+                priority: t.priority.clone(),
+                project_text: vm::project_text(code_only, &t.project, &t.key),
+                project: self.project_info(&t.project, &t.key),
+                elapsed: String::new(),
+                moved: String::new(),
+            };
+            let mut list_rows: Vec<RowVm> = shown.iter().map(to_row).collect();
+            // 改了狀態移到別的分頁的：先留在原位變淡、標示移到哪，換分頁才移走（跟上 Hayaku 1.5.9；只有清單檢視）
+            if list_view && st.tab != DONE_TAB {
+                // 換了分頁、專案、狀態篩選、只看沒有子任務：不留（篩掉的不是「移到別的分頁」）
+                let scope = format!("{}|{:?}|{leaf_only}|{filter:?}", st.tab, project);
+                let last = std::mem::take(&mut st.last_shown);
+                let prev = if last.0 == scope {
+                    last.1
+                } else {
+                    st.moved.clear();
+                    st.status_touched = CiSet::new();
+                    Vec::new()
+                };
+                let State { status_touched, moved, .. } = &mut *st;
+                vm::track_moved(&prev, &shown, status_touched, moved);
+                st.last_shown = (scope, shown.clone());
+                for (index, old) in st.moved.clone() {
+                    let (label, now) = vm::moved_to(&old.key, &st.tab, |tab| lists.get(tab).cloned());
+                    let mut r = to_row(now.as_ref().unwrap_or(&old));
+                    if now.is_none() {
+                        r.done = true;
+                    }
+                    r.moved = format!("已移到「{label}」");
+                    list_rows.insert(index.min(list_rows.len()), r);
+                }
+            } else {
+                st.moved.clear();
+                st.last_shown = (String::new(), Vec::new());
+            }
+            rows = list_rows;
             message = if !rows.is_empty() {
                 String::new()
             } else if lists.is_empty() || st.tab == DONE_TAB && st.loading_done {
@@ -1373,6 +1415,7 @@ fn tk_row(r: &RowVm, today: NaiveDate, elapsed_on: bool) -> TkRow {
         timing: r.timing,
         done: r.done,
         elapsed: if elapsed_on { r.elapsed.as_str().into() } else { SharedString::new() },
+        moved: r.moved.as_str().into(),
     }
 }
 

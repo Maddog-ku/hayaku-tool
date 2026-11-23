@@ -48,6 +48,8 @@ pub struct KnowledgeHit {
     pub space: Option<String>,
     pub snippet: Option<String>,
     pub folder_id: Option<String>,
+    /// 綁進空間的會議紀錄、白板：會議（跟會議頁同一份；跟上 Hayaku 1.5.9）
+    pub meeting: Option<String>,
 }
 
 impl KnowledgeHit {
@@ -69,6 +71,8 @@ pub struct SpaceInfo {
 
 /// 空間頁面樹的一個節點（get_space_tree）；kind：DOC 文件、BOARD 白板、FOLDER 資料夾、CHANNEL 頻道、FORUM 論壇
 /// （Hayaku 1.4 以前的檔案庫是 FILES，已經轉成資料夾、id 不變）。file_count：資料夾直接放在裡面的檔案數。
+/// Hayaku 1.5.9 起還有 MEETING 會議資料夾（綁進空間的會議）、MEETING_OCCURRENCE 一場會議（id 是會議 id），
+/// 底下的 DOC、BOARD 是那場的紀錄、白板（meeting 是會議 id，跟會議頁同一份）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpaceNode {
     pub id: String,
@@ -77,6 +81,8 @@ pub struct SpaceNode {
     pub kind: Option<String>,
     pub updated_at: Option<DateTimeOffset>,
     pub file_count: Option<i32>,
+    /// 一場會議或會議的紀錄、白板：會議 id（跟上 Hayaku 1.5.9）
+    pub meeting: Option<String>,
 }
 
 impl SpaceNode {
@@ -88,6 +94,21 @@ impl SpaceNode {
         matches!(self.kind_upper().as_deref(), Some("FOLDER" | "FILES"))
     }
 
+    /// 會議資料夾
+    pub fn is_meeting_folder(&self) -> bool {
+        self.kind_upper().as_deref() == Some("MEETING")
+    }
+
+    /// 一場會議
+    pub fn is_meeting_occurrence(&self) -> bool {
+        self.kind_upper().as_deref() == Some("MEETING_OCCURRENCE")
+    }
+
+    /// 會議資料夾、一場會議，或會議的紀錄、白板：在空間裡不能新增子頁、移動、刪除（改紀錄到會議頁）。
+    pub fn is_meeting(&self) -> bool {
+        self.is_meeting_folder() || self.is_meeting_occurrence() || self.meeting.is_some()
+    }
+
     /// 頁面樹上的圖示：資料夾、白板、頻道、論壇；文件不加。
     pub fn icon(&self) -> &'static str {
         match self.kind_upper().as_deref() {
@@ -95,9 +116,19 @@ impl SpaceNode {
             Some("BOARD") => "🖍 ",
             Some("CHANNEL") => "# ",
             Some("FORUM") => "💬 ",
+            Some("MEETING") => "🗓 ",
+            Some("MEETING_OCCURRENCE") => "📅 ",
             _ => "",
         }
     }
+}
+
+/// 會議資料夾頁（get_space_page 給會議資料夾 id）的一場：會議 id、名稱、時間。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpaceMeetingOccurrence {
+    pub meeting: String,
+    pub title: String,
+    pub start_at: Option<DateTimeOffset>,
 }
 
 /// 空間的一頁（get_space_page）；path：上層的頁名。
@@ -109,6 +140,10 @@ pub struct SpacePageContent {
     pub owner: Option<String>,
     pub updated_at: Option<DateTimeOffset>,
     pub path: Vec<String>,
+    /// 會議紀錄頁：會議 id（改的是會議那份；跟上 Hayaku 1.5.9）
+    pub meeting: Option<String>,
+    /// 會議資料夾頁：場次清單
+    pub occurrences: Vec<SpaceMeetingOccurrence>,
 }
 
 /// 資料夾裡的一個東西（list_space_files）：上傳的檔案，或子頁（kind：FOLDER 子資料夾、DOC 文件、BOARD 白板…）。

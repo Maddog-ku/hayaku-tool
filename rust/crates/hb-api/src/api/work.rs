@@ -212,6 +212,7 @@ impl HayakuApi {
                     }),
                 })
                 .collect(),
+            meetings: Self::parse_related_meetings(r),
         }
     }
 

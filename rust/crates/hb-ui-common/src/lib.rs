@@ -165,6 +165,7 @@ mod tests {
             open: std::rc::Rc::new(|_| {}),
             delete: std::rc::Rc::new(|_| {}),
             template_applied: None,
+            status_changed: None,
         };
         let _menu = crate::wire_task_menu!(ui, TaskMenuState, engine, hooks);
     }

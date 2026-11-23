@@ -78,7 +78,152 @@ impl HayakuApi {
             attendees,
             note: string(r, "note"),
             can_edit: bool_(r, "canEdit"),
+            space_binding: Self::parse_space_binding(r),
+            tasks: Self::parse_related_tasks(r),
         })
+    }
+
+    /// spaceBinding：沒綁是 null；可能是 { space: { id, name }, folderId… }、{ spaceId, spaceName… } 或直接是空間 id。
+    /// 沒有實際資料，照說明寬鬆猜。
+    pub fn parse_space_binding(r: &Value) -> Option<SpaceBinding> {
+        let b = prop(r, "spaceBinding")?;
+        match b {
+            Value::String(s) if !is_blank(s) => {
+                Some(SpaceBinding { space_id: Some(s.clone()), space_name: None, folder_id: None })
+            }
+            Value::Object(_) => {
+                let space = prop(b, "space").unwrap_or(&NULL);
+                let (space_id, space_name) = match space {
+                    Value::String(s) => (Some(s.clone()), None),
+                    Value::Object(_) => (first_string(space, &["id", "spaceId"]), first_string(space, &["name", "title"])),
+                    _ => (None, None),
+                };
+                let folder = prop(b, "folder").unwrap_or(&NULL);
+                let binding = SpaceBinding {
+                    space_id: space_id.or_else(|| first_string(b, &["spaceId"])),
+                    space_name: space_name.or_else(|| first_string(b, &["spaceName", "spaceTitle", "name", "title"])),
+                    folder_id: first_string(b, &["folderId", "folderPageId", "pageId", "rootPageId"]).or_else(|| match folder {
+                        Value::String(s) => Some(s.clone()),
+                        _ => first_string(folder, &["id", "pageId"]),
+                    }),
+                };
+                (binding.space_id.is_some() || binding.space_name.is_some() || binding.folder_id.is_some())
+                    .then_some(binding)
+            }
+            _ => None,
+        }
+    }
+
+    /// 關聯來源（紀錄提到、內容提到、手動加入）：字串、字串陣列、{ type／kind } 陣列，或 true／false 的旗標都接受。
+    fn parse_link_sources(x: &Value) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut push = |s: String| {
+            if !is_blank(&s) && !out.contains(&s) {
+                out.push(s);
+            }
+        };
+        for name in ["sources", "source", "via", "reasons", "reason", "relations", "relation"] {
+            match prop(x, name) {
+                Some(Value::String(s)) => push(link_source_text(s)),
+                Some(Value::Array(arr)) => {
+                    for v in arr {
+                        match v.as_str() {
+                            Some(s) => push(link_source_text(s)),
+                            None => {
+                                if let Some(s) = first_str(v, &["type", "kind", "source", "label"]) {
+                                    push(link_source_text(s));
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let flags: [(&[&str], &str); 3] = [
+            (&["inNote", "inNotes", "noteMention", "mentionedInNote", "fromNote"], "紀錄提到"),
+            (&["inContent", "contentMention", "mentionedInContent", "fromContent"], "內容提到"),
+            (&["manual", "manually"], "手動加入"),
+        ];
+        for (names, text) in flags {
+            if names.iter().any(|f| matches!(prop(x, f), Some(Value::Bool(true)))) {
+                push(text.to_owned());
+            }
+        }
+        out
+    }
+
+    /// get_task 的 meetings：看不到的只有 id（或直接是字串 id）。
+    pub fn parse_related_meetings(r: &Value) -> Vec<RelatedMeeting> {
+        items(r, &["meetings", "relatedMeetings"])
+            .iter()
+            .filter_map(|m| {
+                if let Some(s) = m.as_str().filter(|s| !is_blank(s)) {
+                    return Some(RelatedMeeting {
+                        key: s.to_owned(),
+                        id: Some(s.to_owned()),
+                        title: String::new(),
+                        project: None,
+                        start_at: None,
+                        end_at: None,
+                        sources: Vec::new(),
+                        visible: false,
+                    });
+                }
+                let id = id_text(m, "id");
+                let key = first_string(m, &["meeting", "key", "code"]).or_else(|| id.clone())?;
+                let title = first_string(m, &["title", "name"]).unwrap_or_default();
+                Some(RelatedMeeting {
+                    key,
+                    id,
+                    visible: !title.is_empty() && !matches!(prop(m, "canOpen"), Some(Value::Bool(false))),
+                    title,
+                    project: first_string(m, &["project", "projectKey"]),
+                    start_at: first_date(m, &["startAt", "start"]),
+                    end_at: first_date(m, &["endAt", "end"]),
+                    sources: Self::parse_link_sources(m),
+                })
+            })
+            .collect()
+    }
+
+    /// get_meeting 的 tasks：看不到的只有 id（或直接是字串）。
+    pub fn parse_related_tasks(r: &Value) -> Vec<RelatedTask> {
+        items(r, &["tasks", "relatedTasks"])
+            .iter()
+            .filter_map(|t| {
+                if let Some(s) = t.as_str().filter(|s| !is_blank(s)) {
+                    return Some(RelatedTask {
+                        key: s.to_owned(),
+                        title: String::new(),
+                        status: String::new(),
+                        status_category: String::new(),
+                        assignees: Vec::new(),
+                        planned_end: None,
+                        sources: Vec::new(),
+                        visible: false,
+                    });
+                }
+                let key = first_string(t, &["task", "key", "code"]).or_else(|| id_text(t, "id"))?;
+                let title = first_string(t, &["title", "name"]).unwrap_or_default();
+                let mut assignees = names(t, "assignees");
+                if assignees.is_empty()
+                    && let Some(a) = person_name(t, &["assignee"])
+                {
+                    assignees.push(a);
+                }
+                Some(RelatedTask {
+                    key,
+                    visible: !title.is_empty() && !matches!(prop(t, "canOpen"), Some(Value::Bool(false))),
+                    title,
+                    status: first_string(t, &["status", "statusName"]).unwrap_or_default(),
+                    status_category: string(t, "statusCategory").unwrap_or_default(),
+                    assignees,
+                    planned_end: ["plannedEnd", "dueDate", "due", "plannedEndDate"].iter().find_map(|n| day(t, n)),
+                    sources: Self::parse_link_sources(t),
+                })
+            })
+            .collect()
     }
 
     /// 重複規則 → 「每週一、三」「每 2 天（只算工作日）」；series 可能直接有說明文字，或有 rule（同 create_meeting 的 recurrence.rule）。
@@ -224,6 +369,46 @@ mod tests {
             HayakuApi::parse_meeting_note_history(&j(r#"{"meeting":"REVIVAL-57","note":"會議紀錄","versions":[]}"#))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn parse_meeting_detail_空間綁定與相關任務() {
+        let d = HayakuApi::parse_meeting_detail(&j(r#"
+            {"meeting":"HYK-M3","id":"m3","title":"週會","project":"HYK","startAt":"2026-11-20T02:00:00Z","endAt":"2026-11-20T03:00:00Z",
+             "spaceBinding":{"space":{"id":"s1","name":"產品空間"},"folderId":"f9"},
+             "tasks":[{"task":"HYK-130","title":"登入頁","status":"進行中","statusCategory":"IN_PROGRESS",
+                       "assignees":[{"username":"amy","displayName":"Amy"}],"plannedEnd":"2026-11-25","sources":["NOTE","MANUAL"]},
+                      {"id":"t-hidden"},"HYK-9"]}"#))
+        .unwrap();
+        let b = d.space_binding.unwrap();
+        assert_eq!((b.space_id.as_deref(), b.label().as_str(), b.folder_id.as_deref()), (Some("s1"), "產品空間", Some("f9")));
+        assert_eq!(d.tasks.len(), 3);
+        let t = &d.tasks[0];
+        assert!(t.visible);
+        assert_eq!((t.key.as_str(), t.status.as_str(), t.assignees.clone()), ("HYK-130", "進行中", vec!["Amy".to_owned()]));
+        assert_eq!(t.planned_end, chrono::NaiveDate::from_ymd_opt(2026, 11, 25));
+        assert_eq!(t.sources, vec!["紀錄提到", "手動加入"]);
+        assert!(!d.tasks[1].visible && d.tasks[1].key == "t-hidden");
+        assert!(!d.tasks[2].visible && d.tasks[2].key == "HYK-9");
+
+        let none = HayakuApi::parse_meeting_detail(&j(
+            r#"{"meeting":"HYK-M4","startAt":"2026-11-20T02:00:00Z","endAt":"2026-11-20T03:00:00Z","spaceBinding":null}"#,
+        ))
+        .unwrap();
+        assert!(none.space_binding.is_none() && none.tasks.is_empty());
+    }
+
+    #[test]
+    fn parse_related_meetings_任務的會議() {
+        let list = HayakuApi::parse_related_meetings(&j(r#"
+            {"meetings":[{"meeting":"HYK-M3","id":"m3","title":"週會","startAt":"2026-11-20T02:00:00Z","endAt":"2026-11-20T03:00:00Z",
+                          "source":"CONTENT"},
+                         {"id":"m-hidden"}]}"#));
+        assert_eq!(list.len(), 2);
+        assert!(list[0].visible);
+        assert_eq!((list[0].key.as_str(), list[0].sources.clone()), ("HYK-M3", vec!["內容提到".to_owned()]));
+        assert!(list[0].start_at.is_some());
+        assert!(!list[1].visible && list[1].key == "m-hidden");
     }
 
     #[test]

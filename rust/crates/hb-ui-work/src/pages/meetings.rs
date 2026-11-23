@@ -47,7 +47,7 @@ struct State {
     detail: Option<MeetingDetail>,
     /// 修改表單的參加者帳號（跟 edit-people 模型同順序；空＝沒讀到成員清單，不改參加者）
     edit_users: Vec<String>,
-    section_loaded: [bool; 4],
+    section_loaded: [bool; 5],
     /// 確認視窗按「確定」要做的事
     confirm: Option<Box<dyn FnOnce()>>,
 }

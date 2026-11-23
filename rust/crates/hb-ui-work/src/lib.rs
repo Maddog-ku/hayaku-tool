@@ -217,10 +217,18 @@ impl Shell {
             })
         };
         let template_applied = {
-            let weak = me;
+            let weak = me.clone();
             Rc::new(move || {
                 if let Some(f) = weak.upgrade().and_then(|s| s.menu_hooks()).and_then(|h| h.template_applied) {
                     f();
+                }
+            })
+        };
+        let status_changed = {
+            let weak = me;
+            Rc::new(move |key: &str| {
+                if let Some(f) = weak.upgrade().and_then(|s| s.menu_hooks()).and_then(|h| h.status_changed) {
+                    f(key);
                 }
             })
         };
@@ -228,7 +236,7 @@ impl Shell {
             self.window,
             TaskMenuState,
             &self.engine,
-            TaskMenuHooks { open, delete, template_applied: Some(template_applied) }
+            TaskMenuHooks { open, delete, template_applied: Some(template_applied), status_changed: Some(status_changed) }
         );
     }
 

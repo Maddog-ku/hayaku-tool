@@ -53,9 +53,19 @@ fn parse_hits(r: &Value) -> Vec<KnowledgeHit> {
                 space: first_string(h, &["space", "spaceKey"]),
                 snippet: first_string(h, &["snippet", "excerpt", "match", "preview"]),
                 folder_id: None,
+                meeting: prop(h, "meeting").and_then(meeting_ref),
             })
         })
         .collect()
+}
+
+/// 會議：直接是 id 字串，或 { meeting／key／id… }（沒有實際資料，寬鬆讀）。
+fn meeting_ref(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) if !is_blank(s) => Some(s.clone()),
+        Value::Object(_) => first_string(v, &["meeting", "key", "code", "id", "meetingId"]),
+        _ => None,
+    }
 }
 
 impl HayakuApi {
@@ -300,6 +310,7 @@ impl HayakuApi {
                     kind: first_string(n, &["kind", "type"]),
                     updated_at: first_date(n, &["updatedAt", "editedAt"]),
                     file_count: number(n, &["fileCount", "files"]),
+                    meeting: HayakuApi::node_meeting(n, &id),
                 });
                 walk(list, items(n, &["children"]), Some(&id));
             }
@@ -307,6 +318,17 @@ impl HayakuApi {
         let mut list = Vec::new();
         walk(&mut list, items(r, &["pages", "tree", "nodes", "items"]), None);
         list
+    }
+
+    /// 節點的會議：紀錄、白板看 meetingNoteOf；一場會議（MEETING_OCCURRENCE）的 id 就是會議 id。
+    /// 會議資料夾的 meeting 是範圍與場次數，不是某一場，不算。
+    fn node_meeting(n: &Value, id: &str) -> Option<String> {
+        if let Some(m) = prop(n, "meetingNoteOf").and_then(meeting_ref) {
+            return Some(m);
+        }
+        let kind = first_str(n, &["kind", "type"]).unwrap_or_default().to_uppercase();
+        (kind == "MEETING_OCCURRENCE")
+            .then(|| prop(n, "meeting").and_then(meeting_ref).unwrap_or_else(|| id.to_owned()))
     }
 
     pub fn parse_space_page(r: &Value, page_id: &str) -> SpacePageContent {
@@ -325,6 +347,19 @@ impl HayakuApi {
             .filter(|x| !is_blank(x))
             .map(str::to_owned)
             .collect();
+        // 會議資料夾頁：場次清單（給會議資料夾 id 時；跟上 Hayaku 1.5.9）
+        let outer: &[Value] = if std::ptr::eq(page, r) { &[] } else { items(r, &["occurrences"]) };
+        let occurrences: Vec<SpaceMeetingOccurrence> = items(page, &["occurrences"])
+            .iter()
+            .chain(outer)
+            .filter_map(|o| {
+                Some(SpaceMeetingOccurrence {
+                    meeting: meeting_ref(o).or_else(|| first_string(o, &["pageId"]))?,
+                    title: first_string(o, &["title", "name"]).unwrap_or_else(|| "會議".to_owned()),
+                    start_at: first_date(o, &["startAt", "start", "date"]),
+                })
+            })
+            .collect();
         SpacePageContent {
             id: first_string(page, &["id", "pageId"]).unwrap_or_else(|| page_id.to_owned()),
             title: first_string(page, &["title", "name"]).unwrap_or_else(|| "（未命名）".to_owned()),
@@ -332,6 +367,15 @@ impl HayakuApi {
             owner,
             updated_at: first_date(page, &["updatedAt", "editedAt"]),
             path,
+            meeting: if occurrences.is_empty() {
+                prop(page, "meetingNoteOf")
+                    .or_else(|| prop(page, "meeting"))
+                    .or_else(|| prop(r, "meeting"))
+                    .and_then(meeting_ref)
+            } else {
+                None
+            },
+            occurrences,
         }
     }
 
@@ -395,6 +439,7 @@ impl HayakuApi {
                     space: first_string(f, &["space", "spaceKey"]),
                     snippet: path_text(f),
                     folder_id: Some(folder),
+                    meeting: None,
                 })
             })
             .collect()
@@ -576,6 +621,46 @@ mod tests {
     }
 
     // 對應 Hayaku14Tests 的空間部分
+
+    #[test]
+    fn 空間頁面樹_會議資料夾與場次() {
+        let nodes = HayakuApi::parse_space_tree(&j(r#"
+            {"pages":[{"id":"mf","title":"週會","kind":"MEETING","meeting":{"scope":"SERIES","occurrences":12},"moreOccurrences":2,
+              "children":[{"id":"m1","title":"11/20 週會","kind":"MEETING_OCCURRENCE",
+                "children":[{"id":"n1","title":"會議紀錄","kind":"DOC","meetingNoteOf":"m1"},
+                            {"id":"b1","title":"白板","kind":"BOARD","meetingNoteOf":"m1"}]}]},
+              {"id":"d","title":"說明","kind":"DOC"}]}"#));
+        let got: Vec<_> = nodes.iter().map(|n| (n.id.as_str(), n.meeting.as_deref(), n.is_meeting())).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("mf", None, true),
+                ("m1", Some("m1"), true),
+                ("n1", Some("m1"), true),
+                ("b1", Some("m1"), true),
+                ("d", None, false)
+            ]
+        );
+        assert_eq!((nodes[0].icon(), nodes[1].icon()), ("🗓 ", "📅 "));
+    }
+
+    #[test]
+    fn 空間頁_會議紀錄與會議資料夾() {
+        let note = HayakuApi::parse_space_page(
+            &j(r#"{"id":"n1","title":"會議紀錄","markdown":"決議","path":["週會","11/20 週會"],"meeting":{"id":"m1","title":"週會"},"editableVia":"meeting"}"#),
+            "n1",
+        );
+        assert_eq!((note.meeting.as_deref(), note.occurrences.len()), (Some("m1"), 0));
+        let folder = HayakuApi::parse_space_page(
+            &j(r#"{"id":"mf","title":"週會","meeting":{"scope":"SERIES"},"occurrences":[{"id":"m1","title":"週會","startAt":"2026-11-20T02:00:00Z"},{"id":"m0","title":"週會"}]}"#),
+            "mf",
+        );
+        assert_eq!(folder.meeting, None);
+        assert_eq!(folder.occurrences.iter().map(|o| o.meeting.as_str()).collect::<Vec<_>>(), vec!["m1", "m0"]);
+        assert!(folder.occurrences[0].start_at.is_some());
+        let plain = HayakuApi::parse_space_page(&j(r#"{"id":"d","title":"說明","markdown":"x"}"#), "d");
+        assert!(plain.meeting.is_none() && plain.occurrences.is_empty());
+    }
 
     #[test]
     fn 空間頁面樹_資料夾與檔案數() {

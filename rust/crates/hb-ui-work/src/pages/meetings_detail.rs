@@ -1,5 +1,7 @@
 //! 會議詳細（對應 C# `UI/Work/MeetingsPage.Detail.cs`）：右欄的時間、地點、主辦、重複規則、參加者與各自記到的工時；
 //! 可以修改（名稱、時間、地點、參加者、會議紀錄）。會議紀錄、檔案、白板放在可展開的區塊，展開才讀，平常不多打請求。
+//! 跟上 Hayaku 1.5.9：「相關任務」（紀錄提到、內容提到、手動加入）跟 get_meeting 一起回來，不多打請求，點了打開任務；
+//! 綁到團隊空間的會議在資訊列多一行「團隊空間」（綁定要到網頁的「⋯」）。
 
 use std::rc::{Rc, Weak};
 
@@ -12,10 +14,12 @@ use slint::{ComponentHandle, Model};
 
 use super::w3_common::{model, spawn, status_parts};
 use super::{Page, attendee_changes, checks_text, field_text, file_size, pick_checks, set_check};
-use crate::{MeetAttendee, MeetBlock, MeetInfo, MeetPreview, MeetSection, MeetingsPageData, W3Check};
+use crate::{MeetAttendee, MeetBlock, MeetInfo, MeetPreview, MeetSection, MeetingsPageData, PageArg, W3Check};
 
-/// 可展開區塊的標題（順序就是畫面上的順序）。
-const SECTIONS: [&str; 4] = ["會議紀錄", "紀錄更新歷程", "檔案", "白板"];
+/// 可展開區塊的標題（順序就是畫面上的順序）。相關任務跟會議詳細一起回來，其他展開才讀。
+const SECTIONS: [&str; 5] = ["相關任務", "會議紀錄", "紀錄更新歷程", "檔案", "白板"];
+/// 「相關任務」區塊的位置
+const TASKS: usize = 0;
 
 macro_rules! bind {
     // 沒有參數的回呼：rustfmt 會把 `| |` 排成 `||`，兩種都接受
@@ -163,6 +167,9 @@ impl Page {
         if let Some(me) = &d.my_state {
             lines.push(("我", me.clone()));
         }
+        if let Some(b) = &d.space_binding {
+            lines.push(("團隊空間", b.label()));
+        }
         let info: Vec<MeetInfo> =
             lines.into_iter().map(|(l, v)| MeetInfo { label: l.into(), value: v.into() }).collect();
         let people: Vec<MeetAttendee> = d
@@ -181,9 +188,20 @@ impl Page {
             .collect();
         let sections: Vec<MeetSection> = SECTIONS
             .iter()
-            .map(|t| MeetSection { title: (*t).into(), open: false, blocks: model(Vec::new()) })
+            .enumerate()
+            .map(|(i, t)| {
+                if i == TASKS {
+                    // 有相關任務就先打開（網頁放在右側一直看得到）
+                    let title = if d.tasks.is_empty() { (*t).to_owned() } else { format!("{t}（{}）", d.tasks.len()) };
+                    MeetSection { title: title.into(), open: !d.tasks.is_empty(), blocks: model(task_blocks(&d.tasks)) }
+                } else {
+                    MeetSection { title: (*t).into(), open: false, blocks: model(Vec::new()) }
+                }
+            })
             .collect();
-        self.st.borrow_mut().section_loaded = [false; 4];
+        let mut loaded = [false; SECTIONS.len()];
+        loaded[TASKS] = true;
+        self.st.borrow_mut().section_loaded = loaded;
         self.with(|g| {
             g.set_scroll_top(g.get_scroll_top() + 1);
             g.set_detail_title(d.title.as_str().into());
@@ -471,20 +489,27 @@ impl Page {
     async fn load_section(&self, i: usize, key: &str) -> Result<Vec<MeetBlock>, hb_api::McpError> {
         let api = self.ctx.engine.api();
         Ok(match i {
-            0 => notes_blocks(&api.meeting_notes(key).await?),
-            1 => history_blocks(&api.meeting_note_history(key, 10).await?),
-            2 => files_blocks(&api.meeting_files(key).await?),
+            TASKS => task_blocks(&self.st.borrow().detail.as_ref().map(|d| d.tasks.clone()).unwrap_or_default()),
+            1 => notes_blocks(&api.meeting_notes(key).await?),
+            2 => history_blocks(&api.meeting_note_history(key, 10).await?),
+            3 => files_blocks(&api.meeting_files(key).await?),
             _ => whiteboard_blocks(&api.meeting_whiteboards(key).await?),
         })
     }
 
-    /// 檔案：能讀（有 id）就直接看內容，不然在網頁開啟這場會議。
+    /// 相關任務：打開任務。檔案：能讀（有 id）就直接看內容，不然在網頁開啟這場會議。
     fn block_clicked(&self, s: usize, b: usize) {
         let Some(blk) = self.with(|g| g.get_sections().row_data(s).and_then(|sec| sec.blocks.row_data(b))).flatten()
         else {
             return;
         };
         if blk.kind != 3 {
+            return;
+        }
+        if s == TASKS {
+            if !blk.id.is_empty() {
+                self.ctx.show_page("tasks", Some(PageArg::Text(blk.id.to_string())));
+            }
             return;
         }
         let engine = &self.ctx.engine;
@@ -520,6 +545,36 @@ fn boxed(text: &str, max_h: f32) -> MeetBlock {
 
 fn non_blank(parts: &[Option<String>], sep: &str) -> String {
     parts.iter().flatten().filter(|s| !s.trim().is_empty()).cloned().collect::<Vec<_>>().join(sep)
+}
+
+/// 相關任務：編號＋名稱，底下是狀態、執行者、預計日期、怎麼關聯的；看不到的任務只有 id，不能點。
+pub(crate) fn task_blocks(tasks: &[hb_api::RelatedTask]) -> Vec<MeetBlock> {
+    if tasks.is_empty() {
+        return vec![block(0, "還沒有相關任務（紀錄裡插入任務卡片，或任務內容插入這場會議，就會列在這裡）")];
+    }
+    tasks
+        .iter()
+        .map(|t| {
+            if !t.visible {
+                return block(0, "（沒有權限看的任務）");
+            }
+            let meta = non_blank(
+                &[
+                    Some(t.status.clone()),
+                    Some(t.assignees.join("、")),
+                    t.planned_end.map(|d| format!("預計 {}", inputs::short_date(d))),
+                    Some(t.sources.join("、")),
+                ],
+                "・",
+            );
+            MeetBlock {
+                id: t.key.as_str().into(),
+                meta: meta.into(),
+                tip: "點一下打開任務".into(),
+                ..block(3, &format!("{}　{}", t.key, t.title))
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn notes_blocks(notes: &[hb_api::MeetingNote]) -> Vec<MeetBlock> {

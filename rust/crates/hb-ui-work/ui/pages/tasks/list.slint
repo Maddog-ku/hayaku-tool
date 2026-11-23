@@ -41,7 +41,10 @@ component ListRow {
     in property <bool> key-column;
     in property <bool> selected;
     callback clicked();
-    height: root.item.context != "" ? 46px : 34px;
+    height: root.item.context != "" || root.item.moved != "" ? 46px : 34px;
+    // 改了狀態移到別的分頁的先留著、變淡（跟上 Hayaku 1.5.9）；點了照樣看得到詳細、改得回來
+    opacity: root.item.moved != "" ? 0.5 : 1;
+    animate opacity { duration: Theme.reduce-motion ? 0ms : 200ms; }
     Rectangle {
         border-radius: 12px;
         background: root.selected ? Theme.selected : ta.has-hover ? Theme.fill : transparent;
@@ -113,7 +116,14 @@ component ListRow {
                             vertical-alignment: center;
                         }
                     }
-                    if root.item.context != "": Text {
+                    if root.item.moved != "": Text {
+                        text: root.item.moved;
+                        color: Theme.accent-ink;
+                        font-size: 11px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    if root.item.moved == "" && root.item.context != "": Text {
                         text: root.item.context;
                         color: Theme.muted;
                         font-size: 11px;

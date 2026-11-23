@@ -7,6 +7,8 @@
 //! 第一次切到這頁才讀；頁面樹、頁面內容快取到按重新整理或換空間。
 //! 跟上 Hayaku 1.5.4（C# 版沒有）：〔上移〕〔下移〕在同一個上層裡跟前一頁、後一頁換位置（move_space_page 的 afterId），
 //! 跟刪除一樣先確認（會改公司的正式文件）。拖拉排序沒有做。
+//! 跟上 Hayaku 1.5.9：綁進空間的會議（會議資料夾、一場會議、那場的紀錄與白板）也在頁面樹上；
+//! 紀錄跟會議頁同一份，這裡只看，〔打開會議〕到會議頁改。會議相關的頁不能新增子頁、移動、刪除，也不能當移動的目標。
 //!
 //! 契約（不可改簽章）：`init` 在第一次切到這頁時呼叫一次（綁定 callback）；
 //! `activate` 每次切到這頁時呼叫（對應 C# `IWorkPage.ActivateAsync(arg)`）。
@@ -179,6 +181,12 @@ pub fn init(ctx: &WorkCtx) {
             None => "/spaces".to_owned(),
         };
         hb_win::open(&page.ctx.engine.web_url(&path));
+    });
+    bind!(g.on_open_meeting, page, || {
+        let key = page.with(|g| g.get_meeting_key().to_string()).unwrap_or_default();
+        if !key.is_empty() {
+            page.ctx.show_page("meetings", Some(PageArg::Text(key)));
+        }
     });
     bind!(g.on_move_ok, page, || page.move_ok());
     bind!(g.on_move_cancel, page, || {
@@ -415,7 +423,18 @@ impl Page {
                 let rows: Vec<W3Row> = hits
                     .iter()
                     .map(|h| W3Row {
-                        title: format!("{}{}", if h.is_file() { "📄 " } else { "" }, h.title).into(),
+                        title: format!(
+                            "{}{}",
+                            if h.is_file() {
+                                "📄 "
+                            } else if h.meeting.is_some() {
+                                "🗓 "
+                            } else {
+                                ""
+                            },
+                            h.title
+                        )
+                        .into(),
                         meta: h.snippet.clone().unwrap_or_default().into(),
                         ..Default::default()
                     })
@@ -467,9 +486,14 @@ impl Page {
         self.with(|g| {
             g.set_composer_open(false);
             g.set_title(node.title.as_str().into());
+            g.set_meeting_key("".into());
         });
         if node.is_folder() {
             self.load_files().await;
+            return;
+        }
+        if node.is_meeting_occurrence() {
+            self.show_occurrence(&node);
             return;
         }
         self.with(|g| g.set_files_visible(false));
@@ -516,20 +540,51 @@ impl Page {
         if let Some(at) = &page.updated_at {
             meta.push(format!("{}更新", inputs::ago(at)));
         }
+        // 綁進空間的會議（跟上 Hayaku 1.5.9）：紀錄跟會議頁同一份，要改到會議頁
+        let node = self.st.borrow().node.clone();
+        let meeting = page.meeting.clone().or_else(|| node.as_ref().and_then(|n| n.meeting.clone()));
+        let meeting_page =
+            meeting.is_some() || !page.occurrences.is_empty() || node.as_ref().is_some_and(SpaceNode::is_meeting);
+        if !page.occurrences.is_empty() {
+            meta.insert(0, format!("會議資料夾・{} 場", page.occurrences.len()));
+        } else if meeting.is_some() {
+            meta.insert(0, "會議紀錄・跟會議頁同一份（要改請打開會議）".to_owned());
+        }
         let mut meta = meta.join("・");
-        let content = page.markdown.trim().to_owned();
+        let mut content = page.markdown.trim().to_owned();
+        if content.is_empty() && !page.occurrences.is_empty() {
+            content = occurrences_markdown(&page.occurrences);
+        }
         let has_content = !content.is_empty();
         self.with(|g| {
             g.set_title(page.title.as_str().into());
             g.set_content(content.into());
             g.set_content_visible(has_content);
+            g.set_meeting_key(meeting.clone().unwrap_or_default().into());
         });
         self.right("這頁還沒有內容", !has_content);
-        self.show_actions(false);
+        if meeting_page {
+            self.with(|g| g.set_actions_visible(false));
+        } else {
+            self.show_actions(false);
+        }
         if !self.st.borrow().writable() {
             meta += &format!("{}專案已封存，只能看", if meta.is_empty() { "" } else { "・" });
         }
         self.with(|g| g.set_meta(meta.into()));
+    }
+
+    /// 一場會議（MEETING_OCCURRENCE）：沒有自己的內文，紀錄、白板在樹上它的底下；〔打開會議〕到會議頁。
+    fn show_occurrence(&self, node: &SpaceNode) {
+        self.with(|g| {
+            g.set_title(node.title.as_str().into());
+            g.set_meta("一場會議・紀錄和白板在左邊這場底下".into());
+            g.set_content_visible(false);
+            g.set_files_visible(false);
+            g.set_actions_visible(false);
+            g.set_meeting_key(node.meeting.clone().unwrap_or_else(|| node.id.clone()).into());
+        });
+        self.right("按〔打開會議〕看時間、參加者、會議紀錄", true);
     }
 
     /// 頁面的按鈕：資料夾沒有內文，不能附加內容、編輯。
@@ -571,6 +626,7 @@ impl Page {
             g.set_content_visible(false);
             g.set_files_visible(false);
             g.set_actions_visible(false);
+            g.set_meeting_key("".into());
         });
         self.right(message, true);
     }
@@ -680,6 +736,7 @@ impl Page {
                         kind,
                         updated_at: file.at,
                         file_count: None,
+                        meeting: None,
                     }
                 })
             };
@@ -1059,6 +1116,7 @@ fn new_node(id: &str, title: &str, parent: Option<&str>, kind: Option<&str>, fil
         kind: kind.map(str::to_owned),
         updated_at: None,
         file_count,
+        meeting: None,
     }
 }
 
@@ -1105,10 +1163,39 @@ fn node_text(n: &SpaceNode) -> String {
 }
 
 fn node_tip(n: &SpaceNode) -> String {
+    if n.is_meeting_folder() {
+        return "會議資料夾（綁進空間的會議，最新 10 場；更早的點資料夾看）".to_owned();
+    }
+    if n.is_meeting_occurrence() {
+        return "一場會議".to_owned();
+    }
+    if n.meeting.is_some() {
+        return "會議的紀錄／白板，跟會議頁同一份".to_owned();
+    }
     match n.file_count {
         Some(c) if n.is_folder() => format!("資料夾・直接放在裡面的檔案 {c} 個"),
         _ => String::new(),
     }
+}
+
+/// 會議資料夾的場次清單 → Markdown（時間＋名稱，新的在前，照伺服器順序）。
+pub(crate) fn occurrences_markdown(list: &[hb_api::SpaceMeetingOccurrence]) -> String {
+    list.iter()
+        .map(|o| match &o.start_at {
+            Some(at) => {
+                let local = at.with_timezone(&chrono::Local);
+                format!(
+                    "- {}（{}）{}　{}",
+                    local.format("%Y/%m/%d"),
+                    inputs::weekday_short(local.date_naive()),
+                    local.format("%H:%M"),
+                    o.title
+                )
+            }
+            None => format!("- {}", o.title),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// 上層不在樹上的節點當最上層。
@@ -1187,6 +1274,8 @@ pub(crate) fn move_choices(nodes: &[SpaceNode], node: &SpaceNode) -> (Vec<(Optio
             .iter()
             .filter(|n| !blocked.contains(n.id.as_str()))
             .filter(|n| !matches!(n.kind.as_deref().map(str::to_uppercase).as_deref(), Some("CHANNEL" | "FORUM")))
+            // 綁進空間的會議（資料夾、場次、紀錄）不能放別的頁進去
+            .filter(|n| !n.is_meeting())
             .map(|n| (Some(n.id.clone()), format!("{}{}", " ".repeat(depth(n) * 3), n.title))),
     );
     let current = node.parent_id.clone().filter(|p| by_id.contains_key(p.as_str()));

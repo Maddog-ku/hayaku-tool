@@ -507,6 +507,7 @@ pub fn init(ctx: &WorkCtx) {
                 spawn("重新整理專案", load(page, true));
             }
         })),
+        status_changed: None,
     };
     let _menu = hb_ui_common::wire_task_menu!(window, ProjectsPageData, engine, hooks);
 }

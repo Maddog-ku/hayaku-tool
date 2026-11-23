@@ -34,6 +34,8 @@ export global SpacesPageData {
     in-out property <bool> up-visible;
     in-out property <bool> actions-visible;
     in-out property <bool> doc-only-visible: true;
+    /// 綁進空間的會議（場次、紀錄）：會議 id，有值時顯示〔打開會議〕（跟上 Hayaku 1.5.9）
+    in-out property <string> meeting-key;
     in-out property <bool> new-top-visible: true;
     // 新增頁、附加內容、編輯
     in-out property <bool> composer-open;
@@ -83,6 +85,7 @@ export global SpacesPageData {
     callback reload();
     callback web();
     callback move-ok();
+    callback open-meeting();
     callback move-cancel();
     callback confirm-ok();
     callback confirm-cancel();
@@ -400,6 +403,17 @@ export component SpacesPage inherits Rectangle {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                    if SpacesPageData.meeting-key != "": HorizontalLayout {
+                        padding-top: 12px;
+                        alignment: start;
+                        PageButton {
+                            text: "打開會議";
+                            tip: "到會議頁看時間、參加者、會議紀錄（紀錄跟這裡同一份，要改也在那裡）";
+                            clicked => {
+                                SpacesPageData.open-meeting();
                             }
                         }
                     }
