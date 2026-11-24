@@ -203,6 +203,18 @@ pub fn init(ctx: &WorkCtx) {
         page.st.borrow_mut().confirm = None;
         page.with(|g| g.set_confirm_open(false));
     });
+    // 跟上 Hayaku 1.5.10：頁面樹拖分隔線調寬，記住調的寬度（0＝預設）
+    g.set_tree_width(ctx.engine.config().spaces_tree_width.max(0) as f32);
+    {
+        let engine = ctx.engine.clone();
+        g.on_tree_width_saved(move |w| {
+            let w = if w > 0.0 { w.round() as i32 } else { 0 };
+            if engine.config().spaces_tree_width != w {
+                engine.config_mut().spaces_tree_width = w;
+                engine.config().save();
+            }
+        });
+    }
     wire_md!(&g);
     page.show_empty();
 }

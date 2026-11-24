@@ -36,7 +36,7 @@ fn app_state_資料夾對應_保留原本的鍵_設定時不分大小寫() {
 fn with_rust_fields(cs: &str) -> String {
     let anchor = "  \"notificationPopupSeconds\": 3,\r\n";
     assert_eq!(1, cs.matches(anchor).count());
-    cs.replace(anchor, &format!("{anchor}  \"reminderBeforeEndMinutes\": 15,\r\n  \"newWorkToastSeconds\": 300,\r\n"))
+    cs.replace(anchor, &format!("{anchor}  \"reminderBeforeEndMinutes\": 15,\r\n  \"newWorkToastSeconds\": 300,\r\n  \"spacesTreeWidth\": 0,\r\n"))
 }
 
 #[test]
@@ -61,6 +61,7 @@ fn app_config_讀c_sharp的檔再寫回_一字不差() {
     // C# 的檔沒有 Rust 版新增的欄位：用預設值
     assert_eq!(15, config.reminder_before_end_minutes);
     assert_eq!(300, config.new_work_toast_seconds);
+    assert_eq!(0, config.spaces_tree_width);
     assert_eq!(with_rust_fields(CS_CONFIG_CUSTOM), json_file::to_string(&config).unwrap());
 }
 

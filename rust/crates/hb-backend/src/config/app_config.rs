@@ -145,6 +145,9 @@ pub struct AppConfig {
     /// （C# 版沒有這個設定，是要按掉才收起）。
     pub new_work_toast_seconds: i32,
 
+    /// 工作台「團隊空間」左邊頁面樹的寬度（DIP，拖分隔線調的）；0 表示預設寬度（跟上 Hayaku 1.5.10；C# 版沒有）。
+    pub spaces_tree_width: i32,
+
     /// 全螢幕、簡報、Windows 安靜時段或鎖定時先不跳提示，結束後再一起顯示（會議快開始除外）。
     pub quiet_when_busy: bool,
 
@@ -201,6 +204,7 @@ impl Default for AppConfig {
             notification_popup_seconds: 3,
             reminder_before_end_minutes: 15,
             new_work_toast_seconds: 300,
+            spaces_tree_width: 0,
             quiet_when_busy: true,
             prompt_unfilled: true,
             hook_port: 47823,

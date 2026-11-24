@@ -396,11 +396,14 @@ export component FilePreviewWindow inherits Window {
     in property <bool> can-copy;
     in property <bool> can-save;
     in property <bool> can-web;
+    /// 跟上 Hayaku 1.5.10：現在是不是全螢幕（Rust 端切換後回寫）
+    in property <bool> is-fullscreen;
     callback continue-reading();
     callback copy-text();
     callback save-image();
     callback open-web();
     callback dismiss();
+    callback toggle-fullscreen();
     title: window-title;
     preferred-width: 860px;
     preferred-height: 640px;
@@ -418,8 +421,18 @@ export component FilePreviewWindow inherits Window {
             EventResult.reject
         }
         key-pressed(e) => {
+            // 全螢幕時 Esc 先離開全螢幕，再按一次才關
             if e.text == Key.Escape {
-                root.dismiss();
+                if root.is-fullscreen {
+                    root.toggle-fullscreen();
+                } else {
+                    root.dismiss();
+                }
+                return EventResult.accept;
+            }
+            // Ctrl＋Shift＋F 切換全螢幕（跟上 Hayaku 1.5.10）
+            if e.modifiers.control && e.modifiers.shift && (e.text == "f" || e.text == "F") {
+                root.toggle-fullscreen();
                 return EventResult.accept;
             }
             EventResult.reject
@@ -684,6 +697,16 @@ export component FilePreviewWindow inherits Window {
                             kind: ButtonKind.secondary;
                             clicked => {
                                 root.open-web();
+                            }
+                        }
+                        TipArea {
+                            text: root.is-fullscreen ? "回到視窗（Ctrl＋Shift＋F 或 Esc）" : "整個螢幕看（Ctrl＋Shift＋F）";
+                            Button {
+                                text: root.is-fullscreen ? "離開全螢幕" : "全螢幕";
+                                kind: ButtonKind.secondary;
+                                clicked => {
+                                    root.toggle-fullscreen();
+                                }
                             }
                         }
                         Button {

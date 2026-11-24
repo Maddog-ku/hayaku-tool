@@ -131,6 +131,17 @@ pub fn show(engine: &TimerEngine, id: &str, name: &str, owner: Option<&slint::Wi
         });
     }
     {
+        // 跟上 Hayaku 1.5.10：預覽可以全螢幕（按鈕或 Ctrl＋Shift＋F）
+        let weak = ui.as_weak();
+        ui.on_toggle_fullscreen(move || {
+            if let Some(ui) = weak.upgrade() {
+                let on = !ui.window().is_fullscreen();
+                ui.window().set_fullscreen(on);
+                ui.set_is_fullscreen(on);
+            }
+        });
+    }
+    {
         let weak = ui.as_weak();
         ui.on_dismiss(move || {
             if let Some(ui) = weak.upgrade() {

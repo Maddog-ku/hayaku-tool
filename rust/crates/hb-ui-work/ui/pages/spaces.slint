@@ -37,6 +37,10 @@ export global SpacesPageData {
     /// 綁進空間的會議（場次、紀錄）：會議 id，有值時顯示〔打開會議〕（跟上 Hayaku 1.5.9）
     in-out property <string> meeting-key;
     in-out property <bool> new-top-visible: true;
+    /// 左邊頁面樹的寬度（拖分隔線調的）；0px 表示預設（跟上 Hayaku 1.5.10）
+    in-out property <length> tree-width: 0px;
+    /// 放開分隔線或雙擊回預設時存起來（0px＝預設）
+    callback tree-width-saved(length);
     // 新增頁、附加內容、編輯
     in-out property <bool> composer-open;
     in-out property <string> composer-label;
@@ -279,11 +283,12 @@ export component SpacesPage inherits Rectangle {
             tone: SpacesPageData.status-tone;
         }
         HorizontalLayout {
-            spacing: 18px;
+            spacing: 0px;
             vertical-stretch: 1;
-            // 左欄：頁面窄時縮到 230，右邊閱讀區多一點寬度
-            VerticalLayout {
-                width: root.width < 760px ? 230px : 300px;
+            // 左欄：預設頁面窄時 230、寬時 300；拖分隔線調過就用調的寬度（最窄 180，最寬頁面的一半）
+            left-col := VerticalLayout {
+                property <length> default-width: root.width < 760px ? 230px : 300px;
+                width: SpacesPageData.tree-width > 0px ? clamp(SpacesPageData.tree-width, 180px, max(180px, root.width / 2)) : self.default-width;
                 spacing: 6px;
                 if SpacesPageData.left-message != "": Text {
                     text: SpacesPageData.left-message;
@@ -314,6 +319,37 @@ export component SpacesPage inherits Rectangle {
                         selected(i) => {
                             SpacesPageData.hit-current = i;
                             SpacesPageData.hit-selected(i);
+                        }
+                    }
+                }
+            }
+            // 分隔線（跟上 Hayaku 1.5.10）：拖動調寬、放開記住，雙擊回到預設
+            Rectangle {
+                width: 18px;
+                Rectangle {
+                    Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        width: split-ta.pressed ? 2px : 1px;
+                        background: split-ta.pressed ? Theme.ink : split-ta.has-hover ? Theme.muted : Theme.line;
+                        opacity: split-ta.has-hover || split-ta.pressed ? 1 : 0.6;
+                        animate background, opacity { duration: Motion.fast; }
+                    }
+                    split-ta := TouchArea {
+                        mouse-cursor: MouseCursor.col-resize;
+                        pointer-event(e) => {
+                            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left && SpacesPageData.tree-width > 0px {
+                                SpacesPageData.tree-width-saved(left-col.width);
+                            }
+                        }
+                        // 分隔線跟著游標移動：用目前寬度加上游標離按下那一點的距離（不能用按下時的寬度，會重複算）
+                        moved => {
+                            if self.pressed {
+                                SpacesPageData.tree-width = clamp(left-col.width + self.mouse-x - self.pressed-x, 180px, max(180px, root.width / 2));
+                            }
+                        }
+                        double-clicked => {
+                            SpacesPageData.tree-width = 0px;
+                            SpacesPageData.tree-width-saved(0px);
                         }
                     }
                 }
