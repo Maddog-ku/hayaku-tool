@@ -3,12 +3,14 @@
 use super::DateTimeOffset;
 
 /// 會議的參加者：狀態（會議中、已離開、還沒加入、請假）與這場會議記到的工時。
+/// recorder：這場會議的紀錄人（跟上 Hayaku 1.5.11）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MeetingAttendee {
     pub username: String,
     pub name: String,
     pub state: String,
     pub logged_minutes: i32,
+    pub recorder: bool,
 }
 
 /// 一場會議（get_meeting）。note 是主要的會議紀錄（Markdown）；recurrence 是重複規則的說明（不是重複會議為 None）；
@@ -25,6 +27,8 @@ pub struct MeetingDetail {
     pub recurring: bool,
     pub recurrence: Option<String>,
     pub organizer: Option<String>,
+    /// 紀錄人的名字（沒指定是 None；跟上 Hayaku 1.5.11）
+    pub recorder: Option<String>,
     pub my_state: Option<String>,
     pub attendees: Vec<MeetingAttendee>,
     pub note: Option<String>,

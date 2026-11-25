@@ -161,6 +161,9 @@ impl Page {
         if let Some(o) = &d.organizer {
             lines.push(("主辦", o.clone()));
         }
+        if let Some(r) = &d.recorder {
+            lines.push(("紀錄人", r.clone()));
+        }
         if let Some(r) = &d.recurrence {
             lines.push(("重複", r.clone()));
         }
@@ -184,6 +187,7 @@ impl Page {
                 } else {
                     "".into()
                 },
+                recorder: a.recorder,
             })
             .collect();
         let sections: Vec<MeetSection> = SECTIONS

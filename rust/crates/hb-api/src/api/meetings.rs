@@ -57,9 +57,12 @@ impl HayakuApi {
                     Some(l @ Value::Object(_)) => prop(l, "minutes").and_then(as_i32).unwrap_or(0),
                     _ => 0,
                 },
+                recorder: Self::is_recorder(a),
             })
             .filter(|a| !a.name.is_empty())
-            .collect();
+            .collect::<Vec<_>>();
+        let recorder = Self::parse_recorder_name(r)
+            .or_else(|| attendees.iter().find(|a| a.recorder).map(|a| a.name.clone()));
         let recurring = bool_(r, "recurring");
         let series = prop(r, "series").unwrap_or(&NULL);
         Some(MeetingDetail {
@@ -74,6 +77,7 @@ impl HayakuApi {
             recurrence: Self::describe_recurrence(series)
                 .or_else(|| if recurring { Some("重複會議".to_owned()) } else { None }),
             organizer: first_string(r, &["organizer", "host"]),
+            recorder,
             my_state: string(r, "me"),
             attendees,
             note: string(r, "note"),
@@ -81,6 +85,36 @@ impl HayakuApi {
             space_binding: Self::parse_space_binding(r),
             tasks: Self::parse_related_tasks(r),
         })
+    }
+
+    /// 參加者是不是紀錄人（跟上 Hayaku 1.5.11，說明只寫「紀錄人標 recorder」，沒有實際資料）：
+    /// `recorder: true`、`recorder: "紀錄人"` 之類的字串，或 role／roles 裡有 RECORDER。
+    fn is_recorder(a: &Value) -> bool {
+        let is_word = |s: &str| {
+            let s = s.trim();
+            s.eq_ignore_ascii_case("recorder") || s == "紀錄人" || s == "記錄人"
+        };
+        match prop(a, "recorder") {
+            Some(Value::Bool(b)) => return *b,
+            Some(Value::String(s)) if !is_blank(s) => {
+                return !matches!(s.trim().to_ascii_lowercase().as_str(), "false" | "no" | "0");
+            }
+            _ => {}
+        }
+        match prop(a, "role").or_else(|| prop(a, "roles")) {
+            Some(Value::String(s)) => is_word(s),
+            Some(Value::Array(xs)) => xs.iter().filter_map(Value::as_str).any(is_word),
+            _ => false,
+        }
+    }
+
+    /// 會議上層的紀錄人：名字字串，或 { name／displayName／user }；沒指定（null）是 None。
+    fn parse_recorder_name(r: &Value) -> Option<String> {
+        match prop(r, "recorder")? {
+            Value::String(s) if !is_blank(s) => Some(s.trim().to_owned()),
+            v @ Value::Object(_) => first_string(v, &["name", "displayName", "user", "username"]),
+            _ => None,
+        }
     }
 
     /// spaceBinding：沒綁是 null；可能是 { space: { id, name }, folderId… }、{ spaceId, spaceName… } 或直接是空間 id。
@@ -396,6 +430,34 @@ mod tests {
         ))
         .unwrap();
         assert!(none.space_binding.is_none() && none.tasks.is_empty());
+    }
+
+    #[test]
+    fn parse_meeting_detail_紀錄人() {
+        let detail = |json: &str| HayakuApi::parse_meeting_detail(&j(json)).unwrap();
+        let base = |attendees: &str, extra: &str| {
+            format!(
+                r#"{{"meeting":"HYK-M5","startAt":"2026-11-24T02:00:00Z","endAt":"2026-11-24T03:00:00Z","attendees":[{attendees}]{extra}}}"#
+            )
+        };
+        // 參加者標 recorder: true
+        let d = detail(&base(
+            r#"{"user":"amy","name":"Amy","state":"會議中","recorder":true},{"user":"bob","name":"Bob","state":"還沒加入"}"#,
+            "",
+        ));
+        assert_eq!(d.attendees.iter().map(|a| a.recorder).collect::<Vec<_>>(), vec![true, false]);
+        assert_eq!(d.recorder.as_deref(), Some("Amy"));
+        // role／roles 裡有 RECORDER
+        let d = detail(&base(r#"{"name":"Amy","roles":["ORGANIZER","RECORDER"]},{"name":"Bob","role":"紀錄人"}"#, ""));
+        assert!(d.attendees[0].recorder && d.attendees[1].recorder);
+        // 上層 recorder 優先（字串或物件）
+        let d = detail(&base(r#"{"name":"Amy","recorder":true}"#, r#","recorder":"Bob""#));
+        assert_eq!(d.recorder.as_deref(), Some("Bob"));
+        let d = detail(&base(r#"{"name":"Amy"}"#, r#","recorder":{"user":"bob","name":"Bob"}"#));
+        assert_eq!(d.recorder.as_deref(), Some("Bob"));
+        // 沒指定
+        let d = detail(&base(r#"{"name":"Amy","recorder":false}"#, r#","recorder":null"#));
+        assert!(d.recorder.is_none() && !d.attendees[0].recorder);
     }
 
     #[test]

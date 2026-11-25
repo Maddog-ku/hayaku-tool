@@ -49,12 +49,13 @@ export struct MeetInfo {
     value: string,
 }
 
-/// 詳細的參加者：state-accent＝會議中（強調色）。
+/// 詳細的參加者：state-accent＝會議中（強調色）；recorder＝這場會議的紀錄人。
 export struct MeetAttendee {
     name: string,
     state: string,
     state-accent: bool,
     logged: string,
+    recorder: bool,
 }
 
 /// 白板的「看白板」「圖片 N」按鈕。
@@ -866,7 +867,7 @@ component Detail inherits Rectangle {
                     alignment: start;
                     PageButton {
                         text: MeetingsPageData.can-edit ? "✎ 修改" : "✎ 修改會議紀錄";
-                        tip: MeetingsPageData.can-edit ? "名稱、時間、地點、參加者、會議紀錄" : "時間、參加者只有主辦或專案管理員能改；會議紀錄參加者都能改";
+                        tip: MeetingsPageData.can-edit ? "名稱、時間、地點、參加者、會議紀錄（指定紀錄人要到網頁）" : "時間、參加者只有主辦或專案管理員能改；會議紀錄參加者都能改";
                         clicked => {
                             MeetingsPageData.edit-clicked();
                         }
@@ -911,6 +912,12 @@ component Detail inherits Rectangle {
                         color: Theme.ink;
                         font-size: Theme.fs-md;
                         overflow: elide;
+                    }
+                    if a.recorder: Text {
+                        text: "　紀錄人";
+                        color: Theme.accent;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
                     }
                     if a.state != "": Text {
                         text: "　" + a.state;
