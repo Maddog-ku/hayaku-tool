@@ -858,6 +858,8 @@ fn render_overview(page: &Page) {
                 t.testing + t.retest
             )
             .into(),
+            parent: t.parent.as_str().into(),
+            parent_key: t.parent_key.as_deref().unwrap_or_default().into(),
         })
         .collect();
     let stale: Vec<TestResultRow> =

@@ -56,6 +56,9 @@ export struct TestsProgress {
     title: string,
     ratio: float,
     counts: string,
+    /// 上層任務「F2P-5 第一階段」（跟上 Hayaku 1.5.12），沒有是空字串；parent-key 有值時點了前往
+    parent: string,
+    parent-key: string,
 }
 
 export global TestsPageData {
@@ -501,20 +504,45 @@ export component TestsPage inherits Rectangle {
                             color: Theme.muted;
                         }
                         for t in TestsPageData.progress: HorizontalLayout {
-                            height: 26px;
+                            height: t.parent != "" ? 42px : 26px;
                             Rectangle {
                                 horizontal-stretch: 1;
-                                HorizontalLayout {
-                                    W2Link {
-                                        text: "🧪 " + t.key;
-                                        clicked => { TestsPageData.open-task(t.key); }
+                                VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        height: 22px;
+                                        W2Link {
+                                            text: "🧪 " + t.key;
+                                            clicked => { TestsPageData.open-task(t.key); }
+                                        }
+                                        Text {
+                                            text: t.title;
+                                            color: Theme.ink;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                            horizontal-stretch: 1;
+                                        }
                                     }
-                                    Text {
-                                        text: t.title;
-                                        color: Theme.ink;
-                                        overflow: elide;
-                                        vertical-alignment: center;
-                                        horizontal-stretch: 1;
+                                    // 上層任務：看得出這個測試在測哪個功能，點了前往（跟上 Hayaku 1.5.12）
+                                    if t.parent != "": HorizontalLayout {
+                                        height: 18px;
+                                        padding-left: 22px;
+                                        if t.parent-key != "": W2Link {
+                                            text: "↳ " + t.parent;
+                                            tip: "前往上層任務";
+                                            color: Theme.muted;
+                                            font-weight: 400;
+                                            font-size: 12px;
+                                            clicked => { TestsPageData.open-task(t.parent-key); }
+                                        }
+                                        if t.parent-key == "": Text {
+                                            text: "↳ " + t.parent;
+                                            color: Theme.muted;
+                                            font-size: 12px;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                        Rectangle { horizontal-stretch: 1; }
                                     }
                                 }
                             }

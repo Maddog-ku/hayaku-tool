@@ -304,6 +304,7 @@ impl Page {
         self.wire_testing(d);
         self.wire_extras(d);
         self.wire_note(d);
+        self.wire_docs_edit(d);
     }
 
     /// 詳細的訊息列（C# Inputs.Show(DetailStatus, …)）。

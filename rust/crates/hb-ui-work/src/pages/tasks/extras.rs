@@ -252,7 +252,8 @@ impl Page {
             if d.meetings.is_empty() { "會議".to_owned() } else { format!("會議（{}）", d.meetings.len()) };
         self.with_data(|x| {
             x.set_d_docs_header(docs_header.into());
-            x.set_d_docs_visible(d.content_block_count > 0);
+            // 沒有文件的任務也顯示，才能〔＋ 新增文件〕（跟上 Hayaku 1.5.12）；展開才讀，請求數不變
+            x.set_d_docs_visible(true);
             x.set_d_meetings_title(meetings_title.into());
             x.set_d_meetings(vec_model(meeting_lines(&d.meetings)));
         });
@@ -268,6 +269,7 @@ impl Page {
         st.deps_for = None;
         st.attach_for = None;
         st.docs_for = None;
+        st.docs.clear();
         st.history_for = None;
         st.history_cursor = None;
         st.history_items.clear();
@@ -276,6 +278,8 @@ impl Page {
         st.history_version += 1;
         st.deps_rows.clear();
         drop(st);
+        // 換任務：收起文件的補一段／改一段／新增文件
+        self.close_doc_edit();
         self.with_data(|x| {
             x.set_d_meetings_expanded(!d.meetings.is_empty());
             x.set_d_deps_expanded(false);
@@ -524,7 +528,7 @@ impl Page {
 
     // ───────────── 文件 ─────────────
 
-    async fn load_docs(self: Rc<Self>) {
+    pub(super) async fn load_docs(self: Rc<Self>) {
         let Some(key) = self.st.borrow().detail.as_ref().map(|d| d.key.clone()) else { return };
         if self.st.borrow().docs_for.as_deref() == Some(key.as_str()) {
             return;
@@ -550,14 +554,17 @@ impl Page {
         if docs.is_empty() {
             lines.push(line(2, "沒有文件"));
         }
-        lines.push(line(2, "唯讀；要編輯請在網頁開啟。"));
+        lines.push(line(2, "整份改寫、刪除文件、白板請到網頁。"));
         let rows: Vec<TkDoc> = docs
             .iter()
             .map(|doc| TkDoc {
                 title: doc.title.as_str().into(),
                 text: if doc.text.is_empty() { "（空白）".into() } else { doc.text.as_str().into() },
+                writable: doc.id.is_some() && !doc.whiteboard,
+                sections: doc.id.is_some() && !doc.editable_sections().is_empty(),
             })
             .collect();
+        self.st.borrow_mut().docs = docs;
         self.with_data(|d| {
             d.set_d_docs(vec_model(rows));
             d.set_d_docs_lines(vec_model(lines));

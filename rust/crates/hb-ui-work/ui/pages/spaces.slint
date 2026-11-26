@@ -362,12 +362,28 @@ export component SpacesPage inherits Rectangle {
                     spacing: 4px;
                     padding-right: 10px;
                     alignment: start;
-                    if SpacesPageData.title != "": Text {
-                        text: SpacesPageData.title;
-                        color: Theme.ink;
-                        font-size: 18px;
-                        font-weight: 600;
-                        wrap: word-wrap;
+                    // 〔打開會議〕在標題右邊（跟上 Hayaku 1.5.12，原本在內容下方）
+                    if SpacesPageData.title != "": HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: SpacesPageData.title;
+                            color: Theme.ink;
+                            font-size: 18px;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        if SpacesPageData.meeting-key != "": VerticalLayout {
+                            alignment: center;
+                            PageButton {
+                                text: "打開會議";
+                                tip: "到會議頁看時間、參加者、會議紀錄（紀錄跟這裡同一份，要改也在那裡）";
+                                clicked => {
+                                    SpacesPageData.open-meeting();
+                                }
+                            }
+                        }
                     }
                     if SpacesPageData.meta != "": Text {
                         text: SpacesPageData.meta;
@@ -439,17 +455,6 @@ export component SpacesPage inherits Rectangle {
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
-                    if SpacesPageData.meeting-key != "": HorizontalLayout {
-                        padding-top: 12px;
-                        alignment: start;
-                        PageButton {
-                            text: "打開會議";
-                            tip: "到會議頁看時間、參加者、會議紀錄（紀錄跟這裡同一份，要改也在那裡）";
-                            clicked => {
-                                SpacesPageData.open-meeting();
                             }
                         }
                     }

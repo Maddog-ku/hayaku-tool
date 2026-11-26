@@ -12,6 +12,7 @@ mod calendar;
 mod columns;
 mod create;
 mod detail;
+mod docs_edit;
 mod extras;
 mod gantt;
 mod note;
@@ -237,6 +238,10 @@ struct State {
     attachments: Vec<hb_api::AttachmentItem>,
     attach_web: Option<String>,
     docs_for: Option<String>,
+    /// 讀到的文件（d-docs 的來源；寫入時要文件 id）
+    docs: Vec<hb_api::ContentDoc>,
+    /// 〔改一段〕可以選的標題
+    doc_sections: Vec<hb_api::DocSection>,
     history_for: Option<String>,
     history_cursor: Option<String>,
     /// 讀到的異動紀錄（新到舊）；畫面由 build_history 組成
@@ -360,6 +365,8 @@ impl Page {
             attachments: Vec::new(),
             attach_web: None,
             docs_for: None,
+            docs: Vec::new(),
+            doc_sections: Vec::new(),
             history_for: None,
             history_cursor: None,
             history_items: Vec::new(),

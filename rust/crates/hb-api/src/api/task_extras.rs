@@ -310,6 +310,43 @@ impl HayakuApi {
         Ok(Self::parse_content(&self.call("get_content", json!({ "task": task })).await?))
     }
 
+    /// 在任務新增一份文件（create_content_document，放在最後；跟上 Hayaku 1.5.12）。回傳伺服器的說明文字。
+    pub async fn create_content_document(
+        &self,
+        task: &str,
+        title: &str,
+        markdown: &str,
+    ) -> Result<Option<String>, McpError> {
+        let mut args = json!({ "task": task, "title": title });
+        if !markdown.is_empty() {
+            args["markdown"] = json!(markdown);
+        }
+        Ok(message(&self.call("create_content_document", args).await?))
+    }
+
+    /// 在任務的某一份文件最後補一段（append_to_content_document；document 給 id）。
+    pub async fn append_content_document(
+        &self,
+        task: &str,
+        document: &str,
+        markdown: &str,
+    ) -> Result<Option<String>, McpError> {
+        let args = json!({ "task": task, "document": document, "markdown": markdown });
+        Ok(message(&self.call("append_to_content_document", args).await?))
+    }
+
+    /// 只換任務某一份文件裡某個標題底下那一段（update_content_document 的 section；不整份取代）。
+    pub async fn update_content_section(
+        &self,
+        task: &str,
+        document: &str,
+        section: &str,
+        markdown: &str,
+    ) -> Result<Option<String>, McpError> {
+        let args = json!({ "task": task, "document": document, "section": section, "markdown": markdown });
+        Ok(message(&self.call("update_content_document", args).await?))
+    }
+
     /// 異動紀錄與留言（新到舊，一頁 50 筆）；回傳下一頁的 cursor。filter：all／comments／changes。
     pub async fn task_activity(
         &self,
@@ -463,6 +500,8 @@ impl HayakuApi {
             .map(|d| ContentDoc {
                 title: string(d, "title").unwrap_or_else(|| "文件".to_owned()),
                 text: string(d, "markdown").unwrap_or_default(),
+                id: first_string(d, &["id", "documentId"]),
+                whiteboard: false,
             })
             .collect();
         for w in items(r, &["whiteboards"]) {
@@ -480,6 +519,8 @@ impl HayakuApi {
             list.push(ContentDoc {
                 title: format!("白板：{}", str_(w, "title").unwrap_or("白板")),
                 text: texts.join("\n"),
+                id: None,
+                whiteboard: true,
             });
         }
         list
@@ -601,6 +642,29 @@ mod tests {
         assert_eq!(docs.len(), 2);
         assert_eq!((docs[0].title.as_str(), docs[0].text.as_str()), ("文件", "# 標題\n內容"));
         assert_eq!((docs[1].title.as_str(), docs[1].text.as_str()), ("白板：流程", "開始\n結束"));
+        assert_eq!((docs[0].id.as_deref(), docs[0].whiteboard), (Some("x"), false));
+        assert_eq!((docs[1].id.as_deref(), docs[1].whiteboard), (None, true));
+    }
+
+    #[test]
+    fn 文件可以只換的段落_有子標題同名標題程式碼區塊都不算() {
+        let doc =
+            |text: &str| ContentDoc { title: "文件".into(), text: text.into(), id: Some("x".into()), whiteboard: false };
+        let d = doc("前言\n# 規格\n## 畫面\n畫面說明\n\n## 流程\n```\n# 不是標題\n```\n# 備註 #\n最後\n## 畫面\n重複");
+        // 規格有子標題、畫面重複 → 不列；流程到下一個標題前（含程式碼區塊）；備註後面接子標題 → 不列
+        let s = d.editable_sections();
+        assert_eq!(
+            s.iter().map(|x| (x.heading.as_str(), x.body.as_str())).collect::<Vec<_>>(),
+            vec![("流程", "```\n# 不是標題\n```")]
+        );
+        let s = doc("# 一\n內容一\n# 二 #\n\n內容二\n").editable_sections();
+        assert_eq!(
+            s.iter().map(|x| (x.heading.as_str(), x.body.as_str())).collect::<Vec<_>>(),
+            vec![("一", "內容一"), ("二", "內容二")]
+        );
+        assert!(doc("#標籤不是標題\n內容").editable_sections().is_empty());
+        let wb = ContentDoc { whiteboard: true, ..doc("# 一\n內容") };
+        assert!(wb.editable_sections().is_empty());
     }
 
     #[test]

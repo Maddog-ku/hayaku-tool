@@ -238,6 +238,10 @@ pub struct TestTaskProgress {
     pub key: String,
     pub title: String,
     pub project: String,
+    /// 上層任務（實際回應 parent:"F2P-5 第一階段"；跟上 Hayaku 1.5.12）：顯示文字，沒有是空字串
+    pub parent: String,
+    /// 上層任務編號，點了前往
+    pub parent_key: Option<String>,
     pub total: i32,
     pub passed: i32,
     pub fixing: i32,

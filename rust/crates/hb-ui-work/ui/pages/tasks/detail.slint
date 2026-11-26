@@ -1,5 +1,5 @@
 // 我的任務：任務詳細的彈窗內容（C# TasksPage.xaml 的 DetailPanel；測試流程 Testing.cs、補一段 Note.cs、展開區塊 Extras.cs）。
-import { Theme, ScrollView, Tip, Icon, Icons, Segmented } from "@hb/index.slint";
+import { Theme, ScrollView, Tip, Icon, Icons, Segmented, TextField } from "@hb/index.slint";
 import { DateRangePicker, FieldLabel, GroupLabel, LinkButton, PlainText, StatusLine, TextArea, InlineEdit } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, HintBox, CheckText, Expander } from "../../shared/index.slint";
 import { Reader } from "../w3-common.slint";
@@ -1299,15 +1299,37 @@ export component DetailView {
                     toggled(e) => {
                         TasksPageData.d-docs-toggled(e);
                     }
-                    for doc in TasksPageData.d-docs: VerticalLayout {
+                    for doc[di] in TasksPageData.d-docs: VerticalLayout {
                         spacing: 4px;
                         padding-bottom: 8px;
-                        Text {
-                            text: doc.title;
-                            color: Theme.ink;
-                            font-size: Theme.fs-md;
-                            font-weight: 700;
-                            wrap: word-wrap;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: doc.title;
+                                color: Theme.ink;
+                                font-size: Theme.fs-md;
+                                font-weight: 700;
+                                wrap: word-wrap;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            // 第二份以後的文件也能寫（跟上 Hayaku 1.5.12）
+                            if doc.writable: SmallButton {
+                                text: "＋ 補一段";
+                                tip: "在這份文件最後補一段（Markdown），原本的圖片、附件、表格都不動";
+                                enabled: !TasksPageData.d-doc-edit-busy;
+                                clicked => {
+                                    TasksPageData.d-doc-edit-open(1, di);
+                                }
+                            }
+                            if doc.sections: SmallButton {
+                                text: "✎ 改一段";
+                                tip: "選一個標題，只換它底下那一段，其他段落不動（換掉前網頁會自動存一版，可以還原）";
+                                enabled: !TasksPageData.d-doc-edit-busy;
+                                clicked => {
+                                    TasksPageData.d-doc-edit-open(2, di);
+                                }
+                            }
                         }
                         Rectangle {
                             border-radius: 12px;
@@ -1329,6 +1351,88 @@ export component DetailView {
                     }
                     for l in TasksPageData.d-docs-lines: LineView {
                         line: l;
+                    }
+                    // 文件寫入：補一段／改一段／新增文件共用一個編輯區（按了才打 Hayaku）
+                    if TasksPageData.d-doc-edit-mode == 0 && TasksPageData.d-docs-lines.length > 0: HorizontalLayout {
+                        alignment: start;
+                        SmallButton {
+                            text: "＋ 新增文件";
+                            tip: "在這個任務加一份文件（放在最後）";
+                            clicked => {
+                                TasksPageData.d-doc-edit-open(3, -1);
+                            }
+                        }
+                    }
+                    if TasksPageData.d-doc-edit-mode != 0: VerticalLayout {
+                        spacing: 6px;
+                        padding-top: 4px;
+                        Text {
+                            text: TasksPageData.d-doc-edit-mode == 3
+                                ? "新增文件"
+                                : (TasksPageData.d-doc-edit-mode == 1 ? "補一段到「" : "改一段：「")
+                                    + (TasksPageData.d-doc-edit-index >= 0 && TasksPageData.d-doc-edit-index < TasksPageData.d-docs.length
+                                        ? TasksPageData.d-docs[TasksPageData.d-doc-edit-index].title : "")
+                                    + "」";
+                            color: Theme.ink;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                        }
+                        if TasksPageData.d-doc-edit-mode == 3: TextField {
+                            text <=> TasksPageData.d-doc-edit-title;
+                            placeholder: "文件名稱（最多 30 字，同一個任務不能重名）";
+                        }
+                        if TasksPageData.d-doc-edit-mode == 2: HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            Text {
+                                text: "標題";
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                            }
+                            MiniSelect {
+                                min-width: 160px;
+                                items: TasksPageData.d-doc-edit-sections;
+                                current <=> TasksPageData.d-doc-edit-section-index;
+                                selected(i) => {
+                                    TasksPageData.d-doc-edit-section-picked(i);
+                                }
+                            }
+                        }
+                        doc-edit-box := TextArea {
+                            text <=> TasksPageData.d-doc-edit-text;
+                            placeholder: TasksPageData.d-doc-edit-mode == 1
+                                ? "要補在這份文件最後的一段（Markdown，不會取代原本的內容）"
+                                : TasksPageData.d-doc-edit-mode == 2
+                                    ? "這個標題底下那一段的新內容（Markdown；標題那一行不用寫）"
+                                    : "內容（Markdown，可以先空著）";
+                        }
+                        if TasksPageData.d-doc-edit-mode == 2: Text {
+                            text: "只換這一段，其他段落不動；換掉前網頁會自動存一版，可以在網頁的更新歷程還原。";
+                            color: Theme.muted;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            SmallButton {
+                                text: TasksPageData.d-doc-edit-busy
+                                    ? "處理中…"
+                                    : TasksPageData.d-doc-edit-mode == 1 ? "補上" : TasksPageData.d-doc-edit-mode == 2 ? "換掉這一段" : "建立";
+                                kind: 0;
+                                enabled: !TasksPageData.d-doc-edit-busy;
+                                clicked => {
+                                    TasksPageData.d-doc-edit-submit();
+                                }
+                            }
+                            SmallButton {
+                                text: "取消";
+                                enabled: !TasksPageData.d-doc-edit-busy;
+                                clicked => {
+                                    TasksPageData.d-doc-edit-cancel();
+                                }
+                            }
+                        }
                     }
                 }
                 Expander {

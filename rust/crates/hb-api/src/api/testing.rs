@@ -219,6 +219,20 @@ impl HayakuApi {
         })
     }
 
+    /// 測試總覽各測試任務的上層任務：實際是「F2P-5 第一階段」字串；物件 { key, title } 也接受。
+    fn test_parent(t: &Value) -> (String, Option<String>) {
+        match prop(t, "parent") {
+            Some(Value::String(s)) if !is_blank(s) => (s.trim().to_owned(), KeyFinder::parse(Some(s))),
+            Some(v @ Value::Object(_)) => {
+                let key = first_key(t, &["parent"]);
+                let title = first_string(v, &["title", "name"]).unwrap_or_default();
+                let text = [key.clone().unwrap_or_default(), title].join(" ").trim().to_owned();
+                (text, key)
+            }
+            _ => (String::new(), None),
+        }
+    }
+
     pub fn parse_test_overview(r: &Value) -> TestOverview {
         let sub_statuses = Self::parse_sub_statuses(r, &["subStatuses"]);
         let cards = obj(r, "cards");
@@ -236,6 +250,7 @@ impl HayakuApi {
             .filter_map(|t| {
                 let key = first_key(t, &["task", "key"])?;
                 let title = first_string(t, &["title", "name"]).unwrap_or_default();
+                let (parent, parent_key) = Self::test_parent(t);
                 // 實際回應：results { total, open, byStatus { 狀態: 筆數 } }，依狀態分組加總
                 let results = obj(t, "results");
                 if let Some(by_status) = obj(results, "byStatus").as_object() {
@@ -248,6 +263,8 @@ impl HayakuApi {
                         key,
                         title,
                         project: project_name(t),
+                        parent,
+                        parent_key,
                         total: number(results, &["total"]).unwrap_or_else(|| buckets.values().sum()),
                         passed: b("pass"),
                         fixing: b("fixing"),
@@ -261,6 +278,8 @@ impl HayakuApi {
                     key,
                     title,
                     project: project_name(t),
+                    parent,
+                    parent_key,
                     total: n(&["total", "count"]),
                     passed: n(&["passed", "pass", "done"]),
                     fixing: n(&["fixing", "fix"]) + n(&["toFix"]),
@@ -683,6 +702,8 @@ mod tests {
             (5, 1, 2, 0, 1)
         );
         assert_eq!((o.tests[1].total, o.tests[1].passed), (0, 0));
+        assert_eq!((o.tests[0].parent.as_str(), o.tests[0].parent_key.as_deref()), ("F2P-50 第四階段", Some("F2P-50")));
+        assert_eq!((o.tests[1].parent.as_str(), o.tests[1].parent_key.as_deref()), ("", None));
     }
 
     #[test]

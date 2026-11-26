@@ -216,6 +216,10 @@ export struct TkDep {
 export struct TkDoc {
     title: string,
     text: string,
+    /// 可以補一段（有文件 id 的文件；白板不行）
+    writable: bool,
+    /// 有可以單獨換的段落
+    sections: bool,
 }
 
 /// 聊天的一則（C# ChatRowVm）。
@@ -500,6 +504,17 @@ export global TasksPageData {
     in-out property <bool> d-docs-expanded;
     in property <[TkDoc]> d-docs;
     in property <[TkLine]> d-docs-lines;
+    /// 文件寫入（跟上 Hayaku 1.5.12）：0 收起、1 補一段、2 改一段、3 新增文件
+    in property <int> d-doc-edit-mode;
+    /// 補一段／改一段的是第幾份（d-docs 的索引）
+    in property <int> d-doc-edit-index: -1;
+    /// 新增文件的名稱（最多 30 字）
+    in-out property <string> d-doc-edit-title;
+    /// 改一段：可以單獨換的標題
+    in property <[string]> d-doc-edit-sections;
+    in-out property <int> d-doc-edit-section-index;
+    in-out property <string> d-doc-edit-text;
+    in property <bool> d-doc-edit-busy;
     in-out property <bool> d-history-expanded;
     /// kind：1 一則、4 日期標題、5 變更申請卡的標題（meta 是狀態，depth 是色調 0 待審核 1 已核准 2 已拒絕 3 已撤回）、
     /// 6 變更申請卡裡的一則、2 說明、3 錯誤
@@ -552,6 +567,11 @@ export global TasksPageData {
     callback d-attach-open(int);
     callback d-attach-web-open();
     callback d-docs-toggled(bool);
+    /// 打開文件寫入：mode 1 補一段、2 改一段、3 新增文件；index 是第幾份（新增文件給 -1）
+    callback d-doc-edit-open(int, int);
+    callback d-doc-edit-section-picked(int);
+    callback d-doc-edit-submit();
+    callback d-doc-edit-cancel();
     callback d-history-toggled(bool);
     callback d-history-load-more();
     callback d-history-filter-changed(int);

@@ -85,6 +85,75 @@ impl RequestStep {
 pub struct ContentDoc {
     pub title: String,
     pub text: String,
+    /// 文件 id（get_content 的 documents[].id）；寫入時給它（跟上 Hayaku 1.5.12）。白板是 None
+    pub id: Option<String>,
+    /// 白板：只有文字清單，不能寫
+    pub whiteboard: bool,
+}
+
+/// 文件裡可以單獨換掉的一段（update_content_document 的 section）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocSection {
+    /// 標題文字（不含 #）
+    pub heading: String,
+    /// 標題底下那一段目前的內容（不含標題那一行）
+    pub body: String,
+}
+
+impl ContentDoc {
+    /// 可以只換一段的標題：底下沒有子標題、文件裡沒有同名標題的才列
+    /// （同名標題伺服器會回錯誤；有子標題的「那一段」範圍說明沒寫清楚，不列，避免蓋掉子段落）。
+    /// 程式碼區塊（``` 或 ~~~）裡的 # 不算標題。
+    pub fn editable_sections(&self) -> Vec<DocSection> {
+        if self.whiteboard {
+            return Vec::new();
+        }
+        // (層級, 標題, 標題那一行的索引)
+        let lines: Vec<&str> = self.text.lines().collect();
+        let mut heads: Vec<(usize, String, usize)> = Vec::new();
+        let mut fence: Option<&str> = None;
+        for (i, line) in lines.iter().enumerate() {
+            let t = line.trim_start();
+            let marker = if t.starts_with("```") { Some("```") } else if t.starts_with("~~~") { Some("~~~") } else { None };
+            if let Some(m) = marker {
+                match fence {
+                    Some(f) if f == m => fence = None,
+                    None => fence = Some(m),
+                    _ => {}
+                }
+                continue;
+            }
+            if fence.is_some() || line.starts_with("    ") || line.starts_with('\t') {
+                continue;
+            }
+            let level = t.chars().take_while(|c| *c == '#').count();
+            if !(1..=6).contains(&level) {
+                continue;
+            }
+            let rest = &t[level..];
+            if !(rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t')) {
+                continue;
+            }
+            let heading = rest.trim().trim_end_matches('#').trim().to_owned();
+            if !heading.is_empty() {
+                heads.push((level, heading, i));
+            }
+        }
+        let mut out = Vec::new();
+        for (n, (level, heading, at)) in heads.iter().enumerate() {
+            if heads.iter().filter(|h| h.1 == *heading).count() > 1 {
+                continue;
+            }
+            let next = heads.get(n + 1);
+            if next.is_some_and(|h| h.0 > *level) {
+                continue;
+            }
+            let end = next.map_or(lines.len(), |h| h.2);
+            let body = lines[at + 1..end].join("\n").trim_matches('\n').to_owned();
+            out.push(DocSection { heading: heading.clone(), body });
+        }
+        out
+    }
 }
 
 /// 子任務樹攤平的一列（get_task_tree）；depth：1 是直接子任務。
