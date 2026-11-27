@@ -2,7 +2,7 @@
 // 契約：匯出 global TasksPageData（Rust 端用 window.global::<TasksPageData>() 讀寫）與 component TasksPage；
 // 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
 // 分頁清單、搜尋、樹狀、看板、日曆、甘特（拖拉改預計日期）；點任務跳出詳細（直接改狀態、日期、工時）、新增任務。
-import { Theme, Motion } from "@hb/index.slint";
+import { Theme, PopupState, Motion } from "@hb/index.slint";
 import { PageTitle } from "@hbc/index.slint";
 import { SmallButton, GlyphButton, TipSegmented, HintBox, Modal, ConfirmDialog, SlideSwitch, EmptyState } from "../shared/index.slint";
 import { TasksPageData } from "tasks/data.slint";
@@ -22,6 +22,10 @@ export component TasksPage inherits Rectangle {
         // Esc 關掉彈窗（C# PreviewKeyDown：焦點在哪裡都一樣）
         capture-key-pressed(e) => {
             if e.text == Key.Escape {
+                // 選單（狀態、優先級…）開著時只關選單，不要把整個任務詳細一起關掉
+                if PopupState.esc-for-popup() {
+                    return EventResult.reject;
+                }
                 if TasksPageData.confirm-visible {
                     TasksPageData.confirm-picked(TasksPageData.confirm-buttons.length - 1);
                     return EventResult.accept;

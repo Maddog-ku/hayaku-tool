@@ -1,7 +1,7 @@
 //! 對應 C# `UI/PanelWindow.Work.cs`：面板的任務分頁、任務選單（右鍵或 ⋯）、通知篩選與稍後／封存、今天分頁的摘要。
 //! （開始任務的遠端搜尋在 mod.rs 的 filter_start／search_remote。）
 
-use chrono::{Local, NaiveDate};
+use chrono::{Datelike, Duration, Local, NaiveDate};
 use hb_api::{KeyFinder, NotificationItem, TaskSummary};
 use hb_core::TimerEngine;
 use hb_ui_common::view_models::{ColorKey, NotificationRowVm};
@@ -147,6 +147,37 @@ pub fn empty_tasks_text(loaded: bool, tab: &str) -> &'static str {
     }
 }
 
+/// 今天分頁最多列幾個逾期／今天到期的任務（其他在工作台看）。
+pub const TODAY_TASK_ROWS: usize = 6;
+
+/// 今天分頁的任務：逾期的（逾期最久的在前）接著今天到期的，同一個任務只列一次。
+pub fn today_task_list(overdue: &[TaskSummary], due_today: &[TaskSummary]) -> Vec<TaskSummary> {
+    let mut list: Vec<TaskSummary> = overdue.to_vec();
+    list.sort_by_key(|t| t.planned_end.unwrap_or(NaiveDate::MAX));
+    for t in due_today {
+        if !list.iter().any(|x| x.key.eq_ignore_ascii_case(&t.key)) {
+            list.push(t.clone());
+        }
+    }
+    list
+}
+
+/// 〔改期〕的選項：逾期（或沒有日期）的多「今天」，再來明天、下週一；跟原本同一天或重複的不列。
+pub fn due_choices(today: NaiveDate, current: Option<NaiveDate>) -> Vec<(&'static str, NaiveDate)> {
+    let tomorrow = today + Duration::days(1);
+    let monday = today + Duration::days(7 - i64::from(today.weekday().num_days_from_monday()));
+    let mut list = Vec::new();
+    if current.is_none_or(|d| d < today) {
+        list.push(("今天", today));
+    }
+    list.push(("明天", tomorrow));
+    if monday != tomorrow {
+        list.push(("下週一", monday));
+    }
+    list.retain(|(_, d)| Some(*d) != current);
+    list
+}
+
 /// 通知分頁空的時候顯示的文字。
 pub fn empty_notify_text(discussions: bool, error: Option<&str>, loading: bool, rows: usize) -> String {
     if !discussions {
@@ -227,6 +258,40 @@ impl PanelInner {
             p.request_workspace("tasks", Some(PageArg::Text(tab)));
         }));
         ui.on_new_task(with_panel!(self.me, |p| p.request_workspace("tasks", Some(PageArg::Text("new".into())))));
+        // 今天分頁的逾期與今天到期：計時、改期、標完成（Hayaku 1.5.13 每日摘要）
+        ui.on_today_task_open(with_panel!(self.me, |p, i| {
+            if let Some(key) = p.today_task_key(i) {
+                p.request_workspace("tasks", Some(PageArg::Text(key)));
+            }
+        }));
+        ui.on_today_task_copy(with_panel!(self.me, |p, i| {
+            if let Some(key) = p.today_task_key(i) {
+                KeyCopy::copy(&p.engine, &key);
+            }
+        }));
+        ui.on_today_task_act(with_panel!(self.me, |p, i| p.today_task_action(i as usize)));
+        ui.on_today_task_more(with_panel!(self.me, |p, i, x, y| {
+            if let Some(key) = p.today_task_key(i) {
+                let anchor = menu::to_screen(p.ui.window(), x, y, 1.0, 1.0);
+                p.show_task_menu(key, anchor);
+            }
+        }));
+        ui.on_today_task_status(with_panel!(self.me, |p, i, x, y| {
+            if let Some(key) = p.today_task_key(i) {
+                let anchor = menu::to_screen(p.ui.window(), x, y, 1.0, 1.0);
+                p.show_status_menu(key, anchor);
+            }
+        }));
+        ui.on_today_task_due(with_panel!(self.me, |p, i, x, y| {
+            let anchor = menu::to_screen(p.ui.window(), x, y, 1.0, 1.0);
+            p.show_due_menu(i as usize, anchor);
+        }));
+        ui.on_today_task_done(with_panel!(self.me, |p, i| {
+            let Some(key) = p.today_task_key(i) else { return };
+            p.set_today_task_busy(i as usize);
+            let engine = p.engine.clone();
+            spawn(async move { engine.complete_task(&key, None).await });
+        }));
         // 今天分頁的摘要
         ui.on_due_clicked(with_panel!(self.me, |p| {
             let target = if p.engine.overdue_count() > 0 { "overdue" } else { "in_progress" };
@@ -273,6 +338,60 @@ impl PanelInner {
 
     fn my_task_key(&self, index: i32) -> Option<String> {
         self.s.borrow().my_tasks.get(index as usize).map(|t| t.item.key.clone())
+    }
+
+    fn today_task_key(&self, index: i32) -> Option<String> {
+        self.s.borrow().today_tasks.get(index as usize).map(|t| t.item.key.clone())
+    }
+
+    /// 今天分頁的一列先變成處理中（按鈕停用），等引擎更新完重畫。
+    fn set_today_task_busy(&self, index: usize) -> Option<MyTaskRowVm> {
+        let vm = {
+            let mut s = self.s.borrow_mut();
+            let vm = s.today_tasks.get_mut(index)?;
+            vm.busy = true;
+            vm.clone()
+        };
+        let model = self.ui.get_today_tasks();
+        if index < model.row_count() {
+            model.set_row_data(index, vm.row(Local::now().date_naive()));
+        }
+        Some(vm)
+    }
+
+    fn today_task_action(&self, index: usize) {
+        let Some(vm) = self.set_today_task_busy(index) else { return };
+        let engine = self.engine.clone();
+        spawn(async move {
+            if vm.running {
+                engine.pause_task(&vm.item.key).await;
+            } else {
+                engine.start_task(&vm.item.key).await;
+            }
+        });
+    }
+
+    /// 〔改期〕：今天（逾期的才有）、明天、下週一，或到工作台的任務詳細選日期。
+    fn show_due_menu(&self, index: usize, anchor: hb_win::Rect) {
+        let Some(item) = self.s.borrow().today_tasks.get(index).map(|t| t.item.clone()) else { return };
+        let today = Local::now().date_naive();
+        let choices = due_choices(today, item.planned_end);
+        let mut entries = vec![MenuEntry::item_if(format!("{} 預計完成日改成…", item.key), false)];
+        entries.extend(choices.iter().map(|(label, day)| MenuEntry::item(format!("{label}（{}）", day.format("%-m/%-d")))));
+        entries.push(MenuEntry::Separator);
+        entries.push(MenuEntry::item("☰  選其他日期（打開任務詳細）"));
+        let me = self.weak();
+        menu::show_later(self.ui.as_weak(), entries, MenuPlace::RightOf(anchor), move |i| {
+            let Some(p) = me.upgrade() else { return };
+            if let Some((_, day)) = i.checked_sub(1).and_then(|j| choices.get(j)).copied() {
+                p.set_today_task_busy(index);
+                let engine = p.engine.clone();
+                let item = item.clone();
+                spawn(async move { engine.set_task_due(&item.key, day, item.planned_start).await });
+            } else if i == choices.len() + 2 {
+                p.request_workspace("tasks", Some(PageArg::Text(item.key.clone())));
+            }
+        });
     }
 
     // ───────────── 任務分頁 ─────────────
@@ -461,6 +580,19 @@ impl PanelInner {
         self.ui.set_due_none(due == 0 && overdue == 0);
         self.ui.set_due_count(due as i32);
         self.ui.set_overdue_count(overdue as i32);
+        let running = engine.running_keys();
+        let all = today_task_list(&engine.task_list("overdue"), &engine.due_today_tasks());
+        let rows: Vec<MyTaskRowVm> = all
+            .iter()
+            .take(TODAY_TASK_ROWS)
+            .map(|t| MyTaskRowVm { running: running.contains(&t.key) || t.timing, item: t.clone(), busy: false })
+            .collect();
+        let today = Local::now().date_naive();
+        self.ui.set_today_tasks(ModelRc::new(VecModel::from(rows.iter().map(|r| r.row(today)).collect::<Vec<_>>())));
+        self.ui.set_today_more_text(
+            if all.len() > rows.len() { format!("在工作台看全部 {} 個 ›", all.len()) } else { String::new() }.into(),
+        );
+        self.s.borrow_mut().today_tasks = rows;
         let leaves = engine.on_leave_today();
         self.ui.set_leave_text(leave_text(&leaves).into());
     }
@@ -605,6 +737,32 @@ mod tests {
             running: false,
             busy: false,
         }
+    }
+
+    fn summary(key: &str, end: Option<NaiveDate>) -> TaskSummary {
+        TaskSummary::new(key, "名稱", "F2P", "進行中", "IN_PROGRESS", "", None, end, false, "")
+    }
+
+    #[test]
+    fn 今天分頁_逾期最久的在前_接著今天到期_不重複() {
+        let d = |m, day| NaiveDate::from_ymd_opt(2026, m, day);
+        let overdue = [summary("F2P-2", d(11, 20)), summary("F2P-1", d(10, 14)), summary("F2P-3", None)];
+        let due = [summary("f2p-2", d(11, 27)), summary("F2P-9", d(11, 27))];
+        let keys: Vec<String> = today_task_list(&overdue, &due).into_iter().map(|t| t.key).collect();
+        assert_eq!(keys, ["F2P-1", "F2P-2", "F2P-3", "F2P-9"]);
+    }
+
+    #[test]
+    fn 改期選項() {
+        let d = |m, day| NaiveDate::from_ymd_opt(2026, m, day).unwrap();
+        // 2026-11-27 是週五：逾期的有今天、明天、下週一
+        assert_eq!(due_choices(d(11, 27), Some(d(11, 20))), [("今天", d(11, 27)), ("明天", d(11, 28)), ("下週一", d(11, 30))]);
+        // 今天到期：不列今天
+        assert_eq!(due_choices(d(11, 27), Some(d(11, 27))), [("明天", d(11, 28)), ("下週一", d(11, 30))]);
+        // 週日：明天就是週一，只列一次
+        assert_eq!(due_choices(d(11, 29), Some(d(11, 29))), [("明天", d(11, 30))]);
+        // 週一：下週一是 7 天後
+        assert_eq!(due_choices(d(11, 30), None), [("今天", d(11, 30)), ("明天", d(12, 1)), ("下週一", d(12, 7))]);
     }
 
     #[test]

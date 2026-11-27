@@ -6,7 +6,7 @@
 // - 關閉：Rust 把 DialogMotion.closing 設成 true，內容（DialogBody／DialogFade）淡出約 120ms 後才藏起視窗；
 //   關閉中擋掉滑鼠和鍵盤，避免又按到按鈕。
 // - reduce-motion：區塊只淡入、不位移不錯開；關閉不播、直接關（由 Rust 判斷）。
-import { Theme, Motion, Reveal } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Reveal } from "@hb/index.slint";
 
 /// 視窗開關的動畫狀態（每個視窗各一份）；由 Rust（window_util::present／close）設定。
 export global DialogMotion {
@@ -43,6 +43,10 @@ export component DialogBody inherits FocusScope {
             return EventResult.accept;
         }
         if e.text == Key.Escape {
+            // 選單開著時只關選單（PopupState）
+            if PopupState.esc-for-popup() {
+                return EventResult.reject;
+            }
             root.cancel();
             return EventResult.accept;
         }

@@ -1,7 +1,7 @@
 // 工作台各頁共用的小元件（hb-ui-kit、hb-ui-common 沒有的、工作台頁面常用的緊湊版）。
 // 匯入：`import { SmallButton, MiniSelect, ... } from "../shared/index.slint";`（從 ui/pages/*.slint）。
 // 外觀沿用 hb-ui-kit 的 Theme 與彈簧緩動；Windows「顯示動畫」關掉時 Motion 自動改成不回彈。
-import { Theme, Motion, Icon, Icons, Tip, Checkbox } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Icon, Icons, Tip, Checkbox } from "@hb/index.slint";
 import { ProjectIcon, StatusDot } from "@hbc/index.slint";
 import { ListReveal, Appear, SlideSwitch, FadeText, Collapse, CardShadow } from "anim.slint";
 
@@ -399,6 +399,11 @@ export component MiniSelect {
                 text: root.tip;
             }
         }
+    }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
     }
     popup := PopupWindow {
         x: -12px;

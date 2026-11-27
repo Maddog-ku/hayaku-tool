@@ -83,6 +83,8 @@ pub(crate) struct State {
     repos: Vec<RepoRowVm>,
     pub(crate) pins: Vec<PinRowVm>,
     pub(crate) my_tasks: Vec<MyTaskRowVm>,
+    /// 今天分頁的逾期與今天到期（Hayaku 1.5.13 每日摘要）
+    pub(crate) today_tasks: Vec<MyTaskRowVm>,
     meetings: Vec<MeetingRowVm>,
     upcoming_meetings: Vec<MeetingRowVm>,
     todos: Vec<TodoRowVm>,

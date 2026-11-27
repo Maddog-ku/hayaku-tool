@@ -1,6 +1,6 @@
 // 我的任務：清單上方的篩選列（狀態、專案、已完成期間、只看沒有子任務的…）與顯示方式、排序；
 // 「清單欄位」對話框（C# TasksPage.Columns.cs 的 Columns_Click）。有套用條件的控制項會亮起來。
-import { Theme, Motion, Checkbox, Tip, ScrollView } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Checkbox, Tip, ScrollView } from "@hb/index.slint";
 import { LinkButton, StatusDot } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, CheckText, TipSegmented, Modal, GlyphButton, HintBox } from "../../shared/index.slint";
 import { TasksPageData } from "data.slint";
@@ -19,6 +19,11 @@ component StatusFilterButton {
     }
     width: btn.preferred-width;
     height: btn.height;
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
+    }
     popup := PopupWindow {
         x: -10px;
         y: root.height + 4px - 10px;

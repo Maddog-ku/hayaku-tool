@@ -2,7 +2,7 @@
 // 可輸入的下拉、可點的編號、專案圖示、色票代碼。外觀沿用 hb-ui-kit 的 Theme 與微互動。
 // 程式固定用軟體繪圖：不用 transform-scale／transform-rotation／drop-shadow（畫不出來），
 // 縮放改成內縮或大小變化、箭頭翻轉用 Chevron、陰影用 SoftShadow。
-import { Theme, Motion, Icon, Icons, Chevron, Checkbox, ScrollView, Tip, SoftShadow } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Icon, Icons, Chevron, Checkbox, ScrollView, Tip, SoftShadow } from "@hb/index.slint";
 
 /// C# 的 Brush 名稱（hb_ui_common::ColorKey::code）→ Theme 色：0 Text、1 Muted、2 Run、3 Claude、4 Accent、5 Error、6 Warn。
 export global ColorKeys {
@@ -445,6 +445,11 @@ export component ComboField {
             }
         }
     }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
+    }
     popup := PopupWindow {
         x: -12px;
         y: root.height + 6px - 12px;
@@ -721,6 +726,11 @@ export component SelectField {
                 max-bubble-width: 420px;
             }
         }
+    }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
     }
     popup := PopupWindow {
         x: -14px;

@@ -404,6 +404,7 @@ impl PanelInner {
         let mut projects: Vec<&str> = pending.iter().map(|c| c.project.as_str()).collect();
         projects.sort_unstable();
         projects.dedup();
+        self.ui.set_review_count(pending.len() as i32);
         self.ui.set_review_text(
             if pending.is_empty() { String::new() } else { review_text(pending.len(), projects.len()) }.into(),
         );

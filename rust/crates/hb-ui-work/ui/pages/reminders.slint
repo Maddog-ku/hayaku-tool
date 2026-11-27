@@ -1,7 +1,7 @@
 // 工作台「提醒」頁（對應 C# UI/Work/RemindersPage.xaml）：新增（一次或重複、可綁任務）、延後、暫停重複、刪除。
 // 契約：匯出 global RemindersPageData（Rust 端用 window.global::<RemindersPageData>() 讀寫）與 component RemindersPage；
 // 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
-import { Theme, Motion, ScrollView, Segmented, TipArea, Icon, Icons } from "@hb/index.slint";
+import { Theme, PopupState, Motion, ScrollView, Segmented, TipArea, Icon, Icons } from "@hb/index.slint";
 import { FieldLabel, SelectField, StatusLine, LinkButton } from "@hbc/index.slint";
 import { W2, W2Button, W2Small, W2Input, W2Confirm, W2Title } from "w2-common.slint";
 import { Appear, SlideSwitch, CardShadow } from "../shared/anim.slint";
@@ -151,6 +151,9 @@ component BindField {
         }
     }
     property <bool> popup-open: popup.is-open;
+    changed popup-open => {
+        PopupState.changed-open(self.popup-open);
+    }
     property <length> menu-width: max(root.width, 340px);
     popup := PopupWindow {
         // 右邊對齊欄位（欄位在表單最右邊，往左展開才不會超出視窗）；四周多留 14px 給假陰影

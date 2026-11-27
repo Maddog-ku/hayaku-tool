@@ -1,0 +1,23 @@
+// 目前開著幾個下拉／彈出選單（PopupWindow），每個視窗各一份。
+//
+// Slint 的按鍵會先經過外層 FocusScope 的 capture-key-pressed，才輪到「Esc 關掉最上層選單」，
+// 所以對話框的 Esc 處理會比選單先收到 Esc，把整個對話框（例如任務詳細）一起關掉（Hayaku 1.5.13 修正同一個問題）。
+// 對話框收到 Esc 時先問 esc-for-popup()：有選單開著就不處理（reject），讓 Slint 只關掉選單。
+
+export global PopupState {
+    in-out property <int> open;
+
+    /// 選單打開／關上時呼叫（放選單的元件：property <bool> x: popup.is-open; changed x => { PopupState.changed-open(x); }）
+    public function changed-open(is-open: bool) {
+        root.open = is-open ? root.open + 1 : max(0, root.open - 1);
+    }
+
+    /// 對話框收到 Esc 時呼叫：有選單開著回 true。順便歸零，萬一放選單的元件被拆掉時沒扣回，最多只吃掉一次 Esc。
+    public function esc-for-popup() -> bool {
+        if root.open > 0 {
+            root.open = 0;
+            return true;
+        }
+        false
+    }
+}

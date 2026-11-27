@@ -1,5 +1,5 @@
 // 我的任務：任務詳細的彈窗內容（C# TasksPage.xaml 的 DetailPanel；測試流程 Testing.cs、補一段 Note.cs、展開區塊 Extras.cs）。
-import { Theme, ScrollView, Tip, Icon, Icons, Segmented, TextField } from "@hb/index.slint";
+import { Theme, PopupState, ScrollView, Tip, Icon, Icons, Segmented, TextField } from "@hb/index.slint";
 import { DateRangePicker, FieldLabel, GroupLabel, LinkButton, PlainText, StatusLine, TextArea, InlineEdit } from "@hbc/index.slint";
 import { SmallButton, MiniSelect, HintBox, CheckText, Expander } from "../../shared/index.slint";
 import { Reader } from "../w3-common.slint";
@@ -96,6 +96,11 @@ component ChipMenu {
         clicked => {
             popup.show();
         }
+    }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
     }
     popup := PopupWindow {
         x: 0px;

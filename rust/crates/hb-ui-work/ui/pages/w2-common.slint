@@ -1,7 +1,7 @@
 // 工作台「專案、測試、待我審核、我的工時、工時紀錄、工作日誌、提醒、統計、工作負荷」九頁共用的小元件
 // （對應 C# UI/Work/PageParts.cs 的按鈕、淡色字、輸入框，以及 Shared.xaml 的 Card、Stat、FlatButton、PrimaryButton、IconButton 樣式）。
 // 外觀沿用 hb-ui-kit 的 Theme 與微互動（元件牆風格）：頁面本身是白卡片，頁內的卡片用淡灰底。
-import { Theme, Motion, Button, ButtonKind, Tip, Icon, Icons } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Button, ButtonKind, Tip, Icon, Icons } from "@hb/index.slint";
 import { ProjectIcon } from "@hbc/index.slint";
 import { FadeText, CardShadow } from "../shared/anim.slint";
 
@@ -256,6 +256,10 @@ export component W2Confirm inherits Rectangle {
     fs := FocusScope {
         key-pressed(e) => {
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return EventResult.reject;
+                }
                 root.cancel();
                 return EventResult.accept;
             }
@@ -384,6 +388,11 @@ export component W2ProjectSelect {
         clicked => {
             popup.show();
         }
+    }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
     }
     popup := PopupWindow {
         x: -14px;

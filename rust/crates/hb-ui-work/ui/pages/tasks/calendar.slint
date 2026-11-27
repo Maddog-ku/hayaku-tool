@@ -1,7 +1,7 @@
 // 我的任務：日曆與甘特圖共用的任務條、工具列，以及日曆（C# TasksPage.Schedule.cs、TasksPage.Calendar.cs）。
 // 月曆星期一開頭：任務從預計開始畫到預計結束，拖到別天起訖一起平移（天數不變）；
 // 沒有預計日期的列在右邊，拖到日期上就把起訖都設成那天。放不下的那天顯示「+N」，點了選要打開哪個。
-import { Theme, Motion, ScrollView, Tip } from "@hb/index.slint";
+import { Theme, PopupState, Motion, ScrollView, Tip } from "@hb/index.slint";
 import { TaskMenuArea } from "@hbc/index.slint";
 import { SmallButton, ListReveal } from "../../shared/index.slint";
 import { TasksPageData, TkBar, TkPick } from "data.slint";
@@ -404,6 +404,11 @@ export component CalendarView {
                 }
             }
         }
+    }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> more-popup-tracked: more-popup.is-open;
+    changed more-popup-tracked => {
+        PopupState.changed-open(self.more-popup-tracked);
     }
     more-popup := PopupWindow {
         x: root.more-x;

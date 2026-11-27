@@ -222,7 +222,7 @@ impl HayakuApi {
                 text = string(task, "title");
             }
             if type_ == "DAILY_DIGEST" {
-                text = Some("今天到期、逾期、等你審核的事情與會議".to_owned());
+                text = Some(Self::daily_digest_text(payload));
             }
             if text.is_none() && project.is_object() {
                 text = string(project, "name");
@@ -299,6 +299,31 @@ impl HayakuApi {
             });
         }
         list
+    }
+
+    /// 每日摘要通知的文字：跟 Hayaku 1.5.13 的摘要一樣，逾期在前的四個數字（payload.summary 各段的 total；
+    /// reviews 沒有審核權限時是 null，當 0）。舊格式或沒有 summary 時用原本的說明。
+    pub fn daily_digest_text(payload: &Value) -> String {
+        let summary = obj(payload, "summary");
+        if !summary.is_object() {
+            return "今天到期、逾期、等你審核的事情與會議".to_owned();
+        }
+        let total = |name: &str| -> i32 {
+            match prop(summary, name) {
+                Some(section @ Value::Object(_)) => prop(section, "total")
+                    .and_then(as_i32)
+                    .unwrap_or_else(|| items(section, &["items"]).len() as i32),
+                Some(n @ Value::Number(_)) => as_i32(n).unwrap_or(0),
+                _ => 0,
+            }
+        };
+        format!(
+            "逾期 {} · 今天到期 {} · 等你審核 {} · 今天的會議 {}",
+            total("overdue"),
+            total("dueToday"),
+            total("reviews"),
+            total("meetings")
+        )
     }
 
     /// 測試結果類通知的標題（代碼沒有固定清單，看關鍵字）。
@@ -443,6 +468,26 @@ mod tests {
         assert_eq!(n.resolved, Some(false));
         assert_eq!(n.quote.as_deref(), Some("@harry.gu 你做好了嗎？"));
         assert!(n.unread);
+    }
+
+    // 樣本取自 2026-11-27 實際的 DAILY_DIGEST（Hayaku 1.5.13，items 省略）
+    #[test]
+    fn 每日摘要通知_逾期在前的四個數字() {
+        let list = HayakuApi::parse_notifications(&j(r#"
+            {"items":[{"latest":{"id":"d1","type":"DAILY_DIGEST","actor":null,"project":null,"task":null,
+              "payload":{"task":null,"count":1,"summary":{"date":"2026-11-27",
+                "overdue":{"items":[{"key":"F2P-26","title":"點數系統","overdueDays":44}],"total":20},
+                "reviews":null,"worklog":{"date":"2026-11-26","seconds":29040,"taskCount":3},
+                "dueToday":{"items":[],"total":0},"meetings":{"items":[{"key":"REVIVAL-63"}],"total":1},
+                "milestones":{"items":[],"total":0}},"greeting":"早安"},
+              "readAt":null,"createdAt":"2026-11-27T00:30:42.665Z"},"count":1,"unreadCount":1}]}"#));
+        assert_eq!(list[0].label, "每日摘要");
+        assert_eq!(list[0].text, "逾期 20 · 今天到期 0 · 等你審核 0 · 今天的會議 1");
+        assert_eq!(
+            HayakuApi::daily_digest_text(&j(r#"{"summary":{"overdue":{"items":[{},{}]},"reviews":{"total":3}}}"#)),
+            "逾期 2 · 今天到期 0 · 等你審核 3 · 今天的會議 0"
+        );
+        assert_eq!(HayakuApi::daily_digest_text(&j(r#"{"task":null}"#)), "今天到期、逾期、等你審核的事情與會議");
     }
 
     #[test]

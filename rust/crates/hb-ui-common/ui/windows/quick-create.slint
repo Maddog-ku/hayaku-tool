@@ -1,6 +1,6 @@
 // 偵測到沒有任務的新工作時，從提示按「建立任務」開的小視窗（C# UI/QuickCreateWindow.xaml）：
 // 專案自動選好，使用者選專案樹上的位置、狀態、預計起訖、預計工時（必填，開視窗時先請 Claude 估）。
-import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icon, Icons, Tip, Stagger } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Button, ButtonKind, TextField, ScrollView, Icon, Icons, Tip, Stagger } from "@hb/index.slint";
 import { FieldLabel, MutedText, StatusLine, CheckRow, SelectField } from "../common.slint";
 import { DateRangePicker } from "../date-range-picker.slint";
 import { DialogFade, DialogMotion, Section, ListIntro } from "dialog.slint";
@@ -172,6 +172,10 @@ export component QuickCreateWindow inherits Window {
                 return EventResult.accept;
             }
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return EventResult.reject;
+                }
                 root.cancel();
                 return EventResult.accept;
             }

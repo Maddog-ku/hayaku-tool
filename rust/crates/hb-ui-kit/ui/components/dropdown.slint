@@ -3,6 +3,7 @@
 // 軟體繪圖不支援 transform-scale／transform-rotation／drop-shadow：縮放改成內縮與高度裁切、箭頭改成移動端點（Chevron）、
 // 陰影用 SoftShadow 疊出來。
 import { Theme, Motion } from "../theme.slint";
+import { PopupState } from "popup-state.slint";
 import { Icon, Icons, Chevron } from "icons.slint";
 import { SwapText, SoftShadow } from "motion.slint";
 import { Tip } from "tooltip.slint";
@@ -75,6 +76,11 @@ export component Dropdown {
                 max-bubble-width: 420px;
             }
         }
+    }
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
     }
     popup := PopupWindow {
         // 四周多留 16px 給陰影

@@ -454,16 +454,74 @@ component TaskLine {
     }
 }
 
+/// 今天分頁最上面的數字格（Hayaku 1.5.13 每日摘要的逾期、今天到期、等你審核、今天的會議）。
+component StatTile {
+    in property <string> label;
+    in property <int> value;
+    /// 數字大於 0 時的顏色（0 用淡色）
+    in property <color> tone: Theme.ink;
+    in property <string> tip;
+    callback clicked();
+    horizontal-stretch: 1;
+    min-width: 0px;
+    min-height: 50px;
+    preferred-height: 50px;
+    Rectangle {
+        y: ta.has-hover && !ta.pressed ? -1px : 0px;
+        animate y {
+            duration: Theme.reduce-motion ? 0ms : 180ms;
+            easing: Motion.out;
+        }
+        border-radius: 12px;
+        background: ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : Theme.fill;
+        animate background { duration: Theme.reduce-motion ? 0ms : 150ms; }
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            padding-left: 4px;
+            padding-right: 4px;
+            Text {
+                text: root.value;
+                font-family: Theme.font-num;
+                font-size: 18px;
+                font-weight: 700;
+                color: root.value > 0 ? root.tone : Theme.muted;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: root.label;
+                font-size: 11px;
+                color: Theme.muted;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Hint {
+        text: root.tip;
+    }
+}
+
 /// 任務分頁的一列（C# MyTaskRowTemplate）：點編號複製、點其他地方看詳細。
 component MyTaskLine {
     in property <MyTaskRow> data;
     /// 依序浮現的進度（0 藏起、1 在定位）
     in property <float> rise: 1;
+    /// 今天分頁的逾期／今天到期：多〔改期〕〔✓〕（Hayaku 1.5.13 每日摘要可以直接改期、標完成）
+    in property <bool> quick;
     callback open();
     callback copy-key();
     callback act();
     callback more(x: length, y: length);
     callback status(x: length, y: length);
+    callback due(x: length, y: length);
+    callback done();
     min-height: row.min-height;
     preferred-height: row.preferred-height;
     row := ClickRow {
@@ -546,6 +604,27 @@ component MyTaskLine {
                         text: root.data.due-text;
                     }
                 }
+            }
+        }
+        if root.quick: SmallButton {
+            text: "改期";
+            tip: "改預計完成日";
+            font-size: 11px;
+            horizontal-padding: 8px;
+            face-height: 24px;
+            enabled: root.data.not-busy;
+            clicked => {
+                root.due(self.absolute-position.x + self.width, self.absolute-position.y);
+            }
+        }
+        if root.quick: GlyphButton {
+            width: 26px;
+            text: "✓";
+            tip: "標完成（停止計時並改成完成類狀態）";
+            color: Theme.run;
+            enabled: root.data.not-busy;
+            clicked => {
+                root.done();
             }
         }
         GlyphButton {
@@ -734,6 +813,12 @@ export component PanelWindow inherits Window {
     in property <bool> due-none: true;
     in property <int> due-count;
     in property <int> overdue-count;
+    /// 等我審核的變更申請筆數（四格數字用）
+    in property <int> review-count;
+    /// 逾期（逾期最久的在前）＋今天到期，最多幾列；其他在工作台看
+    in property <[MyTaskRow]> today-tasks;
+    /// 「在工作台看全部 N 個 ›」，空字串不顯示
+    in property <string> today-more-text;
     in property <string> review-text;
     in property <string> test-text;
     in property <string> leave-text;
@@ -877,6 +962,13 @@ export component PanelWindow inherits Window {
     callback all-tasks();
     callback new-task();
     // 今天
+    callback today-task-open(int);
+    callback today-task-copy(int);
+    callback today-task-act(int);
+    callback today-task-more(int, length, length);
+    callback today-task-status(int, length, length);
+    callback today-task-due(int, length, length);
+    callback today-task-done(int);
     callback due-clicked();
     callback review-clicked();
     callback test-clicked();
@@ -1059,6 +1151,10 @@ export component PanelWindow inherits Window {
                 }
                 sv := Flickable {
                     property <length> inner-h: max(inner.preferred-height, root.tab-end + 4px);
+                    /// 捲到分頁內容的某個位置（今天分頁的數字格點了跳到那一段）
+                    function scroll-to(y: length) {
+                        self.content-y = -clamp(y - 4px, 0px, max(0px, self.content-height - self.height));
+                    }
                     height: root.content-height > 0 ? root.content-height : min(440px, self.inner-h);
                     content-height: self.inner-h;
                     inner := VerticalLayout {
@@ -1290,39 +1386,85 @@ export component PanelWindow inherits Window {
                         }
 
                         // ===== 今天 =====
-                        if root.tab == 2: VerticalLayout {
+                        if root.tab == 2: today := VerticalLayout {
                             padding-top: 10px;
                             spacing: 0px;
-                            SummaryCard {
-                                tip: "在工作台看逾期的任務";
-                                clicked => {
+                            // Hayaku 1.5.13 每日摘要：逾期在前的四個數字，點了跳到那一段（審核在工作台）
+                            HorizontalLayout {
+                                spacing: 6px;
+                                StatTile {
+                                    label: "逾期";
+                                    value: root.overdue-count;
+                                    tone: Theme.error;
+                                    tip: "跳到下面的逾期任務";
+                                    clicked => {
+                                        sv.scroll-to(today.y + due-sec.y);
+                                    }
+                                }
+                                StatTile {
+                                    label: "今天到期";
+                                    value: root.due-count;
+                                    tone: Theme.warn;
+                                    tip: "跳到下面今天到期的任務";
+                                    clicked => {
+                                        sv.scroll-to(today.y + due-sec.y);
+                                    }
+                                }
+                                StatTile {
+                                    label: "等你審核";
+                                    value: root.review-count;
+                                    tone: Theme.accent-ink;
+                                    tip: "在工作台審核（依專案分組，可以直接核准或拒絕）";
+                                    clicked => {
+                                        root.review-clicked();
+                                    }
+                                }
+                                StatTile {
+                                    label: "今天的會議";
+                                    value: root.meetings.length;
+                                    tone: Theme.ink;
+                                    tip: "跳到下面今天的會議";
+                                    clicked => {
+                                        sv.scroll-to(today.y + meet-sec.y);
+                                    }
+                                }
+                            }
+                            due-sec := SectionHeader {
+                                text: "逾期與今天到期";
+                                link: root.today-more-text;
+                                link-clicked => {
                                     root.due-clicked();
                                 }
-                                if root.due-none: Text {
-                                    horizontal-stretch: 1;
-                                    text: "今天沒有到期或逾期的任務";
-                                    color: Theme.muted;
-                                    vertical-alignment: center;
+                            }
+                            for r[i] in root.today-tasks: MyTaskLine {
+                                data: r;
+                                quick: true;
+                                rise: root.rise(i + 1);
+                                open => {
+                                    root.today-task-open(i);
                                 }
-                                if !root.due-none: HorizontalLayout {
-                                    horizontal-stretch: 1;
-                                    Text {
-                                        text: "今天到期 " + root.due-count;
-                                        color: root.due-count > 0 ? Theme.warn : Theme.muted;
-                                        vertical-alignment: center;
-                                    }
-                                    Text {
-                                        text: "　·　";
-                                        color: Theme.muted;
-                                        vertical-alignment: center;
-                                    }
-                                    Text {
-                                        horizontal-stretch: 1;
-                                        text: "逾期 " + root.overdue-count;
-                                        color: root.overdue-count > 0 ? Theme.error : Theme.muted;
-                                        vertical-alignment: center;
-                                    }
+                                copy-key => {
+                                    root.today-task-copy(i);
                                 }
+                                act => {
+                                    root.today-task-act(i);
+                                }
+                                more(x, y) => {
+                                    root.today-task-more(i, x, y);
+                                }
+                                status(x, y) => {
+                                    root.today-task-status(i, x, y);
+                                }
+                                due(x, y) => {
+                                    root.today-task-due(i, x, y);
+                                }
+                                done => {
+                                    root.today-task-done(i);
+                                }
+                            }
+                            if root.due-none: Text {
+                                text: "今天沒有到期或逾期的任務";
+                                color: Theme.muted;
                             }
                             if root.review-text != "": VerticalLayout {
                                 padding-top: 6px;
@@ -1362,7 +1504,7 @@ export component PanelWindow inherits Window {
                                     color: Theme.muted;
                                 }
                             }
-                            SectionHeader {
+                            meet-sec := SectionHeader {
                                 text: "會議";
                                 link: "＋ 新增";
                                 link-clicked => {

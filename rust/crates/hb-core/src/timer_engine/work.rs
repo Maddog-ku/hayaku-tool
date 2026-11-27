@@ -117,16 +117,43 @@ impl TimerEngine {
 
     /// 今天到期（預計結束是今天、還沒完成）。
     pub fn due_today_count(&self) -> usize {
+        self.due_today_tasks().len()
+    }
+
+    /// 今天到期的任務（各分頁合併、同一個任務只留一次，照分頁順序）。
+    pub fn due_today_tasks(&self) -> Vec<TaskSummary> {
         let today = time::today();
-        let keys: std::collections::HashSet<String> = self
-            .s()
+        let mut seen = std::collections::HashSet::new();
+        self.s()
             .task_lists
             .values()
             .flat_map(|l| l.iter())
-            .filter(|t| t.planned_end == Some(today))
-            .map(|t| t.key.clone())
-            .collect();
-        keys.len()
+            .filter(|t| t.planned_end == Some(today) && seen.insert(t.key.to_uppercase()))
+            .cloned()
+            .collect()
+    }
+
+    /// 改預計完成日（面板「今天」的〔改期〕）；預計開始比新的日期晚時一起改成同一天，避免開始晚於完成。
+    pub async fn set_task_due(&self, key: &str, due: NaiveDate, planned_start: Option<NaiveDate>) {
+        self.guarded(
+            async {
+                let mut fields = Map::new();
+                fields.insert("plannedEnd".into(), json!(due.format("%Y-%m-%d").to_string()));
+                if planned_start.is_some_and(|s| s > due) {
+                    fields.insert("plannedStart".into(), json!(due.format("%Y-%m-%d").to_string()));
+                }
+                let message = self.0.api.update_task(key, fields).await?;
+                self.notify(
+                    message
+                        .filter(|m| !m.is_empty())
+                        .unwrap_or_else(|| format!("{key} 預計完成日改成 {}", due.format("%-m/%-d"))),
+                );
+                self.invalidate_extras();
+                self.refresh_core(false).await
+            },
+            true,
+        )
+        .await;
     }
 
     pub fn on_leave_today(&self) -> Vec<TeamMember> {

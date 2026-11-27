@@ -1,5 +1,5 @@
 // 清單挑選類的視窗：移動任務（C# UI/MoveTaskWindow.cs）與選擇任務（C# UI/TaskPickerWindow.xaml）。
-import { Theme, Motion, Button, ButtonKind, TextField, ScrollView, Icons, Stagger, Tip } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Button, ButtonKind, TextField, ScrollView, Icons, Stagger, Tip } from "@hb/index.slint";
 import { MutedText, StatusLine, CheckRow } from "../common.slint";
 import { DialogBody, DialogButtons, DialogFade, DialogMotion, Section, ListIntro } from "dialog.slint";
 
@@ -116,6 +116,10 @@ export component MoveTaskWindow inherits Window {
                 return EventResult.accept;
             }
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return EventResult.reject;
+                }
                 root.cancel();
                 return EventResult.accept;
             }
@@ -290,6 +294,10 @@ export component TaskPickerWindow inherits Window {
                 return EventResult.accept;
             }
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return EventResult.reject;
+                }
                 root.cancel();
                 return EventResult.accept;
             }

@@ -2,7 +2,7 @@
 // 契約：匯出 global SpacesPageData（Rust 端用 window.global::<SpacesPageData>() 讀寫）與 component SpacesPage；
 // 這兩個名稱與檔名不可改（workspace.slint 依此匯入）。
 // 選空間 → 左邊頁面樹（可全文搜尋）→ 右邊看那頁的 Markdown；新增頁、附加內容、編輯、移動、刪除；資料夾列出檔案。
-import { Theme, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
+import { Theme, PopupState, Motion, ScrollView, TextField, TipArea, Tip } from "@hb/index.slint";
 import { StatusLine, PageTitle, SelectField, MutedText } from "@hbc/index.slint";
 import { W3Row, PageButton, RowList, MdArea, Reader, ConfirmOverlay, ListRow } from "w3-common.slint";
 import { Appear, CardShadow } from "../shared/anim.slint";
@@ -122,6 +122,10 @@ component MoveOverlay inherits Rectangle {
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return reject;
+                }
                 SpacesPageData.move-cancel();
                 return accept;
             }

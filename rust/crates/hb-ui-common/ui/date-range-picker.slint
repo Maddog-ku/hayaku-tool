@@ -3,7 +3,7 @@
 // single＝只選一天：點一下日期就直接套用。日期一律用 yyyymmdd 整數，0 表示未指定。
 // 動畫（軟體繪圖：不用 transform、drop-shadow）：日曆往下滑開＋淡入、按鈕關閉時往上收起；換月份時月曆往左／右滑入；
 // 選到的日期圓圈彈一下；欄位按下時底色往內縮。
-import { Theme, Motion, Icon, Icons, IconButton, Button, ButtonKind, Tip, SoftShadow } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Icon, Icons, IconButton, Button, ButtonKind, Tip, SoftShadow } from "@hb/index.slint";
 
 global DateMath {
     pure public function days-in(y: int, m: int) -> int {
@@ -400,6 +400,11 @@ export component DateRangePicker {
         }
     }
 
+    // 選單開著時對話框的 Esc 先讓給選單（PopupState）
+    property <bool> popup-tracked: popup.is-open;
+    changed popup-tracked => {
+        PopupState.changed-open(self.popup-tracked);
+    }
     popup := PopupWindow {
         // 四周多留 14px 給陰影；精簡時對齊右邊（通常在清單的右側）
         x: root.compact ? root.width - self.width + 14px : -14px;

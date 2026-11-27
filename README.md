@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Maddog-ku/hayaku-tool/releases/latest"><img src="https://img.shields.io/github/v/release/Maddog-ku/hayaku-tool?style=for-the-badge&label=%E7%9B%AE%E5%89%8D%E7%89%88%E6%9C%AC&color=2f6feb" alt="目前版本"></a>
-  <img src="https://img.shields.io/badge/Hayaku-1.5.12-2ea043?style=for-the-badge" alt="跟上 Hayaku 1.5.12">
+  <img src="https://img.shields.io/badge/Hayaku-1.5.13-2ea043?style=for-the-badge" alt="跟上 Hayaku 1.5.13">
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-f0883e?style=for-the-badge" alt="Windows 10 / 11 x64">
   <img src="https://img.shields.io/badge/Rust-Slint-8250df?style=for-the-badge" alt="Rust + Slint">
 </p>
@@ -109,7 +109,7 @@
 | 範圍 | 內容 |
 |------|------|
 | **工作列** | `3.5h / 8h`＋進度條＋計時中的任務數＋Claude 標記；一排或兩排、位置可選、可拖曳微調；放不下時自動讓開；未讀通知紅點；滑過看今天的明細與時間軸 |
-| **彈出面板** | 今天的時間軸（班表內沒計到的空檔標紅）；計時、任務、今天、通知四頁；上班／下班（下班可復原） |
+| **彈出面板** | 今天的時間軸（班表內沒計到的空檔標紅）；計時、任務、今天、通知四頁（今天頁最上面是逾期、今天到期、等你審核、今天的會議四個數字，逾期與到期的任務直接計時、改期、標完成）；上班／下班（下班可復原） |
 | **托盤** | 跟網頁的釘選托盤同一份，最多 20 個；▶ 一鍵切換任務，會議開始前 10 分鐘起 ▶ 就加入並計時 |
 | **我的任務** | 全部、進行中、測試、逾期、該開始、未開始、已完成；清單、樹狀、看板、日曆、甘特圖（拖拉改預計日期）；點狀態直接改；任務詳細的概況、子任務、工時記錄、相依、附件、文件（補一段、改一段、新增文件）、異動紀錄 |
 | **專案** | 任一專案的整棵任務樹、套用專案視圖、篩選；勾選多個批次改狀態與欄位、套用子任務範本；貼上清單批次新增整棵任務樹 |
@@ -133,7 +133,7 @@
 
 | 項目 | 數值 |
 |------|-----:|
-| 對應的 Hayaku 版本 | 1.5.12 |
+| 對應的 Hayaku 版本 | 1.5.13 |
 | Hayaku MCP 工具 | 108 支，用到 103 支 |
 | 正在計時的任務 | 每 30 秒（可調），面板、工作台都沒開、Claude 也沒在動時放慢成兩倍 |
 | 通知 | 每 2 分鐘 |

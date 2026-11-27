@@ -1,7 +1,7 @@
 // 會議、聊天、筆記、團隊空間、論壇、團隊狀況、專案動態、請假頁共用的小元件
 // （對應 C# UI/Work/PageParts.cs 與 MarkdownTable.Attach／InsertButton 的介面部分）。
 // 外觀沿用 hb-ui-kit 的 Theme 與微互動：冷灰底卡片、黑主色、橘強調、彈簧緩動（reduce-motion 時不回彈）。
-import { Theme, Motion, Button, ButtonKind, ScrollView, TipArea, Tip } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Button, ButtonKind, ScrollView, TipArea, Tip } from "@hb/index.slint";
 import { TextArea, MutedText } from "@hbc/index.slint";
 import { Appear, CardShadow } from "../shared/anim.slint";
 
@@ -518,6 +518,10 @@ export component ConfirmOverlay inherits Rectangle {
     keys := FocusScope {
         key-pressed(e) => {
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return reject;
+                }
                 root.cancel();
                 return accept;
             }

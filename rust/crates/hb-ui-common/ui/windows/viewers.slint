@@ -1,5 +1,5 @@
 // 唯讀的檢視視窗：投票（C# UI/PollWindow.cs）、問題回報全文（C# UI/FeedbackWindow.cs）、檔案預覽（C# UI/FilePreviewWindow.cs）。
-import { Theme, Motion, Button, ButtonKind, ScrollView, ProgressBar, Spinner, Card, TipArea } from "@hb/index.slint";
+import { Theme, PopupState, Motion, Button, ButtonKind, ScrollView, ProgressBar, Spinner, Card, TipArea } from "@hb/index.slint";
 import { MutedText, StatusLine, PlainText, LinkButton, GroupLabel } from "../common.slint";
 import { DialogBody, DialogButtons, DialogFade, DialogMotion, Section } from "dialog.slint";
 
@@ -423,6 +423,10 @@ export component FilePreviewWindow inherits Window {
         key-pressed(e) => {
             // 全螢幕時 Esc 先離開全螢幕，再按一次才關
             if e.text == Key.Escape {
+                // 選單開著時只關選單（PopupState）
+                if PopupState.esc-for-popup() {
+                    return EventResult.reject;
+                }
                 if root.is-fullscreen {
                     root.toggle-fullscreen();
                 } else {
