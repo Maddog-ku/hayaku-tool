@@ -117,6 +117,8 @@ component TabBar {
     in property <[PanelTab]> tabs;
     in-out property <int> current;
     callback selected(index: int);
+    /// 點了目前已選的分頁
+    callback reselected(index: int);
     height: 34px;
     // 每格等寬：指示器和分頁同寬，有徽章的分頁不會把後面的字擠歪
     property <length> slot-w: (root.width - 6px) / max(1, root.tabs.length);
@@ -165,6 +167,8 @@ component TabBar {
                     if root.current != i {
                         root.current = i;
                         root.selected(i);
+                    } else {
+                        root.reselected(i);
                     }
                 }
             }
@@ -1147,13 +1151,50 @@ export component PanelWindow inherits Window {
                         selected(i) => {
                             root.tab-selected(i);
                         }
+                        // 再點一次目前的分頁：捲回最上面
+                        reselected(i) => {
+                            sv.scroll-to(0px);
+                        }
                     }
                 }
                 sv := Flickable {
                     property <length> inner-h: max(inner.preferred-height, root.tab-end + 4px);
-                    /// 捲到分頁內容的某個位置（今天分頁的數字格點了跳到那一段）
+                    // 捲動動畫：從 scroll-from 減速捲到 scroll-goal（340ms）；途中使用者自己捲了就停，尊重「顯示動畫」關閉
+                    property <length> scroll-from;
+                    property <length> scroll-goal;
+                    property <length> scroll-last;
+                    property <duration> scroll-start;
+                    property <bool> scrolling;
+                    /// 捲到分頁內容的某個位置（今天分頁的數字格點了跳到那一段；再點一次目前的分頁回到最上面）
                     function scroll-to(y: length) {
-                        self.content-y = -clamp(y - 4px, 0px, max(0px, self.content-height - self.height));
+                        let goal = -clamp(y - 4px, 0px, max(0px, self.content-height - self.height));
+                        if Theme.reduce-motion || abs(goal - self.content-y) < 1px {
+                            self.scrolling = false;
+                            self.content-y = goal;
+                            return;
+                        }
+                        self.scroll-from = self.content-y;
+                        self.scroll-goal = goal;
+                        self.scroll-last = self.content-y;
+                        self.scroll-start = animation-tick();
+                        self.scrolling = true;
+                    }
+                    Timer {
+                        interval: 16ms;
+                        running: sv.scrolling;
+                        triggered => {
+                            if abs(sv.content-y - sv.scroll-last) > 1px {
+                                sv.scrolling = false;
+                                return;
+                            }
+                            let t = clamp((animation-tick() - sv.scroll-start) / 340ms, 0, 1);
+                            let e = 1 - (1 - t) * (1 - t) * (1 - t);
+                            sv.content-y = sv.scroll-from + (sv.scroll-goal - sv.scroll-from) * e;
+                            sv.scroll-last = sv.content-y;
+                            if t >= 1 {
+                                sv.scrolling = false;
+                            }
+                        }
                     }
                     height: root.content-height > 0 ? root.content-height : min(440px, self.inner-h);
                     content-height: self.inner-h;
