@@ -275,6 +275,10 @@ impl TimerEngine {
             "HOURS_UNFILLED" | "HOURS_UNFILLED_WEEKLY" => return (Some("hours"), None),
             "FORUM_POST" => return (Some("forum"), n.project_key.clone().map(WorkspaceArg::Text)),
             "SPACE_PAGE_COMMENT" => return (Some("spaces"), None),
+            // 跟上 Hayaku 1.6.0：我的空間分享給我 → 我的空間「與我分享」（類型名稱沒有實際資料，含 SHARE 的都算）
+            t if t.to_uppercase().contains("SHARE") => {
+                return (Some("notes"), Some(WorkspaceArg::Text("shared".to_owned())));
+            }
             _ => {}
         }
         if let Some(number) = n.feedback {

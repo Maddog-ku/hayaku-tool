@@ -121,6 +121,11 @@ fn 通知_在工作台對應的頁打開() {
     );
     assert_eq!((Some("hours"), None), TimerEngine::notification_target(&notice("HOURS_UNFILLED", None, None)));
     assert_eq!((None, None), TimerEngine::notification_target(&notice("SECURITY_ALERT", None, None)));
+    // 跟上 Hayaku 1.6.0：分享給我的（類型名稱照猜的，含 SHARE 就算）→ 我的空間「與我分享」
+    assert_eq!(
+        (Some("notes"), Some(WorkspaceArg::Text("shared".into()))),
+        TimerEngine::notification_target(&notice("SPACE_SHARED", None, None))
+    );
 }
 
 // 對應 TestingTests.ParseNotifications_測試結果與問題回報 的 NotificationTarget 部分（解析在 hb-api 也測過）

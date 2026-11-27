@@ -15,7 +15,6 @@ import { WorkLogPage, WorkLogPageData } from "pages/worklog.slint";
 import { RemindersPage, RemindersPageData } from "pages/reminders.slint";
 import { MeetingsPage, MeetingsPageData } from "pages/meetings.slint";
 import { ChatPage, ChatPageData } from "pages/chat.slint";
-import { NotesPage, NotesPageData } from "pages/notes.slint";
 import { SpacesPage, SpacesPageData } from "pages/spaces.slint";
 import { ForumPage, ForumPageData } from "pages/forum.slint";
 import { TeamPage, TeamPageData } from "pages/team.slint";
@@ -24,7 +23,7 @@ import { WorkloadPage, WorkloadPageData } from "pages/workload.slint";
 import { LeavesPage, LeavesPageData } from "pages/leaves.slint";
 import { StatsPage, StatsPageData } from "pages/stats.slint";
 
-export { TasksPageData, ProjectsPageData, TestsPageData, ReviewsPageData, HoursPageData, EntriesPageData, WorkLogPageData, RemindersPageData, MeetingsPageData, ChatPageData, NotesPageData, SpacesPageData, ForumPageData, TeamPageData, ActivityPageData, WorkloadPageData, LeavesPageData, StatsPageData, }
+export { TasksPageData, ProjectsPageData, TestsPageData, ReviewsPageData, HoursPageData, EntriesPageData, WorkLogPageData, RemindersPageData, MeetingsPageData, ChatPageData, SpacesPageData, ForumPageData, TeamPageData, ActivityPageData, WorkloadPageData, LeavesPageData, StatsPageData, }
 
 // Rust 端要設深淺色（Theme）與右鍵選單（TaskMenuState，整個視窗共用一份，由外框分派給目前的頁面）
 export { Theme } from "@hb/index.slint";
@@ -392,7 +391,7 @@ export component WorkspaceWindow inherits Window {
                     if root.created[7] : RemindersPage { visible: root.page-index == 7; width: parent.width; height: parent.height; }
                     if root.created[8] : MeetingsPage { visible: root.page-index == 8; width: parent.width; height: parent.height; }
                     if root.created[9] : ChatPage { visible: root.page-index == 9; width: parent.width; height: parent.height; }
-                    if root.created[10] : NotesPage { visible: root.page-index == 10; width: parent.width; height: parent.height; }
+                    if root.created[10] : SpacesPage { personal: true; visible: root.page-index == 10; width: parent.width; height: parent.height; }
                     if root.created[11] : SpacesPage { visible: root.page-index == 11; width: parent.width; height: parent.height; }
                     if root.created[12] : ForumPage { visible: root.page-index == 12; width: parent.width; height: parent.height; }
                     if root.created[13] : TeamPage { visible: root.page-index == 13; width: parent.width; height: parent.height; }

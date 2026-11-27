@@ -67,6 +67,28 @@ pub struct SpaceInfo {
     pub page_count: Option<i32>,
     pub project: Option<String>,
     pub archived: bool,
+    /// 我的空間（key me，跟上 Hayaku 1.6.0）才有：別人分享給我的頁與檔案（用 space me 讀）
+    pub shared: Vec<SharedItem>,
+}
+
+impl SpaceInfo {
+    /// 我的空間（list_spaces 最前面那列，key 是小寫 me）。
+    pub fn is_personal(&self) -> bool {
+        self.key.eq_ignore_ascii_case("me")
+    }
+}
+
+/// 別人分享給我的頁或檔案（list_spaces 我的空間那列的 sharedWithMe；跟上 Hayaku 1.6.0）。
+/// 當時沒有實際資料，欄位照工具說明寬鬆讀。kind：DOC、BOARD、FOLDER…，檔案是 FILE；
+/// can_edit：可編輯（Some(true)）、可檢視（Some(false)），看不出來是 None。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedItem {
+    pub id: String,
+    pub title: String,
+    pub kind: Option<String>,
+    pub is_file: bool,
+    pub shared_by: Option<String>,
+    pub can_edit: Option<bool>,
 }
 
 /// 空間頁面樹的一個節點（get_space_tree）；kind：DOC 文件、BOARD 白板、FOLDER 資料夾、CHANNEL 頻道、FORUM 論壇
@@ -109,9 +131,15 @@ impl SpaceNode {
         self.is_meeting_folder() || self.is_meeting_occurrence() || self.meeting.is_some()
     }
 
-    /// 頁面樹上的圖示：資料夾、白板、頻道、論壇；文件不加。
+    /// 檔案（只有我的空間「與我分享」清單會有，跟上 Hayaku 1.6.0）：點了直接看內容。
+    pub fn is_file(&self) -> bool {
+        self.kind_upper().as_deref() == Some("FILE")
+    }
+
+    /// 頁面樹上的圖示：資料夾、白板、頻道、論壇、檔案；文件不加。
     pub fn icon(&self) -> &'static str {
         match self.kind_upper().as_deref() {
+            Some("FILE") => "📄 ",
             Some("FOLDER" | "FILES") => "📁 ",
             Some("BOARD") => "🖍 ",
             Some("CHANNEL") => "# ",

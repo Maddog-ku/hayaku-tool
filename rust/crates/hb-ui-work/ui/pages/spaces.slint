@@ -9,6 +9,10 @@ import { Appear, CardShadow } from "../shared/anim.slint";
 
 export global SpacesPageData {
     in-out property <bool> loading;
+    /// 我的空間模式（導覽「我的空間」也用這一頁，跟上 Hayaku 1.6.0）；false 是團隊空間
+    in-out property <bool> personal;
+    /// 新增子頁、資料夾、上移下移、移動、刪除（「與我分享」別人的頁沒有）
+    in-out property <bool> structure-visible: true;
     in-out property <[string]> spaces;
     in-out property <[string]> space-tips;
     in-out property <int> space-index: -1;
@@ -68,6 +72,8 @@ export global SpacesPageData {
 
     callback space-selected(int);
     callback search-accepted();
+    /// 打字時篩頁名（只看已讀好的頁面樹）
+    callback search-edited(string);
     callback search-escape();
     callback tree-selected(int);
     callback tree-toggled(int);
@@ -99,8 +105,10 @@ export global SpacesPageData {
 }
 
 component MoveOverlay inherits Rectangle {
+    /// 這一份頁面是目前的模式（兩份頁面共用 SpacesPageData，看不到的那份不開）
+    in property <bool> live;
     // 打開：底色淡入、卡片往上浮出（340ms）；關閉反向淡出（160ms），播完才不顯示
-    property <bool> open: SpacesPageData.move-open;
+    property <bool> open: root.live && SpacesPageData.move-open;
     property <float> t: root.open ? 1 : 0;
     animate t {
         duration: root.open ? (Theme.reduce-motion ? 160ms : 340ms) : 160ms;
@@ -209,7 +217,10 @@ component MoveOverlay inherits Rectangle {
     }
 }
 
+// personal：導覽「我的空間」那一份（跟上 Hayaku 1.6.0）；兩份共用 SpacesPageData，Rust 切換導覽時換模式
 export component SpacesPage inherits Rectangle {
+    in property <bool> personal;
+    property <bool> live: root.personal == SpacesPageData.personal;
     VerticalLayout {
         padding-left: 24px;
         padding-right: 24px;
@@ -219,7 +230,7 @@ export component SpacesPage inherits Rectangle {
         HorizontalLayout {
             spacing: 6px;
             PageTitle {
-                text: "團隊空間";
+                text: root.personal ? "我的空間" : "團隊空間";
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
@@ -239,7 +250,7 @@ export component SpacesPage inherits Rectangle {
             }
             PageButton {
                 text: "在網頁開啟 ↗";
-                tip: "上傳、刪除檔案、還原刪掉的頁面請到網頁";
+                tip: root.personal ? "分享給別人、上傳檔案、還原「最近刪除」、隨手記與待辦請到網頁" : "上傳、刪除檔案、還原刪掉的頁面請到網頁";
                 clicked => {
                     SpacesPageData.web();
                 }
@@ -268,10 +279,14 @@ export component SpacesPage inherits Rectangle {
                 horizontal-stretch: 1;
                 height: 40px;
                 font-size: Theme.fs-md;
-                placeholder: "🔍 搜尋這個空間的頁名、內容與檔名（Enter）";
+                // 跟上 Hayaku 1.6.0：打字篩頁名，Enter 搜內文
+                placeholder: "🔍 篩頁名，Enter 搜內文與檔名";
                 text <=> SpacesPageData.search;
                 accepted => {
                     SpacesPageData.search-accepted();
+                }
+                edited(t) => {
+                    SpacesPageData.search-edited(t);
                 }
                 key-intercept(e) => {
                     if e.text == Key.Escape {
@@ -466,13 +481,13 @@ export component SpacesPage inherits Rectangle {
                         padding-top: 12px;
                         spacing: 6px;
                         alignment: start;
-                        PageButton {
+                        if SpacesPageData.structure-visible: PageButton {
                             text: "＋ 新增子頁";
                             clicked => {
                                 SpacesPageData.child();
                             }
                         }
-                        PageButton {
+                        if SpacesPageData.structure-visible: PageButton {
                             text: "＋ 資料夾";
                             tip: "在這裡新增一個資料夾（可以放文件、白板、子資料夾和檔案）";
                             clicked => {
@@ -494,7 +509,7 @@ export component SpacesPage inherits Rectangle {
                         }
                     }
                     // 位置：上移、下移（Hayaku 1.5.4 起）、移動、刪除；按鈕多了分兩列，窄的時候不會擠出右邊
-                    if SpacesPageData.actions-visible: HorizontalLayout {
+                    if SpacesPageData.actions-visible && SpacesPageData.structure-visible: HorizontalLayout {
                         spacing: 6px;
                         alignment: start;
                         PageButton {
@@ -526,7 +541,8 @@ export component SpacesPage inherits Rectangle {
                             }
                         }
                     }
-                    if SpacesPageData.composer-open: VerticalLayout {
+                    // 看不到的那一份不建（免得搶走輸入框的焦點）
+                    if root.live && SpacesPageData.composer-open: VerticalLayout {
                         padding-top: 10px;
                         spacing: 6px;
                         property <int> focus-token: SpacesPageData.focus-token;
@@ -550,7 +566,7 @@ export component SpacesPage inherits Rectangle {
                             font-size: Theme.fs-md;
                         }
                         Text {
-                            text: "團隊空間是公司的正式文件，大家都看得到；送出前請確認內容。";
+                            text: root.personal ? "我的空間只有你看得到；分享出去的頁，對方也看得到這次的修改。" : "團隊空間是公司的正式文件，大家都看得到；送出前請確認內容。";
                             color: Theme.warn;
                             font-size: 11px;
                             wrap: word-wrap;
@@ -607,9 +623,11 @@ export component SpacesPage inherits Rectangle {
             }
         }
     }
-    MoveOverlay { }
+    MoveOverlay {
+        live: root.live;
+    }
     ConfirmOverlay {
-        open: SpacesPageData.confirm-open;
+        open: root.live && SpacesPageData.confirm-open;
         title: SpacesPageData.confirm-title;
         message: SpacesPageData.confirm-text;
         ok => {

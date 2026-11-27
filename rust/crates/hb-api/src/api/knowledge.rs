@@ -59,6 +59,29 @@ fn parse_hits(r: &Value) -> Vec<KnowledgeHit> {
         .collect()
 }
 
+/// sharedWithMe 的一筆（跟上 Hayaku 1.6.0；沒有實際資料，寬鬆讀）：頁或檔案、誰分享的、可檢視或可編輯。
+fn shared_item(v: &Value) -> Option<SharedItem> {
+    let id = first_string(v, &["id", "pageId", "fileId"])?;
+    let kind = first_string(v, &["kind", "type"]).map(|k| k.to_uppercase());
+    let is_file = kind.as_deref().is_some_and(|k| k == "FILE" || k == "檔案")
+        || str_(v, "fileId").is_some()
+        || prop(v, "size").is_some_and(Value::is_number)
+        || str_(v, "mimeType").is_some();
+    let permission = first_string(v, &["permission", "access", "role", "level"]).map(|p| p.to_uppercase());
+    let can_edit = match prop(v, "canEdit") {
+        Some(Value::Bool(b)) => Some(*b),
+        _ => permission.map(|p| p.contains("EDIT") || p.contains("WRITE") || p.contains("編輯")),
+    };
+    Some(SharedItem {
+        title: first_string(v, &["title", "name", "fileName"]).unwrap_or_else(|| "（未命名）".to_owned()),
+        id,
+        kind: if is_file { Some("FILE".to_owned()) } else { kind },
+        is_file,
+        shared_by: person_name(v, &["sharedBy", "owner", "from", "by"]),
+        can_edit,
+    })
+}
+
 /// 會議：直接是 id 字串，或 { meeting／key／id… }（沒有實際資料，寬鬆讀）。
 fn meeting_ref(v: &Value) -> Option<String> {
     match v {
@@ -293,6 +316,7 @@ impl HayakuApi {
                         _ => first_string(s, &["project", "projectKey"]),
                     },
                     archived: bool_(s, "archived") || bool_(s, "isArchived") || bool_(s, "readOnly"),
+                    shared: items(s, &["sharedWithMe", "shared"]).iter().filter_map(shared_item).collect(),
                 })
             })
             .collect()
@@ -715,6 +739,31 @@ mod tests {
                        {"key":"F2PDOC","name":"F2P 文件","role":"MEMBER","pageCount":3,"project":{"key":"F2P","name":"F2P"},"archived":true}]}"#));
         assert_eq!(spaces[0].project, None);
         assert_eq!((spaces[1].project.as_deref(), spaces[1].archived), (Some("F2P"), true));
+    }
+
+    // 跟上 Hayaku 1.6.0：最前面多一列我的空間（實際回應的格式），sharedWithMe 照說明寬鬆猜
+    #[test]
+    fn parse_spaces_我的空間與分享給我的() {
+        let spaces = HayakuApi::parse_spaces(&j(r#"
+            {"spaces":[{"key":"me","name":"我的空間","myRole":"ADMIN","pageCount":0,"project":null,"archived":false,
+                        "sharedWithMe":[{"id":"p1","title":"規格","kind":"DOC","sharedBy":{"username":"amy","displayName":"Amy"},"permission":"EDIT"},
+                                        {"id":"f1","name":"報價.xlsx","size":2048,"sharedBy":"Bob","permission":"VIEW"},
+                                        {"title":"沒有 id"}]},
+                       {"key":"MITO","name":"Mito-專案文件","myRole":"EDITOR","pageCount":10,"project":{"key":"MITO"},"archived":false}]}"#));
+        assert!(spaces[0].is_personal());
+        assert!(!spaces[1].is_personal());
+        assert_eq!(spaces[0].role.as_deref(), Some("ADMIN"));
+        let shared = &spaces[0].shared;
+        assert_eq!(shared.len(), 2);
+        assert_eq!(
+            (shared[0].title.as_str(), shared[0].is_file, shared[0].shared_by.as_deref(), shared[0].can_edit),
+            ("規格", false, Some("Amy"), Some(true))
+        );
+        assert_eq!(
+            (shared[1].title.as_str(), shared[1].is_file, shared[1].kind.as_deref(), shared[1].can_edit),
+            ("報價.xlsx", true, Some("FILE"), Some(false))
+        );
+        assert!(spaces[1].shared.is_empty());
     }
 
     // 對應 NewToolsTests 的投票部分

@@ -7,7 +7,6 @@ pub mod forum;
 pub mod hours;
 pub mod leaves;
 pub mod meetings;
-pub mod notes;
 pub mod projects;
 pub mod reminders;
 pub mod reviews;
@@ -33,7 +32,7 @@ pub(crate) fn init(index: usize, ctx: &WorkCtx) {
         7 => reminders::init(ctx),
         8 => meetings::init(ctx),
         9 => chat::init(ctx),
-        10 => notes::init(ctx),
+        10 => spaces::init(ctx), // 我的空間（跟上 Hayaku 1.6.0，跟團隊空間同一頁）
         11 => spaces::init(ctx),
         12 => forum::init(ctx),
         13 => team::init(ctx),
@@ -57,7 +56,7 @@ pub(crate) async fn activate(index: usize, ctx: WorkCtx, arg: Option<PageArg>) {
         7 => reminders::activate(ctx, arg).await,
         8 => meetings::activate(ctx, arg).await,
         9 => chat::activate(ctx, arg).await,
-        10 => notes::activate(ctx, arg).await,
+        10 => spaces::activate_personal(ctx, arg).await,
         11 => spaces::activate(ctx, arg).await,
         12 => forum::activate(ctx, arg).await,
         13 => team::activate(ctx, arg).await,
@@ -81,7 +80,7 @@ pub const PAGES: [(&str, &str); 18] = [
     ("reminders", "提醒"),
     ("meetings", "會議"),
     ("chat", "聊天"),
-    ("notes", "筆記"),
+    ("notes", "我的空間"),
     ("spaces", "團隊空間"),
     ("forum", "論壇"),
     ("team", "團隊狀況"),

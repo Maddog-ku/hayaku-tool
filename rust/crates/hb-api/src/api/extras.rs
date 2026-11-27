@@ -259,6 +259,8 @@ impl HayakuApi {
                 Some(l) => l.to_owned(),
                 None if type_.starts_with("FEEDBACK") => "問題回報".to_owned(),
                 None if type_.to_uppercase().contains("TEST") => Self::test_notification_label(type_).to_owned(),
+                // 跟上 Hayaku 1.6.0：我的空間分享給我（類型名稱沒有實際資料，含 SHARE 的都算）
+                None if type_.to_uppercase().contains("SHARE") => "有人分享東西給你".to_owned(),
                 None => type_.to_owned(),
             };
             let unread = unread_count > 0 || matches!(prop(n, "readAt"), Some(Value::Null));
